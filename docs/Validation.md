@@ -101,6 +101,32 @@ reachable triangle packets.
 
 ## Evidence limits
 
+### Frame-pacing follow-up (2026-09-15)
+
+The user confirmed the rotating cube appears correctly in DuckStation, but
+reported periodic dips to 57-58 FPS on a Ryzen 9800X3D / RTX 4090 host.
+A GDB probe around `ramsyscall_printf` measured two guest VBlanks consumed
+by each of six periodic render diagnostics. The cached `GPU::now()` value
+does not update inside that call and must not be used to time it.
+
+The same cadence regression probe sampled six blocks of 120 updates at
+`GPU::flip` entry. Before the change it observed `[123,122,122,123,123,122]`
+VBlanks and failed the one-VBlank-per-update assertion. With periodic
+logging disabled by default it observed `[120,120,120,120,120,120]` and
+passed. Startup render and first-presented diagnostics remained present.
+The GPU completion fence and renderer were unchanged.
+
+The fresh Release Rotate build and retail-memory validation passed:
+`20260915-131022-961-Release-ddc2d563aad645b4b1cc4e014c40dfac/manifest.json`.
+Its PS-X EXE SHA-256 is
+`dddae83c06161b7190ef64ddb13be69efb9fe402293c8ca03e2a43172e60140d`.
+Probe scripts and reports live under the external build root at
+`controller-duck-probe/{pacing_probe.py,cadence_probe.py,pacing-printf-baseline.json,cadence-before.json,cadence-after.json}`.
+This verifies guest cadence over 720 updates; it does not measure the host
+display's long-term presentation rate. Historical periodic-log captures
+above predate this change; reproducing them now requires
+`-SdkDefine PS1_PERIODIC_DIAGNOSTICS`, except for CompletionStress.
+
 GDB memory and packet-chain records prove projected coordinates, culling,
 colors, DMA reachability, and ordering. They do not export framebuffer pixels.
 The completion marker and fresh-VBlank lifecycle are observed through guest

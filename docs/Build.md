@@ -66,6 +66,17 @@ The accepted diagnostic modes are:
 
 ## Host tests and memory validation
 
+Normal demos emit startup and failure diagnostics only. Periodic BIOS text
+output stalls the emulated console and distorts frame pacing. To capture
+render statistics every 120 scene updates, explicitly enable them:
+
+```powershell
+.\scripts\build.ps1 -Configuration Release -DemoMode Rotate -SdkDefine PS1_PERIODIC_DIAGNOSTICS
+```
+
+`CompletionStress` retains periodic diagnostics automatically. Diagnostic
+captures are unsuitable for measuring normal demo frame pacing.
+
 Run the host smoke, renderer-policy, and Python memory-fixture tests through
 the pinned image:
 
