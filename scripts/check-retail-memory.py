@@ -247,6 +247,8 @@ def validate_layout(sections, symbols, exe_header):
     load_end = _checked_end("PS-X EXE payload", load_address, payload_size)
     if load_end > ram_top:
         _fail("PS-X EXE payload", "load range exceeds retail RAM")
+    if load_end > stack_start:
+        _fail("PS-X EXE payload", "load range overlaps the reserved stack")
     entry_point = exe_header.get("entry_point", -1)
     if not (load_address <= entry_point < load_end):
         _fail("PS-X EXE entry", "entry point is outside the loaded payload")

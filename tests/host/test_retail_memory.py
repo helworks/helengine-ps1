@@ -80,6 +80,21 @@ class RetailMemoryValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "payload"):
             validate_layout([], valid_symbols(), header)
 
+    def test_rejects_exe_payload_overlapping_reserved_stack(self):
+        header = valid_exe_header()
+        header["load_address"] = 0x801EFFF0
+        header["entry_point"] = 0x801EFFF0
+        header["payload_size"] = 0x20
+        with self.assertRaisesRegex(ValueError, "payload"):
+            validate_layout([], valid_symbols(), header)
+
+    def test_accepts_exe_payload_ending_at_stack_boundary(self):
+        header = valid_exe_header()
+        header["load_address"] = 0x801EFFF0
+        header["entry_point"] = 0x801EFFF0
+        header["payload_size"] = 0x10
+        validate_layout([], valid_symbols(), header)
+
     def test_accepts_header_metadata_at_loader_address(self):
         sections = [{"name": ".PSX_EXE_Header", "address": 0x8000F800, "size": 2048, "allocated": True}]
         validate_layout(sections, valid_symbols(), valid_exe_header())
