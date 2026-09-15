@@ -114,8 +114,8 @@ render statistics every 120 scene updates, explicitly enable them:
 `CompletionStress` retains periodic diagnostics automatically. Diagnostic
 captures are unsuitable for measuring normal demo frame pacing.
 
-Run the host smoke, renderer-policy, and Python memory-fixture tests through
-the pinned image:
+Run the host smoke, renderer-policy, shared-ownership, hashing, runtime-clock,
+and Python memory-fixture tests through the pinned image:
 
 ```powershell
 .\scripts\test.ps1
