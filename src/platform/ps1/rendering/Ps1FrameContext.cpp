@@ -42,7 +42,11 @@ Ps1FrameContext::TriangleFragment* Ps1FrameContext::TryReserveTriangle() {
 }
 
 bool Ps1FrameContext::Insert(TriangleFragment& fragment, std::uint16_t bucket) {
-    if (m_state != State::Building || bucket >= 256u) return false;
+    if (m_state != State::Building) {
+        AssertState(false, "PS1_TRIANGLE_INSERT_WRONG_STATE");
+        return false;
+    }
+    if (bucket >= 256u) return false;
 
     const auto first = reinterpret_cast<std::uintptr_t>(&m_triangles[0]);
     const auto last = reinterpret_cast<std::uintptr_t>(&m_triangles[TriangleCapacity]);

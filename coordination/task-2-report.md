@@ -54,6 +54,12 @@ packet appeared before the near red packet with identical coordinates
 `(100,80)`, `(220,80)`, `(160,180)`. Evidence:
 `C:\dev\helworks\builds\helengine-ps1\controller-duck-probe\depth-official-packets`.
 
+The equal-bucket target probe recorded both insertion reversals in
+`C:\dev\helworks\builds\helengine-ps1\controller-duck-probe\equal-bucket\equal-bucket.json`.
+The equal-depth case follows the SDK table's LIFO head insertion behavior in
+both reversals; this is documented as an ordering property, not intersecting-
+polygon depth correctness.
+
 Before the OT clear correction, the target chain had one link and no triangle
 packets. Afterward it had 257 OT links plus six submitted triangles per parity.
 Framebuffer pixel inspection and physical-console validation remain pending.
@@ -61,4 +67,5 @@ Framebuffer pixel inspection and physical-console validation remain pending.
 ## Commit
 
 The Task2 implementation, tests, SDK patch, wrapper fix, and this report are
-committed as `f59b524` with message `feat: render bounded unlit PS1 cube`.
+The implementation commit is available in the repository history with message
+`feat: render bounded unlit PS1 cube`.

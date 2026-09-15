@@ -108,6 +108,7 @@ bool Ps1RasterRenderer::ProjectFace(const Ps1CubeMesh::Face& face, psyqo::Vertex
     m_stats.projectionFlags = psyqo::GTE::readRaw<psyqo::GTE::Register::FLAG, psyqo::GTE::Safe>();
     if (m_stats.projectionFlags != 0) {
         ++m_stats.invalid;
+        m_stats.failure = Ps1RenderFailure::Projection;
         return false;
     }
 
