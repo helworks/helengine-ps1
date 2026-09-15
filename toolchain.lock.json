@@ -5,7 +5,7 @@
     "submodules": {
       "third_party/uC-sdk": "69e06871824e2d62069487a7426ded09090ceb69",
       "third_party/psxlua": "abed030e686b4e34987851bd0a028c93b1f73967",
-      "third_party/xmake-psx": "e02b8cb6fdaf9258e74b80de806c8ac23222d41"
+      "third_party/xmake-psx": "e02b8cb6fdaf9258e74b80de806c8ac23222d41e"
     }
   },
   "image": {

@@ -66,6 +66,6 @@ Framebuffer pixel inspection and physical-console validation remain pending.
 
 ## Commit
 
-The Task2 implementation, tests, SDK patch, wrapper fix, and this report are
-The implementation commit is available in the repository history with message
-`feat: render bounded unlit PS1 cube`.
+The Task 2 implementation, tests, SDK patch, wrapper fix, and this report are
+included in commit `46bc935`, whose message is `feat: render bounded unlit PS1
+cube`. Diagnostic preservation was completed in follow-up commit `8b80553`.
