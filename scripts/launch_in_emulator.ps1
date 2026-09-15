@@ -35,17 +35,28 @@ if ((Split-Path -Leaf $FirmwarePath) -notmatch '^openbios(-fastboot|-unirom)?\.b
     throw "Firmware does not identify as an OpenBIOS image: $FirmwarePath"
 }
 
+function Quote-ProcessArgument {
+    param([Parameter(Mandatory = $true)][string] $Value)
+    if ($Value -notmatch '[\s"]') { return $Value }
+    # Start-Process joins ArgumentList elements into one command line. Paths
+    # with spaces therefore need their own Windows command-line quotes.
+    return '"' + $Value + '"'
+}
+
 $launchLog = Join-Path $manifestDirectory ('emulator-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '.log')
 $errorLog = Join-Path $manifestDirectory ('emulator-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '.err.log')
 $emulatorLog = Join-Path $manifestDirectory ('pcsx-redux-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '.log')
+$quotedFirmwarePath = Quote-ProcessArgument -Value $FirmwarePath
+$quotedExecutablePath = Quote-ProcessArgument -Value $exeArtifact[0].path
+$quotedEmulatorLog = Quote-ProcessArgument -Value $emulatorLog
 $arguments = @(
     '-portable',
     '-safe',
     '-stdout',
     '-no-gui-log',
-    '-logfile', $emulatorLog,
-    '-bios', $FirmwarePath,
-    '-exe', $exeArtifact[0].path,
+    '-logfile', $quotedEmulatorLog,
+    '-bios', $quotedFirmwarePath,
+    '-exe', $quotedExecutablePath,
     '-run'
 )
 $process = Start-Process -FilePath $EmulatorPath -ArgumentList $arguments -WorkingDirectory $emulatorDirectory -WindowStyle Hidden -RedirectStandardOutput $launchLog -RedirectStandardError $errorLog -PassThru

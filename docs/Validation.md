@@ -2,10 +2,10 @@
 
 ## Portable checks
 
-Run the host tests without creating Python bytecode in the source checkout:
+Run the host C++ smoke test and Python memory suite in the pinned Docker image:
 
 ```powershell
-python -B -m unittest discover -s tests/host -p 'test_*.py' -v
+.\scripts\test.ps1
 ```
 
 `check-retail-memory.py` parses ELF32 little-endian headers, section tables,
@@ -59,10 +59,14 @@ available; a hidden launch/log probe started PCSX-Redux and OpenBIOS reached the
 PSYQo application, but the pinned emulator's software and hardware renderers
 both report `Got an unknown GPU data word: 1f000000` and hit the SDK's bounded
 `PS1_GPU_COMPLETION_TIMEOUT`. Its GPU command decoder does not implement GP0(1F)
-IRQ markers, so it cannot validate this completion fence. A separate hidden
-DuckStation probe accepted the PS-X EXE command line but produced no guest or
-framebuffer log within the bounded run, so it is not claimed as first-frame
-evidence.
+IRQ markers, so it cannot validate this completion fence. The supplied
+DuckStation build was then run from an isolated portable directory with the
+OpenBIOS image, software renderer, and `-batch -nogui -earlyconsole` plus the
+absolute PS-X EXE path. Its guest log records
+`PS1_FIRST_FRAME_PRESENTED parity=0 frame=5` at
+`C:\dev\helworks\builds\helengine-ps1\controller-duck-probe\portable\duckstation.log`.
+This validates the clear-only first-presented-frame contract; visual framebuffer
+inspection remains pending.
 Framebuffer layout is the pinned PSYQo configuration: display buffers at
 `(0,0)` and `(0,256)`, 320x240 progressive NTSC, 15-bit color stored in a
 16-bit framebuffer. The patched `GPU::flip()` owns ordered GPU completion and

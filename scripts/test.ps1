@@ -41,8 +41,14 @@ $runArgs = @(
 & docker @runArgs 2>&1 | Tee-Object -FilePath $runLog | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Host C++ executable failed with exit code $LASTEXITCODE" }
 
-$pythonArgs = @('-B', '-m', 'unittest', 'discover', '-s', (Join-Path $runRoot 'tests\host'), '-p', 'test_*.py', '-v')
-& python @pythonArgs 2>&1 | Tee-Object -FilePath $pythonLog
+$pythonArgs = @(
+    'run', '--rm',
+    '--mount', "type=bind,source=$runRoot,target=/work",
+    '--workdir', '/work',
+    $dockerImage,
+    'python3', '-B', '-m', 'unittest', 'discover', '-s', '/work/tests/host', '-p', 'test_*.py', '-v'
+)
+& docker @pythonArgs 2>&1 | Tee-Object -FilePath $pythonLog
 if ($LASTEXITCODE -ne 0) { throw "Python unit tests failed with exit code $LASTEXITCODE" }
 
 $summary = [ordered]@{
@@ -51,6 +57,7 @@ $summary = [ordered]@{
     host_cpp_compile = $compileLog
     host_cpp_run = $runLog
     python_tests = $pythonLog
+    python_runtime = "docker image $dockerImage"
 }
 $summary | ConvertTo-Json -Depth 4 | Out-File -LiteralPath (Join-Path $runRoot 'summary.json') -Encoding utf8
 Write-Output (Resolve-Path -LiteralPath (Join-Path $runRoot 'summary.json')).Path
