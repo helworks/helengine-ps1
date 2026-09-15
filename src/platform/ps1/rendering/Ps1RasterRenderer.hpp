@@ -16,6 +16,7 @@ enum class Ps1RenderFailure : std::uint8_t {
     Projection,
     Depth,
     Capacity,
+    Guard,
     Submission,
 };
 
@@ -31,10 +32,16 @@ struct Ps1RenderStats {
     std::uint16_t invalid = 0;
     std::uint16_t capacityFailures = 0;
     std::uint16_t ownershipFailures = 0;
+    std::uint16_t guardFailures = 0;
     std::uint32_t projectionFlags = 0;
+    std::uint32_t packetCount = 0;
     std::uint32_t highWaterBytes = 0;
+    std::uint32_t peakPacketCount = 0;
+    std::uint32_t peakHighWaterBytes = 0;
+    std::uint32_t capacityLimit = 0;
     Ps1RenderFailure failure = Ps1RenderFailure::None;
     bool reverseInsertion = false;
+    bool guardsIntact = true;
 };
 
 /**
@@ -48,6 +55,8 @@ class Ps1RasterRenderer final {
     bool QueueCube(psyqo::GPU& gpu, std::uint16_t phaseX, std::uint16_t phaseY);
     bool QueueInvalidPose(psyqo::GPU& gpu);
     bool QueueDepthDiagnostic(psyqo::GPU& gpu, bool reverseInsertion);
+    bool QueueCapacityDiagnostic(psyqo::GPU& gpu);
+    bool QueueCompletionStress(psyqo::GPU& gpu);
 
     const Ps1RenderStats& Stats() const { return m_stats; }
 
@@ -57,8 +66,9 @@ class Ps1RasterRenderer final {
     static constexpr std::uint32_t FullTurn = 2048;
 
     void ResetStats(std::uint16_t phaseX, std::uint16_t phaseY);
-    Ps1FrameContext* BeginContext(psyqo::GPU& gpu);
+    Ps1FrameContext* BeginContext(psyqo::GPU& gpu, std::uint32_t capacity = Ps1FrameContext::TriangleCapacity);
     bool QueueCubeAtTrz(psyqo::GPU& gpu, std::uint16_t phaseX, std::uint16_t phaseY, std::int32_t trz);
+    bool SubmitContext(psyqo::GPU& gpu, Ps1FrameContext& context);
     bool ConfigureGte(std::uint16_t phaseX, std::uint16_t phaseY, std::int32_t trz);
     bool ProjectFace(const Ps1CubeMesh::Face& face, psyqo::Vertex& a, psyqo::Vertex& b, psyqo::Vertex& c,
                      std::int32_t& z0, std::int32_t& z1, std::int32_t& z2, std::int32_t& mac0);

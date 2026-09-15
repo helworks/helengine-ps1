@@ -14,6 +14,11 @@ class Ps1PacketBudget final {
 
     constexpr void Reset() { m_used = 0; }
 
+    constexpr void Reset(std::uint32_t capacity) {
+        m_capacity = capacity;
+        m_used = 0;
+    }
+
     constexpr bool TryReserve(std::uint32_t& slot) {
         if (m_used >= m_capacity) return false;
         slot = m_used++;

@@ -13,6 +13,8 @@ namespace helengine::ps1 {
 
 namespace {
 
+constexpr unsigned CompletionStressTriangleCount = 64;
+
 constexpr std::uint32_t PackXY(std::int16_t x, std::int16_t y) {
     return static_cast<std::uint32_t>(static_cast<std::uint16_t>(x)) |
            (static_cast<std::uint32_t>(static_cast<std::uint16_t>(y)) << 16);
@@ -47,20 +49,52 @@ void Ps1RasterRenderer::Initialize() {
 }
 
 void Ps1RasterRenderer::ResetStats(std::uint16_t phaseX, std::uint16_t phaseY) {
+    const std::uint32_t peakPacketCount = m_stats.peakPacketCount;
+    const std::uint32_t peakHighWaterBytes = m_stats.peakHighWaterBytes;
     m_stats = {};
     m_stats.phaseX = static_cast<std::uint16_t>(phaseX & (FullTurn - 1u));
     m_stats.phaseY = static_cast<std::uint16_t>(phaseY & (FullTurn - 1u));
     m_stats.sceneSequence = ++m_sceneSequence;
+    m_stats.peakPacketCount = peakPacketCount;
+    m_stats.peakHighWaterBytes = peakHighWaterBytes;
 }
 
-Ps1FrameContext* Ps1RasterRenderer::BeginContext(psyqo::GPU& gpu) {
+Ps1FrameContext* Ps1RasterRenderer::BeginContext(psyqo::GPU& gpu, std::uint32_t capacity) {
     Ps1FrameContext& context = m_contexts[gpu.getParity() & 1u];
-    if (!context.Begin(m_stats.sceneSequence)) {
+    if (!context.Begin(m_stats.sceneSequence, capacity)) {
+        if (!context.GuardsIntact()) {
+            ++m_stats.guardFailures;
+            m_stats.guardsIntact = false;
+            m_stats.failure = Ps1RenderFailure::Guard;
+        }
         ++m_stats.ownershipFailures;
-        m_stats.failure = Ps1RenderFailure::Ownership;
+        if (m_stats.failure == Ps1RenderFailure::None) m_stats.failure = Ps1RenderFailure::Ownership;
         return nullptr;
     }
+    m_stats.capacityLimit = context.Capacity();
     return &context;
+}
+
+bool Ps1RasterRenderer::SubmitContext(psyqo::GPU& gpu, Ps1FrameContext& context) {
+    m_stats.packetCount = context.UsedPackets();
+    m_stats.highWaterBytes = context.HighWaterBytes();
+    if (m_stats.packetCount > m_stats.peakPacketCount) m_stats.peakPacketCount = m_stats.packetCount;
+    if (m_stats.highWaterBytes > m_stats.peakHighWaterBytes) m_stats.peakHighWaterBytes = m_stats.highWaterBytes;
+    m_stats.capacityLimit = context.Capacity();
+    m_stats.guardsIntact = context.GuardsIntact();
+    if (!m_stats.guardsIntact) {
+        ++m_stats.guardFailures;
+        m_stats.failure = Ps1RenderFailure::Guard;
+        return false;
+    }
+    if (!context.Submit(gpu)) {
+        ++m_stats.ownershipFailures;
+        m_stats.failure = Ps1RenderFailure::Submission;
+        context.Cancel();
+        return false;
+    }
+    m_stats.lastSubmissionSequence = context.LastSubmissionSequence();
+    return true;
 }
 
 bool Ps1RasterRenderer::ConfigureGte(std::uint16_t phaseX, std::uint16_t phaseY, std::int32_t trz) {
@@ -141,15 +175,7 @@ bool Ps1RasterRenderer::QueueClear(psyqo::GPU& gpu) {
     }
     Ps1FrameContext* context = BeginContext(gpu);
     if (context == nullptr) return false;
-    m_stats.highWaterBytes = context->HighWaterBytes();
-    if (!context->Submit(gpu)) {
-        ++m_stats.ownershipFailures;
-        m_stats.failure = Ps1RenderFailure::Submission;
-        context->Cancel();
-        return false;
-    }
-    m_stats.lastSubmissionSequence = context->LastSubmissionSequence();
-    return true;
+    return SubmitContext(gpu, *context);
 }
 
 bool Ps1RasterRenderer::QueueCube(psyqo::GPU& gpu, std::uint16_t phaseX, std::uint16_t phaseY) {
@@ -218,15 +244,7 @@ bool Ps1RasterRenderer::QueueCubeAtTrz(psyqo::GPU& gpu, std::uint16_t phaseX, st
         ++m_stats.submittedTriangles;
     }
 
-    m_stats.highWaterBytes = context->HighWaterBytes();
-    if (!context->Submit(gpu)) {
-        ++m_stats.ownershipFailures;
-        m_stats.failure = Ps1RenderFailure::Submission;
-        context->Cancel();
-        return false;
-    }
-    m_stats.lastSubmissionSequence = context->LastSubmissionSequence();
-    return true;
+    return SubmitContext(gpu, *context);
 }
 
 bool Ps1RasterRenderer::QueueDepthDiagnostic(psyqo::GPU& gpu, bool reverseInsertion) {
@@ -270,15 +288,83 @@ bool Ps1RasterRenderer::QueueDepthDiagnostic(psyqo::GPU& gpu, bool reverseInsert
         return false;
     }
     m_stats.submittedTriangles = 2;
-    m_stats.highWaterBytes = context->HighWaterBytes();
-    if (!context->Submit(gpu)) {
-        ++m_stats.ownershipFailures;
-        m_stats.failure = Ps1RenderFailure::Submission;
+    return SubmitContext(gpu, *context);
+}
+
+bool Ps1RasterRenderer::QueueCapacityDiagnostic(psyqo::GPU& gpu) {
+    ResetStats(0, 0);
+    Ps1FrameContext* context = BeginContext(gpu, 1);
+    if (context == nullptr) return false;
+
+    auto* first = context->TryReserveTriangle();
+    if (first == nullptr) {
+        ++m_stats.capacityFailures;
+        m_stats.failure = Ps1RenderFailure::Capacity;
         context->Cancel();
         return false;
     }
-    m_stats.lastSubmissionSequence = context->LastSubmissionSequence();
-    return true;
+    const psyqo::Vertex a{{.x = 32, .y = 32}};
+    const psyqo::Vertex b{{.x = 288, .y = 32}};
+    const psyqo::Vertex c{{.x = 160, .y = 224}};
+    first->primitive.setOpaque().setColor({{.r = 240, .g = 160, .b = 48}}).setPointA(a).setPointB(b).setPointC(c);
+    const std::uint16_t bucket = 128;
+    if (!context->Insert(*first, bucket)) {
+        ++m_stats.capacityFailures;
+        m_stats.failure = Ps1RenderFailure::Capacity;
+        context->Cancel();
+        return false;
+    }
+
+    // The second visible packet must fail at reservation, before any packet
+    // storage is written. This is the intentional capacity fault.
+    auto* second = context->TryReserveTriangle();
+    if (second != nullptr) {
+        ++m_stats.capacityFailures;
+        m_stats.failure = Ps1RenderFailure::Capacity;
+        context->Cancel();
+        return false;
+    }
+    ++m_stats.capacityFailures;
+    m_stats.submittedTriangles = 1;
+    m_stats.guardsIntact = context->GuardsIntact();
+    if (!m_stats.guardsIntact) ++m_stats.guardFailures;
+    m_stats.failure = Ps1RenderFailure::Capacity;
+    context->Cancel();
+    return false;
+}
+
+bool Ps1RasterRenderer::QueueCompletionStress(psyqo::GPU& gpu) {
+    ResetStats(0, 0);
+    Ps1FrameContext* context = BeginContext(gpu);
+    if (context == nullptr) return false;
+
+    for (unsigned i = 0; i < CompletionStressTriangleCount; ++i) {
+        auto* fragment = context->TryReserveTriangle();
+        if (fragment == nullptr) {
+            ++m_stats.capacityFailures;
+            m_stats.failure = Ps1RenderFailure::Capacity;
+            context->Cancel();
+            return false;
+        }
+        const psyqo::Vertex a{{.x = 24, .y = 24}};
+        const psyqo::Vertex b{{.x = 296, .y = 24}};
+        const psyqo::Vertex c{{.x = static_cast<std::int16_t>(160 + (i & 7u) * 4),
+                               .y = static_cast<std::int16_t>(216 - (i & 3u) * 3)}};
+        fragment->primitive.setOpaque().setColor({{.r = static_cast<std::uint8_t>(32u + (i & 31u)),
+                                                    .g = static_cast<std::uint8_t>(80u + (i & 63u)),
+                                                    .b = 160}})
+            .setPointA(a)
+            .setPointB(b)
+            .setPointC(c);
+        if (!context->Insert(*fragment, static_cast<std::uint16_t>(i & 255u))) {
+            ++m_stats.capacityFailures;
+            m_stats.failure = Ps1RenderFailure::Capacity;
+            context->Cancel();
+            return false;
+        }
+        ++m_stats.submittedTriangles;
+    }
+    return SubmitContext(gpu, *context);
 }
 
 }  // namespace helengine::ps1

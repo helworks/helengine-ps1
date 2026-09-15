@@ -1,6 +1,7 @@
 #include "platform/ps1/rendering/Ps1CubeMesh.hpp"
 #include "platform/ps1/rendering/Ps1DepthBucket.hpp"
 #include "platform/ps1/rendering/Ps1PacketBudget.hpp"
+#include "platform/ps1/rendering/Ps1RotationClock.hpp"
 
 #include <cassert>
 #include <cstdint>
@@ -61,11 +62,38 @@ void TestCubeMesh() {
     }
 }
 
+void TestRotationClock() {
+    helengine::ps1::Ps1RotationClock a;
+    helengine::ps1::Ps1RotationClock b;
+    a.Reset(0);
+    b.Reset(0);
+    for (std::uint32_t t = 10000; t <= 1000000; t += 10000) a.Advance(t);
+    for (std::uint32_t t = 20000; t <= 1000000; t += 20000) b.Advance(t);
+    assert(a.PhaseX() == b.PhaseX() && a.PhaseY() == b.PhaseY());
+    assert(a.PhaseX() == 170 && a.PhaseY() == 256);
+
+    helengine::ps1::Ps1RotationClock paused;
+    paused.Reset(0);
+    paused.Advance(1000000);
+    assert(paused.PhaseX() == 17 && paused.PhaseY() == 25);
+
+    helengine::ps1::Ps1RotationClock zero;
+    zero.Reset(42);
+    zero.Advance(42);
+    assert(zero.PhaseX() == 0 && zero.PhaseY() == 0);
+
+    helengine::ps1::Ps1RotationClock wrapped;
+    wrapped.Reset(0xffffff00u);
+    wrapped.Advance(0x00002610u);
+    assert(wrapped.PhaseX() == 1 && wrapped.PhaseY() == 2);
+}
+
 }  // namespace
 
 int main() {
     TestPacketBudget();
     TestDepthBuckets();
     TestCubeMesh();
+    TestRotationClock();
     return 0;
 }

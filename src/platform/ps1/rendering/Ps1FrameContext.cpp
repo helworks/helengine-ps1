@@ -10,7 +10,11 @@ void Ps1FrameContext::AssertState(bool condition, const char* message) const {
     psyqo::Kernel::assert(condition, message);
 }
 
-bool Ps1FrameContext::Begin(std::uint32_t sceneSequence) {
+bool Ps1FrameContext::Begin(std::uint32_t sceneSequence, std::uint32_t triangleCapacity) {
+    if (!GuardsIntact()) {
+        AssertState(false, "PS1_FRAME_GUARD_CORRUPTED");
+        return false;
+    }
     if (m_state == State::Building) {
         AssertState(false, "PS1_FRAME_BEGIN_WHILE_BUILDING");
         return false;
@@ -21,7 +25,8 @@ bool Ps1FrameContext::Begin(std::uint32_t sceneSequence) {
     }
 
     m_table.clear();
-    m_budget.Reset();
+    m_budgetCapacity = triangleCapacity < TriangleCapacity ? triangleCapacity : TriangleCapacity;
+    m_budget.Reset(m_budgetCapacity);
     m_reservedCount = 0;
     m_insertedCount = 0;
     for (unsigned i = 0; i < TriangleCapacity; ++i) m_inserted[i] = 0;
@@ -66,6 +71,10 @@ bool Ps1FrameContext::Submit(psyqo::GPU& gpu) {
         AssertState(false, "PS1_FRAME_SUBMIT_WRONG_STATE");
         return false;
     }
+    if (!GuardsIntact()) {
+        AssertState(false, "PS1_FRAME_GUARD_CORRUPTED");
+        return false;
+    }
     gpu.getNextClear(m_clear.primitive, {{.r = 16, .g = 20, .b = 32}});
     gpu.chain(m_clear);
     gpu.chain(m_table);
@@ -80,7 +89,8 @@ void Ps1FrameContext::Cancel() {
         return;
     }
     m_table.clear();
-    m_budget.Reset();
+    m_budget.Reset(TriangleCapacity);
+    m_budgetCapacity = TriangleCapacity;
     m_reservedCount = 0;
     m_insertedCount = 0;
     m_state = State::Available;

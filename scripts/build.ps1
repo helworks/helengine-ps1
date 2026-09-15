@@ -6,7 +6,9 @@ param(
 
     [Parameter(Mandatory = $true)]
     [ValidateSet('Clear', 'Static', 'Rotate', 'DepthOrder', 'InvalidPose', 'Capacity', 'CompletionStress')]
-    [string] $DemoMode
+    [string] $DemoMode,
+
+    [string[]] $SdkDefine = @()
 )
 
 Set-StrictMode -Version Latest
@@ -59,7 +61,7 @@ function Copy-InputPath {
 function Get-InputHashes {
     param([Parameter(Mandatory = $true)][string] $Root)
     $ignoredExtensions = @('.o', '.dep', '.a', '.elf', '.map', '.ps-exe', '.cpe')
-    $ignoredGeneratedFiles = @('patch-check.log', 'patch-apply.log', 'build.log', 'retail-memory-check.log', 'manifest.json')
+    $ignoredGeneratedFiles = @('patch-check.log', 'patch-apply.log', 'build.log', 'docker.stdout.log', 'docker.stderr.log', 'retail-memory-check.log', 'manifest.json')
     $items = @()
     foreach ($file in Get-ChildItem -LiteralPath $Root -Recurse -File -Force) {
         $relative = Get-RelativeInputPath -BasePath $Root -FullPath $file.FullName
@@ -114,6 +116,8 @@ try {
 
     $inputHashes = @(Get-InputHashes -Root $runRoot)
     $buildLog = Join-Path $runRoot 'build.log'
+    $dockerStdout = Join-Path $runRoot 'docker.stdout.log'
+    $dockerStderr = Join-Path $runRoot 'docker.stderr.log'
     $dockerArgs = @(
         'run', '--rm',
         '--mount', "type=bind,source=$runRoot,target=/work",
@@ -122,10 +126,16 @@ try {
         'make',
         "BUILD=$Configuration",
         "DEMO_MODE=$($DemoMode.ToUpperInvariant())",
+        "SDK_DEFINES=$($SdkDefine -join ' ')",
         'all'
     )
-    & docker @dockerArgs 2>&1 | Tee-Object -FilePath $buildLog | Out-Null
-    $dockerExit = $LASTEXITCODE
+    $dockerProcess = Start-Process -FilePath 'docker' -ArgumentList $dockerArgs -WorkingDirectory $runRoot `
+        -RedirectStandardOutput $dockerStdout -RedirectStandardError $dockerStderr -NoNewWindow -Wait -PassThru
+    Get-Content -LiteralPath $dockerStdout | Set-Content -LiteralPath $buildLog -Encoding utf8
+    if (Test-Path -LiteralPath $dockerStderr) {
+        Get-Content -LiteralPath $dockerStderr | Add-Content -LiteralPath $buildLog -Encoding utf8
+    }
+    $dockerExit = $dockerProcess.ExitCode
     if ($dockerExit -ne 0) {
         $failureExitCode = $dockerExit
         throw "Docker build failed with exit code $dockerExit"
@@ -165,6 +175,7 @@ try {
         created_utc = [DateTime]::UtcNow.ToString('o')
         configuration = $Configuration
         demo_mode = $DemoMode
+        sdk_defines = @($SdkDefine)
         source = [ordered]@{ revision = $revision; dirty = $dirty }
         toolchain_lock_sha256 = $lockHash
         sdk_patch_sha256 = $patchHash

@@ -31,7 +31,7 @@ class Ps1FrameContext final {
     static_assert(TriangleCapacity >= 12);
 #endif
 
-    bool Begin(std::uint32_t sceneSequence);
+    bool Begin(std::uint32_t sceneSequence, std::uint32_t triangleCapacity = TriangleCapacity);
     TriangleFragment* TryReserveTriangle();
     bool Insert(TriangleFragment& fragment, std::uint16_t bucket);
     bool Submit(psyqo::GPU& gpu);
@@ -42,6 +42,8 @@ class Ps1FrameContext final {
         return static_cast<std::uint32_t>(sizeof(ClearFragment) + m_reservedCount * sizeof(TriangleFragment));
     }
     std::uint32_t LastSubmissionSequence() const { return m_lastSubmissionSequence; }
+    std::uint32_t Capacity() const { return m_budgetCapacity; }
+    bool GuardsIntact() const { return m_packetGuardBefore == PacketGuardValue && m_packetGuardAfter == PacketGuardValue; }
     bool IsBuilding() const { return m_state == State::Building; }
 
   private:
@@ -49,15 +51,20 @@ class Ps1FrameContext final {
 
     void AssertState(bool condition, const char* message) const;
 
+    static constexpr std::uint32_t PacketGuardValue = 0x50534744;
+
     State m_state = State::Available;
     std::uint32_t m_buildSequence = 0;
     std::uint32_t m_lastSubmissionSequence = 0;
     std::uint16_t m_reservedCount = 0;
     std::uint16_t m_insertedCount = 0;
+    std::uint32_t m_budgetCapacity = TriangleCapacity;
     Ps1PacketBudget m_budget{TriangleCapacity};
     ClearFragment m_clear;
     psyqo::OrderingTable<256> m_table;
+    std::uint32_t m_packetGuardBefore = PacketGuardValue;
     TriangleFragment m_triangles[TriangleCapacity];
+    std::uint32_t m_packetGuardAfter = PacketGuardValue;
     std::uint8_t m_inserted[TriangleCapacity]{};
 };
 

@@ -3,6 +3,7 @@
 #include "psyqo/scene.hh"
 
 #include "platform/ps1/rendering/Ps1RasterRenderer.hpp"
+#include "platform/ps1/rendering/Ps1RotationClock.hpp"
 
 namespace helengine::ps1 {
 
@@ -17,6 +18,7 @@ class Ps1CubeScene final : public psyqo::Scene {
     void frame() override;
 
     Ps1RasterRenderer m_renderer;
+    Ps1RotationClock m_rotationClock;
     unsigned m_firstFrameAge = 0;
     bool m_firstFrameQueued = false;
     bool m_firstFrameReported = false;

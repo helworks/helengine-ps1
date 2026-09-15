@@ -54,6 +54,7 @@ $policyCompileArgs = @(
     'g++', '-std=c++20', '-Wall', '-Wextra', '-Isrc',
     '/work/tests/host/Ps1RenderPolicyTests.cpp',
     '/work/src/platform/ps1/rendering/Ps1CubeMesh.cpp',
+    '/work/src/platform/ps1/rendering/Ps1RotationClock.cpp',
     '-o', '/work/ps1_render_policy_tests'
 )
 & docker @policyCompileArgs 2>&1 | Tee-Object -FilePath $policyCompileLog | Out-Null
