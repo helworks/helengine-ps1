@@ -3,7 +3,7 @@
     "schemaVersion": 7,
     "id": "pcsx-redux",
     "name": "PCSX-Redux",
-    "description": "Read-only PCSX-Redux emulator recognition project for the helengine-ps1 PlayStation route. The real window belongs to the pcsx-redux.main child process, not the pcsx-redux.exe launcher."
+    "description": "Read-only PCSX-Redux emulator recognition project for the helengine-ps1 PlayStation route. The real window belongs to the pcsx-redux.main child process, not the pcsx-redux.exe launcher. Running Game requires the menu bar to stay visible while emulating: gui.ShowMenu must be true in pcsx.json (%APPDATA%\\pcsx-redux\\pcsx.json); with it false the frame has no text and helenui cannot recognize it."
   },
   "surfaces": [
     {
@@ -11,7 +11,7 @@
       "kind": "screen",
       "parentId": null,
       "name": "Running Game",
-      "description": "PCSX-Redux is emulating beneath its ImGui menu bar; the idle splash text is gone.",
+      "description": "PCSX-Redux is emulating beneath its ImGui menu bar (gui.ShowMenu = true); the idle splash text is gone.",
       "capabilities": [
         "readOnly"
       ],
