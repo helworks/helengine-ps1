@@ -1,0 +1,25 @@
+{
+  "sdk": {
+    "repository": "https://github.com/pcsx-redux/nugget.git",
+    "commit": "625da805c4a9bfd56dd9b2b17409805c0591dd42",
+    "submodules": {
+      "third_party/uC-sdk": "69e06871824e2d62069487a7426ded09090ceb69",
+      "third_party/psxlua": "abed030e686b4e34987851bd0a028c93b1f73967",
+      "third_party/xmake-psx": "e02b8cb6fdaf9258e74b80de806c8ac23222d41"
+    }
+  },
+  "image": {
+    "reference": "ghcr.io/grumpycoders/pcsx-redux-build@sha256:4f99ff0dd972096280cd6faf27c4255cc2bcf932397f8f9276ee22b6b1a67555",
+    "mipsel-none-elf-gcc": "16.2.0",
+    "binutils": "2.47.20260726",
+    "make": "4.4.1",
+    "host-gcc": "15.2.0",
+    "python": "3.14.4"
+  },
+  "build": {
+    "type": "ps-exe",
+    "format": "elf32-littlemips",
+    "ram": "2 MiB",
+    "video": "320x240 NTSC progressive 15-bit double-buffered"
+  }
+}
