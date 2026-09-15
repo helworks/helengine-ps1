@@ -44,3 +44,11 @@ The launcher uses the supplied OpenBIOS image as
 `713ea2aed58606282b3ff5e91d77f8c5892ea36f5adcd279d2c7dd26604a625d`.
 OpenBIOS source is MIT-covered in the upstream project. No Sony BIOS is
 downloaded, bundled, or required by the repository.
+
+## fdlibm
+
+Core boot builds the selected double-precision math functions from the pinned
+uC-sdk `libm/src` directory. Their Sun Microsystems permission notices remain
+in each source file. The build selects IEEE behavior and the PS1 little-endian
+layout; software floating-point operations use the toolchain runtime. This
+fdlibm revision has no `log2`, so the PS1 adapter computes it from `log`.
