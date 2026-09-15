@@ -47,6 +47,19 @@ class RetailMemoryValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "__sp"):
             validate_layout([], symbols, valid_exe_header())
 
+    def test_rejects_static_image_above_heap_start(self):
+        symbols = valid_symbols()
+        symbols["__bss_end"] = symbols["__heap_start"] = 0x80015000
+        sections = [{"name": ".data", "address": 0x80010000, "size": 0x5001, "allocated": True}]
+        with self.assertRaisesRegex(ValueError, "__heap_start"):
+            validate_layout(sections, symbols, valid_exe_header())
+
+    def test_rejects_non_retail_stack_boundary(self):
+        symbols = valid_symbols()
+        symbols["__stack_start"] = 0x801EFFFF
+        with self.assertRaisesRegex(ValueError, "__stack_start"):
+            validate_layout([], symbols, valid_exe_header())
+
     def test_rejects_allocated_section_in_unknown_region(self):
         sections = [{"name": ".bad", "address": 0x90000000, "size": 4, "allocated": True}]
         with self.assertRaisesRegex(ValueError, "bad"):

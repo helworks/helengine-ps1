@@ -72,6 +72,7 @@ function Get-InputHashes {
 }
 
 New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
+$failureExitCode = 1
 try {
     $revision = ((& git -c "safe.directory=$sourceRoot" rev-parse HEAD) | Out-String).Trim()
     $status = @(& git -c "safe.directory=$sourceRoot" status --porcelain)
@@ -99,9 +100,17 @@ try {
     $patchCopy = Join-Path $runRoot $sdkPatchRelative
     $checkArgs = @('apply', '--check', '--unsafe-paths', $patchCopy)
     & git -C $sdkCopy @checkArgs 2>&1 | Out-File -FilePath (Join-Path $runRoot 'patch-check.log') -Encoding utf8
-    if ($LASTEXITCODE -ne 0) { throw 'SDK frame-completion patch check failed' }
+    $patchCheckExit = $LASTEXITCODE
+    if ($patchCheckExit -ne 0) {
+        $failureExitCode = $patchCheckExit
+        throw "SDK frame-completion patch check failed with exit code $patchCheckExit"
+    }
     & git -C $sdkCopy apply --unsafe-paths $patchCopy 2>&1 | Out-File -FilePath (Join-Path $runRoot 'patch-apply.log') -Encoding utf8
-    if ($LASTEXITCODE -ne 0) { throw 'SDK frame-completion patch application failed' }
+    $patchApplyExit = $LASTEXITCODE
+    if ($patchApplyExit -ne 0) {
+        $failureExitCode = $patchApplyExit
+        throw "SDK frame-completion patch application failed with exit code $patchApplyExit"
+    }
 
     $inputHashes = @(Get-InputHashes -Root $runRoot)
     $buildLog = Join-Path $runRoot 'build.log'
@@ -117,7 +126,10 @@ try {
     )
     & docker @dockerArgs 2>&1 | Tee-Object -FilePath $buildLog | Out-Null
     $dockerExit = $LASTEXITCODE
-    if ($dockerExit -ne 0) { throw "Docker build failed with exit code $dockerExit" }
+    if ($dockerExit -ne 0) {
+        $failureExitCode = $dockerExit
+        throw "Docker build failed with exit code $dockerExit"
+    }
 
     $artifactDirectory = Join-Path $runRoot 'out'
     $elf = Join-Path $artifactDirectory 'helengine_ps1.elf'
@@ -131,7 +143,10 @@ try {
     $validationOutput = @(& python @validationArgs 2>&1)
     $validationExit = $LASTEXITCODE
     $validationOutput | Out-File -FilePath (Join-Path $runRoot 'retail-memory-check.log') -Encoding utf8
-    if ($validationExit -ne 0) { throw 'Retail memory checker rejected the built ELF/PS-X EXE' }
+    if ($validationExit -ne 0) {
+        $failureExitCode = $validationExit
+        throw "Retail memory checker rejected the built ELF/PS-X EXE with exit code $validationExit"
+    }
     $validationSummary = ($validationOutput -join "`n") | ConvertFrom-Json
 
     $toolchainLock = Join-Path $runRoot 'toolchain.lock.json'
@@ -162,6 +177,8 @@ try {
     $manifest | ConvertTo-Json -Depth 12 | Out-File -LiteralPath $manifestPath -Encoding utf8
     Write-Output (Resolve-Path -LiteralPath $manifestPath).Path
 } catch {
-    Write-Error $_
-    exit 1
+    # Write directly to stderr: Windows PowerShell can replace an explicit
+    # `exit <code>` with 1 when a terminating Write-Error is left pending.
+    [Console]::Error.WriteLine($_.Exception.Message)
+    exit $failureExitCode
 }

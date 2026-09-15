@@ -39,4 +39,13 @@ passes only `BUILD`, `DEMO_MODE`, and `all`; the application Makefile's
 Before adapting the host, the pinned SDK's `psyqo/examples/hello-chained`
 minimal example was inspected and built in a separate copied SDK directory.
 Its two-clear-fragment ownership pattern is the basis for the Task 1 root
-scene. Generated objects and that artifact remain under the build root.
+scene. Generated objects and that artifact remain under the build root. The
+reproducible command was:
+
+```powershell
+docker run --rm --mount "type=bind,source=C:\dev\helworks\builds\helengine-ps1\upstream-minimal-20260915,target=/work" --workdir /work ghcr.io/grumpycoders/pcsx-redux-build@sha256:4f99ff0dd972096280cd6faf27c4255cc2bcf932397f8f9276ee22b6b1a67555 make -C /work/nugget/psyqo/examples/hello-chained BUILD=SmallDebug
+```
+
+It exited 0 and produced `hello-chained.elf`, `hello-chained.ps-exe`, and
+`hello-chained.map`. The same pinned image reported MIPS GCC 16.2.0, GNU
+Binutils 2.47.20260726, GNU Make 4.4.1, host GCC 15.2.0, and Python 3.14.4.

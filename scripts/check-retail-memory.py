@@ -198,8 +198,9 @@ def validate_layout(sections, symbols, exe_header):
     bss_end = symbols["__bss_end"]
     if ram_top != RAM_TOP:
         _fail("__ram_top", f"expected 0x{RAM_TOP:08x}, got 0x{ram_top:08x}")
-    if not (RAM_START <= stack_start < ram_top):
-        _fail("__stack_start", "must be inside the retail RAM range")
+    expected_stack_start = RAM_TOP - 64 * 1024
+    if stack_start != expected_stack_start:
+        _fail("__stack_start", f"expected 0x{expected_stack_start:08x} for the retail 64 KiB reservation")
     if not (stack_start <= stack_pointer < ram_top):
         _fail("__sp", "must be inside the reserved stack range")
     if not (RAM_START <= heap_start <= stack_start):
@@ -233,6 +234,9 @@ def validate_layout(sections, symbols, exe_header):
         if address >= stack_start or end > stack_start:
             _fail(name, "allocated range overlaps the reserved stack")
         static_end = max(static_end, end)
+
+    if static_end > heap_start:
+        _fail("__heap_start", f"static image ends at 0x{static_end:08x}, above heap start 0x{heap_start:08x}")
 
     if not (RAM_START <= exe_header.get("load_address", -1) < ram_top):
         _fail("PS-X EXE load address", "load address is outside retail RAM")
