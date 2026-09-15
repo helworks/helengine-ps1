@@ -1,5 +1,42 @@
 # PS1 v0.1 build and launch runbook
 
+## Authored cube-test subset checkpoint
+
+The .NET 9 utility serializes the existing scene's camera and cube subset
+and writes a provenance report. It does not cook assets, generate Core, or
+produce a PS1 executable. See [GeneratedCorePrerequisite.md](GeneratedCorePrerequisite.md)
+for the runtime prerequisite discovered during implementation.
+
+Build current editor dependencies into the external build directory first:
+
+```powershell
+dotnet build C:\dev\helworks\helengine\engine\helengine.editor\helengine.editor.csproj `
+  --artifacts-path C:\dev\helworks\builds\helengine-ps1\current-editor-dependencies `
+  -p:UseCommonOutputDirectory=false -p:RunAnalyzers=false
+
+$engineBinaries = 'C:\dev\helworks\builds\helengine-ps1\current-editor-dependencies\bin\helengine.editor\debug'
+.\scripts\generate-authored-fixture.ps1 `
+  -ProjectRoot C:\dev\helprojs\demodisc `
+  -OutputRoot C:\dev\helworks\builds\helengine-ps1\cube-test-subset `
+  -EngineBinaryRoot $engineBinaries
+```
+
+The wrapper uses a fresh external build directory and runs that exact built
+assembly. Output consists of `subset.helen` and `report.json`; the report records
+the source snapshot hash, retained payloads, dependencies, decoded camera/spin,
+and requested and loaded engine assembly paths and hashes. Use current engine
+binaries containing the shared scene persistence walker. Outputs must be outside
+the authoring project. The source scene is read without modification.
+
+Run the focused integration tests against the same engine binaries:
+
+```powershell
+$env:HELENGINE_PS1_ENGINE_BINARY_ROOT = $engineBinaries
+dotnet test .\tests\helengine.ps1.builder.tests\helengine.ps1.builder.tests.csproj `
+  --artifacts-path C:\dev\helworks\builds\helengine-ps1\subset-tests `
+  "-p:EngineBinaryRoot=$engineBinaries"
+```
+
 This repository builds a standalone PlayStation 1 console executable. The
 artifact is a PS-X EXE (`helengine_ps1.ps-exe`), not a Windows `.exe`. Build
 products, copied SDK sources, logs, manifests, and test output belong below

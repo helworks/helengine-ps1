@@ -99,6 +99,34 @@ Y=0 and Y=256. The corrected SDK ordering-table clear is included in the
 official Static evidence; before the correction the target chain had no
 reachable triangle packets.
 
+## Authored cube-test subset checkpoint (2026-09-15)
+
+The focused .NET integration suite passed 8/8 tests, including ambiguous and
+nested target rejection and output alias protection. Fresh current-source
+engine dependencies were used. Evidence under the external build root:
+
+- `subset-root-verification-final/results/subset-fixed.trx`
+- `cube-test-subset-final-verified/subset.helen`
+- `cube-test-subset-final-verified/report.json`
+
+The wrapper completed successfully using its exact freshly built DLL. All six
+recorded loaded assembly hashes matched both their loaded and requested files.
+The exported source snapshot SHA-256 is
+`da429290f091802c8faec2ac34f21ed5c6da711aec0e0fa119da8d34121d1b97`.
+It retains camera entity 1 and cube entity 16, with original spin data and
+material/model references. Camera near/far values are 0.1/64; clear color is
+cornflower blue; stencil clear is disabled and postprocessing is disabled.
+
+The authoring scene changed externally during the session; the receipt identifies
+the exact exported snapshot. Entity IDs in earlier inspection notes are not
+used as fixed selectors. Scoped C# re-review passed after the camera decoding,
+path validation, provenance, and selection fixes.
+
+This verifies subset serialization only. Asset cooking, generated Core, PS1
+scene loading, and target execution remain pending the architecture decision
+in [GeneratedCorePrerequisite.md](GeneratedCorePrerequisite.md). No new PS1
+executable was built or launched for this checkpoint.
+
 ## Evidence limits
 
 ### Frame-pacing follow-up (2026-09-15)
