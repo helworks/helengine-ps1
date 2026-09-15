@@ -1,24 +1,27 @@
 #pragma once
 
-#include "psyqo/fragments.hh"
-#include "psyqo/primitives/misc.hh"
 #include "psyqo/scene.hh"
+
+#include "platform/ps1/rendering/Ps1RasterRenderer.hpp"
 
 namespace helengine::ps1 {
 
 /**
- * Root scene for Task 1.  Each persistent clear fragment belongs to one
- * display parity and remains alive until the patched GPU flip releases it.
+ * Root scene for the native PS1 demo.  The renderer owns both persistent
+ * parity contexts; this scene only selects the approved diagnostic mode and
+ * reports bounded render evidence.
  */
 class Ps1CubeScene final : public psyqo::Scene {
   private:
     void start(StartReason reason) override;
     void frame() override;
 
-    psyqo::Fragments::SimpleFragment<psyqo::Prim::FastFill> m_clear[2];
+    Ps1RasterRenderer m_renderer;
     unsigned m_firstFrameAge = 0;
     bool m_firstFrameQueued = false;
     bool m_firstFrameReported = false;
+    bool m_diagnosticReported = false;
+    bool m_depthReverseInsertion = false;
 };
 
 }  // namespace helengine::ps1

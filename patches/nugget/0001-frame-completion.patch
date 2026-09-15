@@ -40,3 +40,19 @@ diff --git a/psyqo/src/gpu.cpp b/psyqo/src/gpu.cpp
 +    }
 
      auto parity = m_parity;
+diff --git a/psyqo/src/ordering-table.cpp b/psyqo/src/ordering-table.cpp
+--- a/psyqo/src/ordering-table.cpp
++++ b/psyqo/src/ordering-table.cpp
+@@ -30,6 +30,12 @@
+ {
+     table[0].setEndMarker();
+     for (size_t i = 1; i <= size; i++) {
++#ifdef PS1_PC_PORT
+         table[i].set(&table[i - 1], 0);
++#else
++        // ChainEntryPS1::set copies an existing link for head insertion.
++        // Clearing an OT instead needs the address of the preceding entry.
++        table[i].head = reinterpret_cast<uint32_t>(&table[i - 1]) & 0x00ffffff;
++#endif
+     }
+ }

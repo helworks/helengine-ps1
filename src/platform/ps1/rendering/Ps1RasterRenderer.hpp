@@ -1,0 +1,73 @@
+#pragma once
+
+#include "platform/ps1/rendering/Ps1CubeMesh.hpp"
+#include "platform/ps1/rendering/Ps1FrameContext.hpp"
+#include "psyqo/gpu.hh"
+#include "psyqo/trigonometry.hh"
+
+#include <cstdint>
+
+namespace helengine::ps1 {
+
+enum class Ps1RenderFailure : std::uint8_t {
+    None,
+    NotInitialized,
+    Ownership,
+    Projection,
+    Depth,
+    Capacity,
+    Submission,
+};
+
+/** Per-frame evidence kept in target RAM for low-frequency startup diagnostics. */
+struct Ps1RenderStats {
+    std::uint16_t phaseX = 0;
+    std::uint16_t phaseY = 0;
+    std::uint32_t sceneSequence = 0;
+    std::uint32_t lastSubmissionSequence = 0;
+    std::uint16_t submittedTriangles = 0;
+    std::uint16_t backfaceRejected = 0;
+    std::uint16_t degenerate = 0;
+    std::uint16_t invalid = 0;
+    std::uint16_t capacityFailures = 0;
+    std::uint16_t ownershipFailures = 0;
+    std::uint32_t projectionFlags = 0;
+    std::uint32_t highWaterBytes = 0;
+    Ps1RenderFailure failure = Ps1RenderFailure::None;
+    bool reverseInsertion = false;
+};
+
+/**
+ * Fixed-pose unlit renderer.  It owns two frame contexts and emits only flat,
+ * opaque triangles; PSYQo retains ownership of presentation and VBlank.
+ */
+class Ps1RasterRenderer final {
+  public:
+    void Initialize();
+    bool QueueClear(psyqo::GPU& gpu);
+    bool QueueCube(psyqo::GPU& gpu, std::uint16_t phaseX, std::uint16_t phaseY);
+    bool QueueInvalidPose(psyqo::GPU& gpu);
+    bool QueueDepthDiagnostic(psyqo::GPU& gpu, bool reverseInsertion);
+
+    const Ps1RenderStats& Stats() const { return m_stats; }
+
+  private:
+    static constexpr std::int32_t NormalTrz = 512;
+    static constexpr std::int32_t InvalidTrz = 200;
+    static constexpr std::uint32_t FullTurn = 2048;
+
+    void ResetStats(std::uint16_t phaseX, std::uint16_t phaseY);
+    Ps1FrameContext* BeginContext(psyqo::GPU& gpu);
+    bool QueueCubeAtTrz(psyqo::GPU& gpu, std::uint16_t phaseX, std::uint16_t phaseY, std::int32_t trz);
+    bool ConfigureGte(std::uint16_t phaseX, std::uint16_t phaseY, std::int32_t trz);
+    bool ProjectFace(const Ps1CubeMesh::Face& face, psyqo::Vertex& a, psyqo::Vertex& b, psyqo::Vertex& c,
+                     std::int32_t& z0, std::int32_t& z1, std::int32_t& z2, std::int32_t& mac0);
+
+    bool m_initialized = false;
+    std::uint32_t m_sceneSequence = 0;
+    Ps1FrameContext m_contexts[2];
+    psyqo::Trig<> m_trig;
+    Ps1RenderStats m_stats;
+};
+
+}  // namespace helengine::ps1
