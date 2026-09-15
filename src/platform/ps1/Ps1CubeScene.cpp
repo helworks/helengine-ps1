@@ -45,7 +45,10 @@ void Ps1CubeScene::frame() {
 #endif
     const auto& stats = m_renderer.Stats();
     const std::uint32_t frame = gpu().getFrameCount();
-    if (!queued || !m_diagnosticReported || (frame != 0 && (frame % 120u) == 0)) {
+    // A flip can skip VBlank frame numbers while waiting for completion, so
+    // use the monotonic scene sequence for a cadence that cannot disappear.
+    const bool periodicDiagnostic = stats.sceneSequence != 0 && (stats.sceneSequence % 120u) == 0;
+    if (!queued || !m_diagnosticReported || periodicDiagnostic) {
         ramsyscall_printf(
             "PS1_RENDER_DIAGNOSTIC phase=%u,%u seq=%u submit=%u backface=%u degenerate=%u invalid=%u capacity=%u "
             "ownership=%u guards=%u guardfail=%u capacitylimit=%u flags=%08x packets=%u highwater=%u peak_packets=%u peak_highwater=%u last=%u reverse=%u failure=%u\n",
@@ -63,7 +66,7 @@ void Ps1CubeScene::frame() {
     }
 
 #if defined(PS1_DEMO_MODE_COMPLETIONSTRESS)
-    if (frame != 0 && (frame % 120u) == 0) {
+    if (periodicDiagnostic) {
         ramsyscall_printf("PS1_GPU_COMPLETION transfer=%u marker=%u presented=%u frame=%u parity=%u\n",
                           static_cast<unsigned>(gpu().getTransferSequence()),
                           static_cast<unsigned>(gpu().getMarkerSequence()),
