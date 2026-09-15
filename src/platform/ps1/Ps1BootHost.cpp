@@ -8,6 +8,9 @@
 #include "psyqo/kernel.hh"
 
 #include <cstdint>
+#if defined(PS1_CORE_BOOT)
+#include "platform/ps1/Ps1CoreBoot.hpp"
+#endif
 
 extern "C" char __stack_start;
 
@@ -23,6 +26,9 @@ void Ps1BootHost::prepare() { Ps1Video::Initialize(gpu()); }
 
 void Ps1BootHost::start() {
     *g_stackGuard = kStackGuard;
+#if defined(PS1_CORE_BOOT)
+    InitializeCoreBoot(gpu());
+#endif
     ramsyscall_printf("PS1_STACK_GUARD address=%p value=%08x\n", g_stackGuard, kStackGuard);
     ramsyscall_printf("PS1_HEAP_INIT start=%p end=%p\n", psyqo_heap_start(), psyqo_heap_end());
     ramsyscall_printf("PS1_IRQ_MASK_AFTER_GPU=%08x GPU_IRQ_MASKED=%u\n", static_cast<uint32_t>(psyqo::Hardware::CPU::IMask),

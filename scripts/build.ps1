@@ -8,11 +8,33 @@ param(
     [ValidateSet('Clear', 'Static', 'Rotate', 'DepthOrder', 'InvalidPose', 'Capacity', 'CompletionStress')]
     [string] $DemoMode,
 
-    [string[]] $SdkDefine = @()
+    [string[]] $SdkDefine = @(),
+
+    [switch] $CoreBoot,
+
+    [string] $GeneratedCoreRoot
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ($CoreBoot) {
+    if ([string]::IsNullOrWhiteSpace($GeneratedCoreRoot)) { throw 'CoreBoot requires GeneratedCoreRoot.' }
+    $GeneratedCoreRoot = (Resolve-Path -LiteralPath $GeneratedCoreRoot).Path
+    foreach ($requiredCoreFile in @('helengine_core_unity.cpp', 'Core.cpp', 'Core.hpp', 'helcpp_config.hpp')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $GeneratedCoreRoot $requiredCoreFile) -PathType Leaf)) {
+            throw "CoreBoot input is missing: $requiredCoreFile"
+        }
+    }
+    $coreConfig = Get-Content -LiteralPath (Join-Path $GeneratedCoreRoot 'helcpp_config.hpp') -Raw
+    foreach ($requiredDefine in @('HE_CPP_PLATFORM_PS1 1', 'HE_CPP_PLATFORM_IS_LITTLE_ENDIAN 1', 'HE_CPP_USE_EXCEPTIONS 0', 'HE_CPP_USE_RTTI 1')) {
+        if ($coreConfig -notmatch ('(?m)^#define ' + [regex]::Escape($requiredDefine) + '\s*$')) {
+            throw "CoreBoot configuration must define $requiredDefine"
+        }
+    }
+} elseif (-not [string]::IsNullOrWhiteSpace($GeneratedCoreRoot)) {
+    throw 'GeneratedCoreRoot must be paired with CoreBoot.'
+}
 
 $sourceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $buildRoot = Join-Path (Split-Path $sourceRoot -Parent) 'builds\helengine-ps1'
@@ -216,6 +238,9 @@ try {
     foreach ($relative in $allowDirectories) {
         Copy-InputPath -SourcePath (Join-Path $sourceRoot $relative) -DestinationRoot $runRoot -RelativeRoot $relative
     }
+    if ($CoreBoot) {
+        Copy-InputPath -SourcePath $GeneratedCoreRoot -DestinationRoot $runRoot -RelativeRoot 'generated-core'
+    }
 
     $sdkCopy = Join-Path $runRoot 'third_party\nugget'
     $patchCopy = Join-Path $runRoot $sdkPatchRelative
@@ -246,6 +271,7 @@ try {
         'make',
         "BUILD=$Configuration",
         "DEMO_MODE=$($DemoMode.ToUpperInvariant())",
+        "CORE_BOOT=$([int][bool]$CoreBoot)",
         "SDK_DEFINES=$($SdkDefine -join ' ')",
         'all'
     )
@@ -303,6 +329,8 @@ try {
         created_utc = [DateTime]::UtcNow.ToString('o')
         configuration = $Configuration
         demo_mode = $DemoMode
+        core_boot = [bool]$CoreBoot
+        generated_core_root = $GeneratedCoreRoot
         sdk_defines = @($SdkDefine)
         sdk = [ordered]@{
             revision = $sdkRevision
@@ -326,3 +354,4 @@ try {
     [Console]::Error.WriteLine($_.Exception.Message)
     exit $failureExitCode
 }
+
