@@ -1,0 +1,447 @@
+{
+  "format": 1,
+  "restore": {
+    "C:\\dev\\helworks\\helengine-ps1-impl\\builder\\helengine.ps1.builder.csproj": {}
+  },
+  "projects": {
+    "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.baseplatform\\helengine.baseplatform.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.baseplatform\\helengine.baseplatform.csproj",
+        "projectName": "helengine.baseplatform",
+        "projectPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.baseplatform\\helengine.baseplatform.csproj",
+        "packagesPath": "C:\\dev\\helworks\\helengine\\.nuget\\packages",
+        "outputPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.baseplatform\\obj\\",
+        "projectStyle": "PackageReference",
+        "fallbackFolders": [
+          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+        ],
+        "configFilePaths": [
+          "C:\\dev\\helworks\\helengine-ps1-core\\NuGet.Config",
+          "C:\\Users\\Helena\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        ],
+        "originalTargetFrameworks": [
+          "net9.0"
+        ],
+        "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net9.0": {
+            "framework": "net9.0",
+            "targetAlias": "net9.0",
+            "projectReferences": {
+              "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.core\\helengine.core.csproj": {
+                "projectPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.core\\helengine.core.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "false",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "10.0.400"
+      },
+      "frameworks": {
+        "net9.0": {
+          "framework": "net9.0",
+          "targetAlias": "net9.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.400/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.core\\helengine.core.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.core\\helengine.core.csproj",
+        "projectName": "helengine.core",
+        "projectPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.core\\helengine.core.csproj",
+        "packagesPath": "C:\\dev\\helworks\\helengine\\.nuget\\packages",
+        "outputPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.core\\obj\\",
+        "projectStyle": "PackageReference",
+        "fallbackFolders": [
+          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+        ],
+        "configFilePaths": [
+          "C:\\dev\\helworks\\helengine-ps1-core\\NuGet.Config",
+          "C:\\Users\\Helena\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        ],
+        "originalTargetFrameworks": [
+          "net9.0"
+        ],
+        "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net9.0": {
+            "framework": "net9.0",
+            "targetAlias": "net9.0",
+            "projectReferences": {
+              "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.nativeownership\\helengine.nativeownership.csproj": {
+                "projectPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.nativeownership\\helengine.nativeownership.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "false",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "10.0.400"
+      },
+      "frameworks": {
+        "net9.0": {
+          "framework": "net9.0",
+          "targetAlias": "net9.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.400/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.files\\helengine.files.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.files\\helengine.files.csproj",
+        "projectName": "helengine.files",
+        "projectPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.files\\helengine.files.csproj",
+        "packagesPath": "C:\\dev\\helworks\\helengine\\.nuget\\packages",
+        "outputPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.files\\obj\\",
+        "projectStyle": "PackageReference",
+        "fallbackFolders": [
+          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+        ],
+        "configFilePaths": [
+          "C:\\dev\\helworks\\helengine-ps1-core\\NuGet.Config",
+          "C:\\Users\\Helena\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        ],
+        "originalTargetFrameworks": [
+          "net9.0"
+        ],
+        "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net9.0": {
+            "framework": "net9.0",
+            "targetAlias": "net9.0",
+            "projectReferences": {
+              "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.baseplatform\\helengine.baseplatform.csproj": {
+                "projectPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.baseplatform\\helengine.baseplatform.csproj"
+              },
+              "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.core\\helengine.core.csproj": {
+                "projectPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.core\\helengine.core.csproj"
+              },
+              "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.shader\\helengine.shader.csproj": {
+                "projectPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.shader\\helengine.shader.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "false",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "10.0.400"
+      },
+      "frameworks": {
+        "net9.0": {
+          "framework": "net9.0",
+          "targetAlias": "net9.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.400/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.nativeownership\\helengine.nativeownership.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.nativeownership\\helengine.nativeownership.csproj",
+        "projectName": "helengine.nativeownership",
+        "projectPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.nativeownership\\helengine.nativeownership.csproj",
+        "packagesPath": "C:\\dev\\helworks\\helengine\\.nuget\\packages",
+        "outputPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.nativeownership\\obj\\",
+        "projectStyle": "PackageReference",
+        "fallbackFolders": [
+          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+        ],
+        "configFilePaths": [
+          "C:\\dev\\helworks\\helengine-ps1-core\\NuGet.Config",
+          "C:\\Users\\Helena\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0"
+        ],
+        "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0": {
+            "framework": "net8.0",
+            "targetAlias": "net8.0",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "false",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "10.0.400"
+      },
+      "frameworks": {
+        "net8.0": {
+          "framework": "net8.0",
+          "targetAlias": "net8.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.400/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.shader\\helengine.shader.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.shader\\helengine.shader.csproj",
+        "projectName": "helengine.shader",
+        "projectPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.shader\\helengine.shader.csproj",
+        "packagesPath": "C:\\dev\\helworks\\helengine\\.nuget\\packages",
+        "outputPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.shader\\obj\\",
+        "projectStyle": "PackageReference",
+        "fallbackFolders": [
+          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+        ],
+        "configFilePaths": [
+          "C:\\dev\\helworks\\helengine-ps1-core\\NuGet.Config",
+          "C:\\Users\\Helena\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        ],
+        "originalTargetFrameworks": [
+          "net9.0"
+        ],
+        "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net9.0": {
+            "framework": "net9.0",
+            "targetAlias": "net9.0",
+            "projectReferences": {
+              "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.core\\helengine.core.csproj": {
+                "projectPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.core\\helengine.core.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "false",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "10.0.400"
+      },
+      "frameworks": {
+        "net9.0": {
+          "framework": "net9.0",
+          "targetAlias": "net9.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.400/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "C:\\dev\\helworks\\helengine-ps1-impl\\builder\\helengine.ps1.builder.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\dev\\helworks\\helengine-ps1-impl\\builder\\helengine.ps1.builder.csproj",
+        "projectName": "helengine.ps1.builder",
+        "projectPath": "C:\\dev\\helworks\\helengine-ps1-impl\\builder\\helengine.ps1.builder.csproj",
+        "packagesPath": "C:\\dev\\helworks\\helengine\\.nuget\\packages",
+        "outputPath": "C:\\dev\\helworks\\helengine-ps1-impl\\builder\\obj\\",
+        "projectStyle": "PackageReference",
+        "fallbackFolders": [
+          "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+        ],
+        "configFilePaths": [
+          "C:\\Users\\Helena\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+          "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        ],
+        "originalTargetFrameworks": [
+          "net9.0"
+        ],
+        "sources": {
+          "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net9.0": {
+            "framework": "net9.0",
+            "targetAlias": "net9.0",
+            "projectReferences": {
+              "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.baseplatform\\helengine.baseplatform.csproj": {
+                "projectPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.baseplatform\\helengine.baseplatform.csproj"
+              },
+              "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.core\\helengine.core.csproj": {
+                "projectPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.core\\helengine.core.csproj"
+              },
+              "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.files\\helengine.files.csproj": {
+                "projectPath": "C:\\dev\\helworks\\helengine-ps1-core\\engine\\helengine.files\\helengine.files.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "10.0.400"
+      },
+      "frameworks": {
+        "net9.0": {
+          "framework": "net9.0",
+          "targetAlias": "net9.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.400/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,78 @@
+using helengine.baseplatform.Definitions;
+using helengine.baseplatform.Profiles;
+
+namespace helengine.ps1.builder;
+
+/// <summary>
+/// Creates the editor-facing PS1 platform contract. The codegen profile carries every generic runtime
+/// capability flag the freestanding PS1 Core build requires, so the editor build graph regenerates
+/// Core and gameplay modules exactly as scripts/generate-core-boot.ps1 did for the boot milestone.
+/// </summary>
+public static class PlayStation1PlatformDefinitionFactory {
+    /// <summary>Catalog features the PS1 runtime does not implement; ids must exist in the engine feature catalog.</summary>
+    const string ForcedDisabledFeatures = "shaders;debug_overlay";
+
+    /// <summary>Builds the PS1 platform definition.</summary>
+    /// <returns>Platform definition consumed by the editor build graph.</returns>
+    public static PlatformDefinition Create() {
+        PlatformSettingDefinition[] buildSettings = [
+            new("game-name", "Game Name", PlatformSettingKind.Text, "helengine", true, [])
+        ];
+        PlatformCodegenProfileDefinition codegen = new(
+            "default",
+            "Default",
+            "PS1 C# to C++ generated runtime profile (freestanding, EASTL-backed provider)",
+            PlatformCodegenLanguage.Cpp,
+            PlatformSerializationEndianness.LittleEndian,
+            [
+                new(PlatformCodegenSettingIds.ForcedDisabledFeatures, "Forced Disabled Features", PlatformSettingKind.Text, ForcedDisabledFeatures, true, []),
+                new("generated-math-convention", "Generated Math Convention", PlatformSettingKind.Text, "engine-row-vector", true, []),
+                new("pointer-size-bytes", "Pointer Size (Bytes)", PlatformSettingKind.Text, "4", true, []),
+                new("load-native-runtime-metadata", "Load Native Runtime Metadata", PlatformSettingKind.Boolean, "false", true, []),
+                new("codegen-use-std-string", "Use std::string", PlatformSettingKind.Boolean, "false", true, []),
+                new("codegen-use-std-vector", "Use std::vector", PlatformSettingKind.Boolean, "false", true, []),
+                new("codegen-use-std-unordered-map", "Use std::unordered_map", PlatformSettingKind.Boolean, "false", true, []),
+                new("codegen-use-std-unordered-set", "Use std::unordered_set", PlatformSettingKind.Boolean, "false", true, []),
+                new("codegen-use-std-shared-ptr", "Use std::shared_ptr", PlatformSettingKind.Boolean, "false", true, []),
+                new("codegen-use-std-function", "Use std::function", PlatformSettingKind.Boolean, "false", true, []),
+                new("codegen-use-std-chrono", "Use std::chrono", PlatformSettingKind.Boolean, "false", true, []),
+                new("codegen-use-rtti", "Use Compiler RTTI", PlatformSettingKind.Boolean, "true", true, []),
+                new("codegen-use-exceptions", "Use Exceptions", PlatformSettingKind.Boolean, "false", true, []),
+                new("codegen-use-std-math", "Use Standard Math", PlatformSettingKind.Boolean, "false", true, []),
+                new("codegen-runtime-math-header", "Runtime Math Header", PlatformSettingKind.Text, "Ps1Math.hpp", true, []),
+                new("codegen-use-hosted-file-system", "Use Hosted File System", PlatformSettingKind.Boolean, "false", true, []),
+                new("codegen-runtime-provider-header", "Runtime Provider Header", PlatformSettingKind.Text, "Ps1RuntimeProvider.hpp", true, []),
+                new("codegen-compact-native-exception-messages", "Compact Native Exception Messages", PlatformSettingKind.Boolean, "true", true, [])
+            ]);
+        PlatformMaterialSchemaDefinition materialSchema = new(
+            PlayStation1MaterialSchemaIds.UnlitSchemaId,
+            "PS1 Opaque Unlit",
+            [PlayStation1MaterialSchemaIds.RendererFamilyId],
+            [
+                new(PlayStation1MaterialSchemaIds.BaseColorFieldId, "Base Color", PlatformMaterialFieldKind.Color, "#FFFFFFFF", true, []),
+                new(PlayStation1MaterialSchemaIds.TextureRelativePathFieldId, "Texture", PlatformMaterialFieldKind.Text, string.Empty, false, []),
+                new(PlayStation1MaterialSchemaIds.LightingModeFieldId, "Lighting", PlatformMaterialFieldKind.Choice, "unlit", true, ["unlit"]),
+                new(PlayStation1MaterialSchemaIds.TransparencyFieldId, "Transparency", PlatformMaterialFieldKind.Choice, "opaque", true, ["opaque"])
+            ]);
+        PlatformBuildProfileDefinition[] profiles = [
+            new("release", "Release", "PS1 retail-memory release build", PlayStation1MaterialSchemaIds.RendererFamilyId, "default", buildSettings)
+        ];
+        return new PlatformDefinition(
+            "ps1",
+            "PlayStation",
+            profiles,
+            [new PlatformGraphicsProfileDefinition(PlayStation1MaterialSchemaIds.RendererFamilyId, "PS1 Unlit", "PSYQo GTE opaque unlit renderer", [])],
+            [new PlatformAssetRequirementDefinition("scene", "Scene", true, ["helen"])],
+            [materialSchema],
+            [
+                new PlatformComponentSupportRule("helengine.meshcomponent", PlatformComponentSupportKind.Transform, "One static triangle-list mesh is supported.", "Remove unsupported mesh components."),
+                new PlatformComponentSupportRule("helengine.cameracomponent", PlatformComponentSupportKind.Transform, "One perspective camera is supported.", "Keep one authored camera."),
+                new PlatformComponentSupportRule("helengine.lightcomponent", PlatformComponentSupportKind.Unsupported, "PS1 authored rendering is unlit.", "Remove light components."),
+                new PlatformComponentSupportRule("helengine.directionallightcomponent", PlatformComponentSupportKind.Unsupported, "PS1 authored rendering is unlit.", "Remove light components.")
+            ],
+            [codegen],
+            [new PlatformStorageProfileDefinition("embedded-archive", "Embedded Archive", PlatformStorageProfileKind.LooseFiles, "ps1-embedded-archive", false)],
+            [new PlatformMediaProfileDefinition("ps1-exe", "PS-X EXE", PlatformMediaLayoutKind.InstallTree, false, true)],
+            new RuntimeGenerationContract(RuntimeMaterialResolutionMode.CookedPlatformOwned, true, PackagedPathPolicy.ContentRelativeOnly));
+    }
+}
