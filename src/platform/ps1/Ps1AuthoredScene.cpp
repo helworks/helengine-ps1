@@ -164,6 +164,8 @@ void Ps1AuthoredScene::frame() {
         // The pose proves the GTE inputs come from the loaded camera and cube transforms; the VBlank
         // frame count against the scene sequence shows cadence; the heap end shows steady-state allocation.
         const Ps1GtePose& pose = m_render3D->LastPose();
+        ramsyscall_printf("PS1_AUTHORED_FOV milliradians=%d\n",
+                          static_cast<int>(m_render3D->LastFieldOfViewRadians() * 1000.0f));
         ramsyscall_printf("PS1_AUTHORED_POSE trx=%d try=%d trz=%d h=%d r0=%d,%d,%d r1=%d,%d,%d r2=%d,%d,%d vblank_frame=%u heap_end=%p\n",
                           static_cast<int>(pose.Translation[0]), static_cast<int>(pose.Translation[1]), static_cast<int>(pose.Translation[2]),
                           static_cast<int>(pose.ProjectionDistance), static_cast<int>(pose.Rotation[0][0]), static_cast<int>(pose.Rotation[0][1]),

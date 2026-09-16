@@ -213,3 +213,47 @@ lights, a degenerate light direction, and non-uniform object scale.
 This verifies the shading math and the values the GTE produced. It does not
 export framebuffer pixels, so the on-screen appearance remains observed rather
 than captured.
+
+## Authored camera field of view (2026-09-16)
+
+PS1 no longer invents its field of view. `ICamera` now carries `FieldOfView`
+in radians, so the render manager reads it from the loaded camera and passes
+it to `TryBuildPose`, which already rejects values it cannot project.
+
+This reframes the PS1 picture, and deliberately so. The PS1 constant was
+1.0471976 radians, 60 degrees, while the engine default is 45 degrees, the
+value Dreamcast, the Xbox 360, DirectX 11 and Vulkan had each chosen
+independently. PS1 was the outlier. The authored cube_test camera serializes
+no field of view, so it takes the engine default and the cube now appears
+larger, framed the same way as on every other platform.
+
+The projection distance is the observable consequence, since
+`h = 120 / tan(fov / 2)`:
+
+| Field of view | Predicted h | Reported h |
+|---|---|---|
+| 60 degrees, the old constant | 207.8 | 208 |
+| 45 degrees, the authored value | 289.7 | 290 |
+
+From `20260916-182343-785-Release-203d04c1d1d2448a86c707fb4624b0e5`:
+
+```
+PS1_AUTHORED_FOV milliradians=785
+PS1_AUTHORED_POSE trx=0 try=0 trz=640 h=290 ...
+PS1_AUTHORED_LIGHT count=1 l0=-1636,-3077,-2152 c0=4096,4096,4096 bg=0,0,0
+PS1_AUTHORED_SHADE sampled=1 v0=858585 v1=858585 v2=858585
+```
+
+785 milliradians is pi/4 read from the camera rather than compiled in. The
+light and shade values are unchanged from the previous build, which is the
+expected result: field of view moves the projection and must not touch
+shading.
+
+This build also bumps the PS1 engine revision from `d0d3ce7f` to `eeaa7a1e`,
+which additionally brings a null guard in `Core.Draw` for scenes without a
+render manager and two editor build fixes that speed up editor-app rebuilds.
+
+`Ps1AuthoredProjection::DefaultFieldOfViewRadians` is renamed to
+`TestFieldOfViewRadians` and is now used only by the host projection tests, so
+their expected screen coordinates stay fixed and no production path can read a
+field of view that the authored camera did not supply.

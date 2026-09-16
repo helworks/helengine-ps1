@@ -64,7 +64,7 @@ void PoseProject(const Ps1GtePose& pose, const std::int16_t vertex[3], float& sc
 
 int CheckPose(const Ps1AuthoredTransform& camera, const Ps1AuthoredTransform& object, float radius, int failureBase) {
     Ps1GtePose pose{};
-    if (!Ps1AuthoredProjection::TryBuildPose(camera, object, radius, Ps1AuthoredProjection::DefaultFieldOfViewRadians, pose)) {
+    if (!Ps1AuthoredProjection::TryBuildPose(camera, object, radius, Ps1AuthoredProjection::TestFieldOfViewRadians, pose)) {
         return failureBase;
     }
     const Ps1Vector3 corners[] = {{0.5f, 0.5f, -0.5f}, {-0.5f, -0.5f, 0.5f}, {0.5f, -0.5f, 0.5f}, {-0.5f, 0.5f, -0.5f}};
@@ -72,7 +72,7 @@ int CheckPose(const Ps1AuthoredTransform& camera, const Ps1AuthoredTransform& ob
         std::int16_t gteVertex[3];
         if (!Ps1AuthoredProjection::TryConvertVertex(corner, gteVertex)) return failureBase + 1;
         float expectedX, expectedY, expectedDepth;
-        if (!ReferenceProject(camera, object, corner, Ps1AuthoredProjection::DefaultFieldOfViewRadians, expectedX, expectedY, expectedDepth)) return failureBase + 2;
+        if (!ReferenceProject(camera, object, corner, Ps1AuthoredProjection::TestFieldOfViewRadians, expectedX, expectedY, expectedDepth)) return failureBase + 2;
         float actualX, actualY, actualDepth;
         PoseProject(pose, gteVertex, actualX, actualY, actualDepth);
         // Half a pixel of tolerance covers 4.12 rounding of the rotation and integer translation.
@@ -94,7 +94,7 @@ int main() {
 
     // Authored pose: camera five units in front of the origin looking down -Z at a unit cube.
     Ps1GtePose pose{};
-    if (!Ps1AuthoredProjection::TryBuildPose(authoredCamera, Transform({0, 0, 0}, identity, one), cubeRadius, Ps1AuthoredProjection::DefaultFieldOfViewRadians, pose)) return 1;
+    if (!Ps1AuthoredProjection::TryBuildPose(authoredCamera, Transform({0, 0, 0}, identity, one), cubeRadius, Ps1AuthoredProjection::TestFieldOfViewRadians, pose)) return 1;
     if (pose.Translation[0] != 0 || pose.Translation[1] != 0 || pose.Translation[2] != 640) return 2;
     if (pose.Rotation[0][0] != 4096 || pose.Rotation[1][1] != -4096 || pose.Rotation[2][2] != -4096) return 3;
     if (pose.Rotation[0][1] != 0 || pose.Rotation[1][2] != 0 || pose.Rotation[2][0] != 0) return 4;
@@ -136,12 +136,12 @@ int main() {
     if (reversedArea != -signedArea) return 61;
 
     // Fixed-point overflow: a scale that pushes 4.12 rotation entries past the representable range is rejected.
-    if (Ps1AuthoredProjection::TryBuildPose(authoredCamera, Transform({0, 0, 0}, identity, {9.0f, 9.0f, 9.0f}), cubeRadius * 9.0f, Ps1AuthoredProjection::DefaultFieldOfViewRadians, pose)) return 70;
+    if (Ps1AuthoredProjection::TryBuildPose(authoredCamera, Transform({0, 0, 0}, identity, {9.0f, 9.0f, 9.0f}), cubeRadius * 9.0f, Ps1AuthoredProjection::TestFieldOfViewRadians, pose)) return 70;
     // Depth range: too close or too far for the ordering table is rejected before submission.
-    if (Ps1AuthoredProjection::TryBuildPose(Transform({0, 0, 1.2f}, identity, one), Transform({0, 0, 0}, identity, one), cubeRadius, Ps1AuthoredProjection::DefaultFieldOfViewRadians, pose)) return 71;
-    if (Ps1AuthoredProjection::TryBuildPose(Transform({0, 0, 12.0f}, identity, one), Transform({0, 0, 0}, identity, one), cubeRadius, Ps1AuthoredProjection::DefaultFieldOfViewRadians, pose)) return 72;
+    if (Ps1AuthoredProjection::TryBuildPose(Transform({0, 0, 1.2f}, identity, one), Transform({0, 0, 0}, identity, one), cubeRadius, Ps1AuthoredProjection::TestFieldOfViewRadians, pose)) return 71;
+    if (Ps1AuthoredProjection::TryBuildPose(Transform({0, 0, 12.0f}, identity, one), Transform({0, 0, 0}, identity, one), cubeRadius, Ps1AuthoredProjection::TestFieldOfViewRadians, pose)) return 72;
     // An object behind the camera is rejected.
-    if (Ps1AuthoredProjection::TryBuildPose(authoredCamera, Transform({0, 0, 9.0f}, identity, one), cubeRadius, Ps1AuthoredProjection::DefaultFieldOfViewRadians, pose)) return 73;
+    if (Ps1AuthoredProjection::TryBuildPose(authoredCamera, Transform({0, 0, 9.0f}, identity, one), cubeRadius, Ps1AuthoredProjection::TestFieldOfViewRadians, pose)) return 73;
     // Vertices outside the 16-bit GTE range are rejected.
     if (Ps1AuthoredProjection::TryConvertVertex({300.0f, 0.0f, 0.0f}, vertex)) return 74;
     return 0;

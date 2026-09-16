@@ -200,6 +200,9 @@ void Ps1RenderManager3D::Draw() {
         return;
     }
     CameraTransform = TransformOf(camera->get_Parent());
+    // The field of view belongs to the authored camera, so one scene frames the same way on every
+    // platform. TryBuildPose rejects values outside the range it can project.
+    CameraFieldOfViewRadians = camera->get_FieldOfView();
     const ::CameraClearSettings clearSettings = camera->get_ClearSettings();
     ClearColor = clearSettings.ClearColorEnabled
         ? psyqo::Color{{.r = Channel(clearSettings.ClearColor.X), .g = Channel(clearSettings.ClearColor.Y), .b = Channel(clearSettings.ClearColor.Z)}}
@@ -242,7 +245,7 @@ void Ps1RenderManager3D::Visit(::IDrawable3D* drawable) {
     const Ps1AuthoredTransform objectTransform = TransformOf(drawable->get_Parent());
     Ps1GtePose pose{};
     if (!Ps1AuthoredProjection::TryBuildPose(CameraTransform, objectTransform, model->BoundingRadius(),
-                                             Ps1AuthoredProjection::DefaultFieldOfViewRadians, pose)) {
+                                             CameraFieldOfViewRadians, pose)) {
         Reject("PS1_RENDER_POSE_REJECTED");
         FrameOpen = false;
         Renderer.CancelAuthoredFrame();

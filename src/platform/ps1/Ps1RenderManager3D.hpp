@@ -52,6 +52,9 @@ public:
     /// <summary>Directional lights the object manager reported during the most recent Draw.</summary>
     std::uint32_t LastLightCount() const { return LightCountValue; }
 
+    /// <summary>Vertical field of view the loaded camera supplied for the most recent Draw, in radians.</summary>
+    float LastFieldOfViewRadians() const { return CameraFieldOfViewRadians; }
+
 private:
     /// <summary>Reads the scene's directional lights into camera-space GTE lighting state.</summary>
     bool TryBuildLighting();
@@ -65,6 +68,8 @@ private:
     psyqo::GPU& Gpu;
     Ps1RasterRenderer& Renderer;
     Ps1AuthoredTransform CameraTransform{};
+    /// <summary>Vertical field of view in radians read from the loaded camera during Draw.</summary>
+    float CameraFieldOfViewRadians = 0.0f;
     psyqo::Color ClearColor = Ps1FrameContext::DefaultClearColor;
     Ps1GtePose LastPoseValue{};
     Ps1GteLighting LightingValue{};

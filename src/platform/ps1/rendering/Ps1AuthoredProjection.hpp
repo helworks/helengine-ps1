@@ -52,8 +52,12 @@ public:
     /// <summary>GTE units per engine unit; a unit cube spans the same +/-64 as the diagnostic cube.</summary>
     static constexpr float UnitsPerEngineUnit = 128.0f;
 
-    /// <summary>Vertical field of view used for authored cameras, which do not serialize one.</summary>
-    static constexpr float DefaultFieldOfViewRadians = 1.0471976f;
+    /// <summary>
+    /// Vertical field of view used only by the host projection tests, so their expected screen
+    /// coordinates do not move when the engine's default changes. Authored frames read the value
+    /// from the camera instead; see ICamera::FieldOfView.
+    /// </summary>
+    static constexpr float TestFieldOfViewRadians = 1.0471976f;
 
     /// <summary>Half the framebuffer height, the projection plane distance reference.</summary>
     static constexpr float HalfScreenHeight = 120.0f;
