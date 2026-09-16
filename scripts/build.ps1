@@ -4,19 +4,41 @@ param(
     [ValidateSet('SmallDebug', 'Release')]
     [string] $Configuration,
 
-    [Parameter(Mandatory = $true)]
     [ValidateSet('Clear', 'Static', 'Rotate', 'DepthOrder', 'InvalidPose', 'Capacity', 'CompletionStress')]
-    [string] $DemoMode,
+    [string] $DemoMode = 'Clear',
 
     [string[]] $SdkDefine = @(),
 
     [switch] $CoreBoot,
 
-    [string] $GeneratedCoreRoot
+    [string] $GeneratedCoreRoot,
+
+    [switch] $Authored,
+
+    [string] $AuthoredContentRoot,
+
+    [string] $AuthoredDeclarations
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ($Authored) {
+    # Authored mode links generated Core exactly like the boot checkpoint and adds the
+    # embedded content archive plus the generated scene catalog.
+    if ($CoreBoot) { throw 'Authored and CoreBoot are mutually exclusive; Authored implies the Core link.' }
+    if ([string]::IsNullOrWhiteSpace($GeneratedCoreRoot)) { throw 'Authored requires GeneratedCoreRoot.' }
+    if ([string]::IsNullOrWhiteSpace($AuthoredContentRoot)) { throw 'Authored requires AuthoredContentRoot.' }
+    if ([string]::IsNullOrWhiteSpace($AuthoredDeclarations)) { throw 'Authored requires AuthoredDeclarations.' }
+    $AuthoredContentRoot = (Resolve-Path -LiteralPath $AuthoredContentRoot).Path
+    $AuthoredDeclarations = (Resolve-Path -LiteralPath $AuthoredDeclarations).Path
+    if (-not (Test-Path -LiteralPath (Join-Path $GeneratedCoreRoot 'ps1_runtime_scene_catalog.cpp') -PathType Leaf)) {
+        throw 'Authored input is missing: ps1_runtime_scene_catalog.cpp (run the PS1 platform builder first).'
+    }
+    $CoreBoot = $true
+} elseif (-not [string]::IsNullOrWhiteSpace($AuthoredContentRoot) -or -not [string]::IsNullOrWhiteSpace($AuthoredDeclarations)) {
+    throw 'AuthoredContentRoot and AuthoredDeclarations must be paired with Authored.'
+}
 
 if ($CoreBoot) {
     if ([string]::IsNullOrWhiteSpace($GeneratedCoreRoot)) { throw 'CoreBoot requires GeneratedCoreRoot.' }
@@ -241,6 +263,22 @@ try {
     if ($CoreBoot) {
         Copy-InputPath -SourcePath $GeneratedCoreRoot -DestinationRoot $runRoot -RelativeRoot 'generated-core'
     }
+    if ($Authored) {
+        Copy-InputPath -SourcePath $AuthoredContentRoot -DestinationRoot $runRoot -RelativeRoot 'authored-content'
+        Copy-InputPath -SourcePath (Join-Path $sourceRoot 'scripts\embed-authored-assets.py') -DestinationRoot $runRoot -RelativeRoot 'scripts'
+        # The packer runs inside the container from /work, so declared sources are rewritten to the copied tree.
+        $declared = Get-Content -LiteralPath $AuthoredDeclarations -Raw | ConvertFrom-Json
+        $containerFiles = @()
+        foreach ($entry in @($declared.files)) {
+            $relativePath = [string]$entry.relativePath
+            if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $runRoot 'authored-content') ($relativePath.Replace('/', '\'))) -PathType Leaf)) {
+                throw "Declared authored asset is missing from the staged content: $relativePath"
+            }
+            $containerFiles += [ordered]@{ relativePath = $relativePath; sourcePath = ('authored-content/' + $relativePath) }
+        }
+        if ($containerFiles.Count -eq 0) { throw 'Authored declarations list no files.' }
+        [IO.File]::WriteAllText((Join-Path $runRoot 'authored-declarations.json'), ([ordered]@{ files = $containerFiles } | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
+    }
 
     $sdkCopy = Join-Path $runRoot 'third_party\nugget'
     $patchCopy = Join-Path $runRoot $sdkPatchRelative
@@ -272,6 +310,7 @@ try {
         "BUILD=$Configuration",
         "DEMO_MODE=$($DemoMode.ToUpperInvariant())",
         "CORE_BOOT=$([int][bool]$CoreBoot)",
+        "AUTHORED=$([int][bool]$Authored)",
         "SDK_DEFINES=$($SdkDefine -join ' ')",
         'all'
     )
@@ -330,6 +369,8 @@ try {
         configuration = $Configuration
         demo_mode = $DemoMode
         core_boot = [bool]$CoreBoot
+        authored = [bool]$Authored
+        authored_content_root = $AuthoredContentRoot
         generated_core_root = $GeneratedCoreRoot
         sdk_defines = @($SdkDefine)
         sdk = [ordered]@{
