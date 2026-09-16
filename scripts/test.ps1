@@ -1,10 +1,22 @@
 [CmdletBinding()]
-param()
+param(
+    # Root of the csharpcodegen checkout whose cs2.cpp\.net.cpp runtime headers the embedded
+    # asset stream test compiles against. The stream test is skipped, and recorded as skipped,
+    # when this is omitted.
+    [string] $CodegenRuntimeRoot
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $sourceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$codegenRuntimeHeaders = ''
+if (-not [string]::IsNullOrWhiteSpace($CodegenRuntimeRoot)) {
+    $codegenRuntimeHeaders = Join-Path (Resolve-Path -LiteralPath $CodegenRuntimeRoot).Path 'cs2.cpp\.net.cpp'
+    if (-not (Test-Path -LiteralPath (Join-Path $codegenRuntimeHeaders 'system\io\stream.hpp') -PathType Leaf)) {
+        throw "CodegenRuntimeRoot does not contain cs2.cpp\.net.cpp\system\io\stream.hpp: $CodegenRuntimeRoot"
+    }
+}
 $buildRoot = Join-Path (Split-Path $sourceRoot -Parent) 'builds\helengine-ps1'
 $runName = 'host-tests-{0}-{1}' -f (Get-Date -Format 'yyyyMMdd-HHmmss-fff'), ([guid]::NewGuid().ToString('N'))
 $runRoot = Join-Path $buildRoot $runName
@@ -99,6 +111,15 @@ Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\host_smoke.cpp') -Dest
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1RenderPolicyTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1RenderPolicyTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1SharedPtrTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1SharedPtrTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1RuntimeClockTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1RuntimeClockTests.cpp')
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1EmbeddedArchiveTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1EmbeddedArchiveTests.cpp')
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1EmbeddedAssetStreamTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1EmbeddedAssetStreamTests.cpp')
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\stream-config') -Destination (Join-Path $runRoot 'tests\host\stream-config') -Recurse
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\test_embed_authored_assets.py') -Destination (Join-Path $runRoot 'tests\host\test_embed_authored_assets.py')
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'scripts\embed-authored-assets.py') -Destination (Join-Path $runRoot 'scripts\embed-authored-assets.py')
+if ($codegenRuntimeHeaders -ne '') {
+    New-Item -ItemType Directory -Force -Path (Join-Path $runRoot 'codegen-runtime') | Out-Null
+    Copy-Item -Path (Join-Path $codegenRuntimeHeaders '*') -Destination (Join-Path $runRoot 'codegen-runtime') -Recurse
+}
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1HashTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1HashTests.cpp')
 Copy-Item -Path (Join-Path $sourceRoot 'third_party\nugget\third_party\EASTL\include\*') -Destination (Join-Path $runRoot 'third_party\EASTL\include') -Recurse
 Copy-Item -Path (Join-Path $sourceRoot 'third_party\nugget\third_party\EABase\include\Common\*') -Destination (Join-Path $runRoot 'third_party\EABase\include\Common') -Recurse
@@ -114,6 +135,11 @@ $ps1HashCompileLog = Join-Path $runRoot 'ps1-hash-cpp-compile.log'
 $ps1HashRunLog = Join-Path $runRoot 'ps1-hash-cpp-run.log'
 $runtimeClockCompileLog = Join-Path $runRoot 'runtime-clock-cpp-compile.log'
 $runtimeClockRunLog = Join-Path $runRoot 'runtime-clock-cpp-run.log'
+$archiveCompileLog = Join-Path $runRoot 'embedded-archive-cpp-compile.log'
+$archiveRunLog = Join-Path $runRoot 'embedded-archive-cpp-run.log'
+$streamCompileLog = Join-Path $runRoot 'embedded-stream-cpp-compile.log'
+$streamRunLog = Join-Path $runRoot 'embedded-stream-cpp-run.log'
+$streamFailLog = Join-Path $runRoot 'embedded-stream-cpp-fail.log'
 $pythonLog = Join-Path $runRoot 'python-tests.log'
 $compileStdout = Join-Path $runRoot 'host-cpp-compile.stdout.log'
 $compileStderr = Join-Path $runRoot 'host-cpp-compile.stderr.log'
@@ -135,6 +161,16 @@ $runtimeClockCompileStdout = Join-Path $runRoot 'runtime-clock-cpp-compile.stdou
 $runtimeClockCompileStderr = Join-Path $runRoot 'runtime-clock-cpp-compile.stderr.log'
 $runtimeClockRunStdout = Join-Path $runRoot 'runtime-clock-cpp-run.stdout.log'
 $runtimeClockRunStderr = Join-Path $runRoot 'runtime-clock-cpp-run.stderr.log'
+$archiveCompileStdout = Join-Path $runRoot 'embedded-archive-cpp-compile.stdout.log'
+$archiveCompileStderr = Join-Path $runRoot 'embedded-archive-cpp-compile.stderr.log'
+$archiveRunStdout = Join-Path $runRoot 'embedded-archive-cpp-run.stdout.log'
+$archiveRunStderr = Join-Path $runRoot 'embedded-archive-cpp-run.stderr.log'
+$streamCompileStdout = Join-Path $runRoot 'embedded-stream-cpp-compile.stdout.log'
+$streamCompileStderr = Join-Path $runRoot 'embedded-stream-cpp-compile.stderr.log'
+$streamRunStdout = Join-Path $runRoot 'embedded-stream-cpp-run.stdout.log'
+$streamRunStderr = Join-Path $runRoot 'embedded-stream-cpp-run.stderr.log'
+$streamFailStdout = Join-Path $runRoot 'embedded-stream-cpp-fail.stdout.log'
+$streamFailStderr = Join-Path $runRoot 'embedded-stream-cpp-fail.stderr.log'
 $pythonStdout = Join-Path $runRoot 'python-tests.stdout.log'
 $pythonStderr = Join-Path $runRoot 'python-tests.stderr.log'
 
@@ -265,6 +301,75 @@ Merge-ProcessLogs -StdoutPath $runtimeClockRunResult.StdoutPath -StderrPath $run
 Add-ExitMarker -LogPath $runtimeClockRunLog -Name 'RUNTIME_CLOCK_CPP_RUN' -ExitCode $runtimeClockRunResult.ExitCode
 if ($runtimeClockRunResult.ExitCode -ne 0) { throw ("PS1 runtime clock executable failed with exit code {0}{1}{2}" -f $runtimeClockRunResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $runtimeClockRunResult.StdoutPath -StderrPath $runtimeClockRunResult.StderrPath)) }
 
+$archiveCompileArgs = @(
+    'run', '--rm',
+    '--mount', "type=bind,source=$runRoot,target=/work",
+    '--workdir', '/work',
+    $dockerImage,
+    'g++', '-std=c++20', '-Wall', '-Wextra', '-Isrc',
+    '/work/tests/host/Ps1EmbeddedArchiveTests.cpp', '-o', '/work/ps1_embedded_archive_tests'
+)
+$archiveCompileResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $archiveCompileArgs -WorkingDirectory $runRoot -StdoutPath $archiveCompileStdout -StderrPath $archiveCompileStderr
+Merge-ProcessLogs -StdoutPath $archiveCompileResult.StdoutPath -StderrPath $archiveCompileResult.StderrPath -CombinedPath $archiveCompileLog
+Add-ExitMarker -LogPath $archiveCompileLog -Name 'EMBEDDED_ARCHIVE_CPP_COMPILE' -ExitCode $archiveCompileResult.ExitCode
+if ($archiveCompileResult.ExitCode -ne 0) { throw ("PS1 embedded archive compile failed with exit code {0}{1}{2}" -f $archiveCompileResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $archiveCompileResult.StdoutPath -StderrPath $archiveCompileResult.StderrPath)) }
+
+$archiveRunArgs = @(
+    'run', '--rm',
+    '--mount', "type=bind,source=$runRoot,target=/work",
+    '--workdir', '/work',
+    $dockerImage,
+    '/work/ps1_embedded_archive_tests'
+)
+$archiveRunResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $archiveRunArgs -WorkingDirectory $runRoot -StdoutPath $archiveRunStdout -StderrPath $archiveRunStderr
+Merge-ProcessLogs -StdoutPath $archiveRunResult.StdoutPath -StderrPath $archiveRunResult.StderrPath -CombinedPath $archiveRunLog
+Add-ExitMarker -LogPath $archiveRunLog -Name 'EMBEDDED_ARCHIVE_CPP_RUN' -ExitCode $archiveRunResult.ExitCode
+if ($archiveRunResult.ExitCode -ne 0) { throw ("PS1 embedded archive executable failed with exit code {0}{1}{2}" -f $archiveRunResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $archiveRunResult.StdoutPath -StderrPath $archiveRunResult.StderrPath)) }
+
+# The stream test needs the shared runtime headers; without them it is recorded as skipped, never as passed.
+$streamStatus = 'skipped'
+$streamCompileExit = $null
+$streamRunExit = $null
+$streamFailExit = $null
+if ($codegenRuntimeHeaders -ne '') {
+    $streamCompileArgs = @(
+        'run', '--rm',
+        '--mount', "type=bind,source=$runRoot,target=/work",
+        '--workdir', '/work',
+        $dockerImage,
+        'g++', '-std=c++20', '-fno-exceptions', '-fno-rtti', '-Wall', '-Wextra', '-DHE_CPP_TEST_HOST',
+        '-Isrc', '-I/work/tests/host/stream-config', '-I/work/codegen-runtime',
+        '/work/tests/host/Ps1EmbeddedAssetStreamTests.cpp', '-o', '/work/ps1_embedded_stream_tests'
+    )
+    $streamCompileResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $streamCompileArgs -WorkingDirectory $runRoot -StdoutPath $streamCompileStdout -StderrPath $streamCompileStderr
+    Merge-ProcessLogs -StdoutPath $streamCompileResult.StdoutPath -StderrPath $streamCompileResult.StderrPath -CombinedPath $streamCompileLog
+    Add-ExitMarker -LogPath $streamCompileLog -Name 'EMBEDDED_STREAM_CPP_COMPILE' -ExitCode $streamCompileResult.ExitCode
+    $streamCompileExit = $streamCompileResult.ExitCode
+    if ($streamCompileResult.ExitCode -ne 0) { throw ("PS1 embedded stream compile failed with exit code {0}{1}{2}" -f $streamCompileResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $streamCompileResult.StdoutPath -StderrPath $streamCompileResult.StderrPath)) }
+
+    $streamRunArgs = @(
+        'run', '--rm',
+        '--mount', "type=bind,source=$runRoot,target=/work",
+        '--workdir', '/work',
+        $dockerImage,
+        '/work/ps1_embedded_stream_tests'
+    )
+    $streamRunResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $streamRunArgs -WorkingDirectory $runRoot -StdoutPath $streamRunStdout -StderrPath $streamRunStderr
+    Merge-ProcessLogs -StdoutPath $streamRunResult.StdoutPath -StderrPath $streamRunResult.StderrPath -CombinedPath $streamRunLog
+    Add-ExitMarker -LogPath $streamRunLog -Name 'EMBEDDED_STREAM_CPP_RUN' -ExitCode $streamRunResult.ExitCode
+    $streamRunExit = $streamRunResult.ExitCode
+    if ($streamRunResult.ExitCode -ne 0) { throw ("PS1 embedded stream executable failed with exit code {0}{1}{2}" -f $streamRunResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $streamRunResult.StdoutPath -StderrPath $streamRunResult.StderrPath)) }
+
+    # Seeking outside the asset must route to the runtime failure hook, which exits with 73.
+    $streamFailArgs = $streamRunArgs + @('fail')
+    $streamFailResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $streamFailArgs -WorkingDirectory $runRoot -StdoutPath $streamFailStdout -StderrPath $streamFailStderr
+    Merge-ProcessLogs -StdoutPath $streamFailResult.StdoutPath -StderrPath $streamFailResult.StderrPath -CombinedPath $streamFailLog
+    Add-ExitMarker -LogPath $streamFailLog -Name 'EMBEDDED_STREAM_CPP_FAIL' -ExitCode $streamFailResult.ExitCode
+    $streamFailExit = $streamFailResult.ExitCode
+    if ($streamFailResult.ExitCode -ne 73) { throw ("PS1 embedded stream failure path exited with {0} instead of 73" -f $streamFailResult.ExitCode) }
+    $streamStatus = 'passed'
+}
+
 $pythonArgs = @(
     'run', '--rm',
     '--mount', "type=bind,source=$runRoot,target=/work",
@@ -290,6 +395,12 @@ $summary = [ordered]@{
     ps1_hash_cpp_run = $ps1HashRunLog
     runtime_clock_cpp_compile = $runtimeClockCompileLog
     runtime_clock_cpp_run = $runtimeClockRunLog
+    embedded_archive_cpp_compile = $archiveCompileLog
+    embedded_archive_cpp_run = $archiveRunLog
+    embedded_stream_status = $streamStatus
+    embedded_stream_cpp_compile = $streamCompileLog
+    embedded_stream_cpp_run = $streamRunLog
+    embedded_stream_cpp_fail = $streamFailLog
     python_tests = $pythonLog
     exit_codes = [ordered]@{
         host_cpp_compile = $compileResult.ExitCode
@@ -302,6 +413,11 @@ $summary = [ordered]@{
         ps1_hash_cpp_run = $ps1HashRunResult.ExitCode
         runtime_clock_cpp_compile = $runtimeClockCompileResult.ExitCode
         runtime_clock_cpp_run = $runtimeClockRunResult.ExitCode
+        embedded_archive_cpp_compile = $archiveCompileResult.ExitCode
+        embedded_archive_cpp_run = $archiveRunResult.ExitCode
+        embedded_stream_cpp_compile = $streamCompileExit
+        embedded_stream_cpp_run = $streamRunExit
+        embedded_stream_cpp_fail = $streamFailExit
         python_tests = $pythonResult.ExitCode
     }
     native_streams = [ordered]@{
@@ -325,6 +441,16 @@ $summary = [ordered]@{
         runtime_clock_cpp_compile_stderr = $runtimeClockCompileStderr
         runtime_clock_cpp_run_stdout = $runtimeClockRunStdout
         runtime_clock_cpp_run_stderr = $runtimeClockRunStderr
+        embedded_archive_cpp_compile_stdout = $archiveCompileStdout
+        embedded_archive_cpp_compile_stderr = $archiveCompileStderr
+        embedded_archive_cpp_run_stdout = $archiveRunStdout
+        embedded_archive_cpp_run_stderr = $archiveRunStderr
+        embedded_stream_cpp_compile_stdout = $streamCompileStdout
+        embedded_stream_cpp_compile_stderr = $streamCompileStderr
+        embedded_stream_cpp_run_stdout = $streamRunStdout
+        embedded_stream_cpp_run_stderr = $streamRunStderr
+        embedded_stream_cpp_fail_stdout = $streamFailStdout
+        embedded_stream_cpp_fail_stderr = $streamFailStderr
         python_stdout = $pythonStdout
         python_stderr = $pythonStderr
     }
