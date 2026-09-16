@@ -2,6 +2,8 @@
 
 #include "ModelAsset.hpp"
 #include "float3.hpp"
+#include "platform/ps1/Ps1Math.hpp"
+#include "platform/ps1/rendering/Ps1AuthoredProjection.hpp"
 #include "runtime/array.hpp"
 
 namespace helengine::ps1 {
@@ -28,26 +30,40 @@ bool Ps1RuntimeModel::Initialize(const ::ModelAsset* asset) {
             return false;
         }
     }
-    PositionsValue = new ::float3[static_cast<std::uint32_t>(vertexCount)];
-    IndicesValue = new std::uint16_t[static_cast<std::uint32_t>(indexCount)];
+    std::int16_t* vertices = new std::int16_t[static_cast<std::uint32_t>(vertexCount) * 3u];
+    float radius = 0.0f;
     for (int32_t index = 0; index < vertexCount; ++index) {
-        PositionsValue[index] = asset->Positions->Data[index];
+        const ::float3& position = asset->Positions->Data[index];
+        std::int16_t converted[3];
+        if (!Ps1AuthoredProjection::TryConvertVertex(Ps1Vector3{position.X, position.Y, position.Z}, converted)) {
+            delete[] vertices;
+            return false;
+        }
+        vertices[index * 3] = converted[0];
+        vertices[index * 3 + 1] = converted[1];
+        vertices[index * 3 + 2] = converted[2];
+        const float length = sqrt(position.X * position.X + position.Y * position.Y + position.Z * position.Z);
+        if (length > radius) radius = length;
     }
+    IndicesValue = new std::uint16_t[static_cast<std::uint32_t>(indexCount)];
     for (int32_t index = 0; index < indexCount; ++index) {
         IndicesValue[index] = asset->Indices16->Data[index];
     }
+    VerticesValue = vertices;
     VertexCountValue = static_cast<std::uint32_t>(vertexCount);
     IndexCountValue = static_cast<std::uint32_t>(indexCount);
+    BoundingRadiusValue = radius;
     return true;
 }
 
 void Ps1RuntimeModel::Dispose() {
-    delete[] PositionsValue;
+    delete[] VerticesValue;
     delete[] IndicesValue;
-    PositionsValue = nullptr;
+    VerticesValue = nullptr;
     IndicesValue = nullptr;
     VertexCountValue = 0;
     IndexCountValue = 0;
+    BoundingRadiusValue = 0.0f;
 }
 
 }  // namespace helengine::ps1

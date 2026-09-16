@@ -112,6 +112,7 @@ Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1RenderPolicyTests.c
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1SharedPtrTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1SharedPtrTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1RuntimeClockTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1RuntimeClockTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1EmbeddedArchiveTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1EmbeddedArchiveTests.cpp')
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1AuthoredProjectionTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1AuthoredProjectionTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1EmbeddedAssetStreamTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1EmbeddedAssetStreamTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\stream-config') -Destination (Join-Path $runRoot 'tests\host\stream-config') -Recurse
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\test_embed_authored_assets.py') -Destination (Join-Path $runRoot 'tests\host\test_embed_authored_assets.py')
@@ -137,6 +138,8 @@ $runtimeClockCompileLog = Join-Path $runRoot 'runtime-clock-cpp-compile.log'
 $runtimeClockRunLog = Join-Path $runRoot 'runtime-clock-cpp-run.log'
 $archiveCompileLog = Join-Path $runRoot 'embedded-archive-cpp-compile.log'
 $archiveRunLog = Join-Path $runRoot 'embedded-archive-cpp-run.log'
+$projectionCompileLog = Join-Path $runRoot 'authored-projection-cpp-compile.log'
+$projectionRunLog = Join-Path $runRoot 'authored-projection-cpp-run.log'
 $streamCompileLog = Join-Path $runRoot 'embedded-stream-cpp-compile.log'
 $streamRunLog = Join-Path $runRoot 'embedded-stream-cpp-run.log'
 $streamFailLog = Join-Path $runRoot 'embedded-stream-cpp-fail.log'
@@ -161,6 +164,10 @@ $runtimeClockCompileStdout = Join-Path $runRoot 'runtime-clock-cpp-compile.stdou
 $runtimeClockCompileStderr = Join-Path $runRoot 'runtime-clock-cpp-compile.stderr.log'
 $runtimeClockRunStdout = Join-Path $runRoot 'runtime-clock-cpp-run.stdout.log'
 $runtimeClockRunStderr = Join-Path $runRoot 'runtime-clock-cpp-run.stderr.log'
+$projectionCompileStdout = Join-Path $runRoot 'authored-projection-cpp-compile.stdout.log'
+$projectionCompileStderr = Join-Path $runRoot 'authored-projection-cpp-compile.stderr.log'
+$projectionRunStdout = Join-Path $runRoot 'authored-projection-cpp-run.stdout.log'
+$projectionRunStderr = Join-Path $runRoot 'authored-projection-cpp-run.stderr.log'
 $archiveCompileStdout = Join-Path $runRoot 'embedded-archive-cpp-compile.stdout.log'
 $archiveCompileStderr = Join-Path $runRoot 'embedded-archive-cpp-compile.stderr.log'
 $archiveRunStdout = Join-Path $runRoot 'embedded-archive-cpp-run.stdout.log'
@@ -301,6 +308,31 @@ Merge-ProcessLogs -StdoutPath $runtimeClockRunResult.StdoutPath -StderrPath $run
 Add-ExitMarker -LogPath $runtimeClockRunLog -Name 'RUNTIME_CLOCK_CPP_RUN' -ExitCode $runtimeClockRunResult.ExitCode
 if ($runtimeClockRunResult.ExitCode -ne 0) { throw ("PS1 runtime clock executable failed with exit code {0}{1}{2}" -f $runtimeClockRunResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $runtimeClockRunResult.StdoutPath -StderrPath $runtimeClockRunResult.StderrPath)) }
 
+$projectionCompileArgs = @(
+    'run', '--rm',
+    '--mount', "type=bind,source=$runRoot,target=/work",
+    '--workdir', '/work',
+    $dockerImage,
+    'g++', '-std=c++20', '-Wall', '-Wextra', '-Isrc',
+    '/work/tests/host/Ps1AuthoredProjectionTests.cpp', '-o', '/work/ps1_authored_projection_tests'
+)
+$projectionCompileResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $projectionCompileArgs -WorkingDirectory $runRoot -StdoutPath $projectionCompileStdout -StderrPath $projectionCompileStderr
+Merge-ProcessLogs -StdoutPath $projectionCompileResult.StdoutPath -StderrPath $projectionCompileResult.StderrPath -CombinedPath $projectionCompileLog
+Add-ExitMarker -LogPath $projectionCompileLog -Name 'AUTHORED_PROJECTION_CPP_COMPILE' -ExitCode $projectionCompileResult.ExitCode
+if ($projectionCompileResult.ExitCode -ne 0) { throw ("PS1 authored projection compile failed with exit code {0}{1}{2}" -f $projectionCompileResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $projectionCompileResult.StdoutPath -StderrPath $projectionCompileResult.StderrPath)) }
+
+$projectionRunArgs = @(
+    'run', '--rm',
+    '--mount', "type=bind,source=$runRoot,target=/work",
+    '--workdir', '/work',
+    $dockerImage,
+    '/work/ps1_authored_projection_tests'
+)
+$projectionRunResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $projectionRunArgs -WorkingDirectory $runRoot -StdoutPath $projectionRunStdout -StderrPath $projectionRunStderr
+Merge-ProcessLogs -StdoutPath $projectionRunResult.StdoutPath -StderrPath $projectionRunResult.StderrPath -CombinedPath $projectionRunLog
+Add-ExitMarker -LogPath $projectionRunLog -Name 'AUTHORED_PROJECTION_CPP_RUN' -ExitCode $projectionRunResult.ExitCode
+if ($projectionRunResult.ExitCode -ne 0) { throw ("PS1 authored projection executable failed with exit code {0}{1}{2}" -f $projectionRunResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $projectionRunResult.StdoutPath -StderrPath $projectionRunResult.StderrPath)) }
+
 $archiveCompileArgs = @(
     'run', '--rm',
     '--mount', "type=bind,source=$runRoot,target=/work",
@@ -397,6 +429,8 @@ $summary = [ordered]@{
     runtime_clock_cpp_run = $runtimeClockRunLog
     embedded_archive_cpp_compile = $archiveCompileLog
     embedded_archive_cpp_run = $archiveRunLog
+    authored_projection_cpp_compile = $projectionCompileLog
+    authored_projection_cpp_run = $projectionRunLog
     embedded_stream_status = $streamStatus
     embedded_stream_cpp_compile = $streamCompileLog
     embedded_stream_cpp_run = $streamRunLog
@@ -415,6 +449,8 @@ $summary = [ordered]@{
         runtime_clock_cpp_run = $runtimeClockRunResult.ExitCode
         embedded_archive_cpp_compile = $archiveCompileResult.ExitCode
         embedded_archive_cpp_run = $archiveRunResult.ExitCode
+        authored_projection_cpp_compile = $projectionCompileResult.ExitCode
+        authored_projection_cpp_run = $projectionRunResult.ExitCode
         embedded_stream_cpp_compile = $streamCompileExit
         embedded_stream_cpp_run = $streamRunExit
         embedded_stream_cpp_fail = $streamFailExit
@@ -441,6 +477,10 @@ $summary = [ordered]@{
         runtime_clock_cpp_compile_stderr = $runtimeClockCompileStderr
         runtime_clock_cpp_run_stdout = $runtimeClockRunStdout
         runtime_clock_cpp_run_stderr = $runtimeClockRunStderr
+        authored_projection_cpp_compile_stdout = $projectionCompileStdout
+        authored_projection_cpp_compile_stderr = $projectionCompileStderr
+        authored_projection_cpp_run_stdout = $projectionRunStdout
+        authored_projection_cpp_run_stderr = $projectionRunStderr
         embedded_archive_cpp_compile_stdout = $archiveCompileStdout
         embedded_archive_cpp_compile_stderr = $archiveCompileStderr
         embedded_archive_cpp_run_stdout = $archiveRunStdout

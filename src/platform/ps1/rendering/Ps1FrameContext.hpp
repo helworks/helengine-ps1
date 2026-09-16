@@ -31,10 +31,13 @@ class Ps1FrameContext final {
     static_assert(TriangleCapacity >= 12);
 #endif
 
+    /** Clear color used by the diagnostic scenes; authored scenes pass the camera's clear color. */
+    static constexpr psyqo::Color DefaultClearColor{{.r = 16, .g = 20, .b = 32}};
+
     bool Begin(std::uint32_t sceneSequence, std::uint32_t triangleCapacity = TriangleCapacity);
     TriangleFragment* TryReserveTriangle();
     bool Insert(TriangleFragment& fragment, std::uint16_t bucket);
-    bool Submit(psyqo::GPU& gpu);
+    bool Submit(psyqo::GPU& gpu, psyqo::Color clearColor = DefaultClearColor);
     void Cancel();
 
     std::uint32_t UsedPackets() const { return 1u + m_insertedCount; }

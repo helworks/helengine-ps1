@@ -75,7 +75,7 @@ Ps1FrameContext* Ps1RasterRenderer::BeginContext(psyqo::GPU& gpu, std::uint32_t 
     return &context;
 }
 
-bool Ps1RasterRenderer::SubmitContext(psyqo::GPU& gpu, Ps1FrameContext& context) {
+bool Ps1RasterRenderer::SubmitContext(psyqo::GPU& gpu, Ps1FrameContext& context, psyqo::Color clearColor) {
     m_stats.packetCount = context.UsedPackets();
     m_stats.highWaterBytes = context.HighWaterBytes();
     if (m_stats.packetCount > m_stats.peakPacketCount) m_stats.peakPacketCount = m_stats.packetCount;
@@ -87,7 +87,7 @@ bool Ps1RasterRenderer::SubmitContext(psyqo::GPU& gpu, Ps1FrameContext& context)
         m_stats.failure = Ps1RenderFailure::Guard;
         return false;
     }
-    if (!context.Submit(gpu)) {
+    if (!context.Submit(gpu, clearColor)) {
         ++m_stats.ownershipFailures;
         m_stats.failure = Ps1RenderFailure::Submission;
         context.Cancel();
@@ -365,6 +365,154 @@ bool Ps1RasterRenderer::QueueCompletionStress(psyqo::GPU& gpu) {
         ++m_stats.submittedTriangles;
     }
     return SubmitContext(gpu, *context);
+}
+
+bool Ps1RasterRenderer::BeginAuthoredFrame(psyqo::GPU& gpu) {
+    ResetStats(0, 0);
+    m_authoredContext = nullptr;
+    if (!m_initialized) {
+        m_stats.failure = Ps1RenderFailure::NotInitialized;
+        return false;
+    }
+    m_authoredContext = BeginContext(gpu);
+    return m_authoredContext != nullptr;
+}
+
+void Ps1RasterRenderer::WriteAuthoredPose(const Ps1GtePose& pose) {
+    psyqo::Matrix33 rotation;
+    for (unsigned row = 0; row < 3; ++row) {
+        rotation.vs[row].x = psyqo::FixedPoint<12>(static_cast<std::int32_t>(pose.Rotation[row][0]), psyqo::FixedPoint<12>::RAW);
+        rotation.vs[row].y = psyqo::FixedPoint<12>(static_cast<std::int32_t>(pose.Rotation[row][1]), psyqo::FixedPoint<12>::RAW);
+        rotation.vs[row].z = psyqo::FixedPoint<12>(static_cast<std::int32_t>(pose.Rotation[row][2]), psyqo::FixedPoint<12>::RAW);
+    }
+    psyqo::GTE::writeSafe<psyqo::GTE::PseudoRegister::Rotation>(rotation);
+    psyqo::GTE::write<psyqo::GTE::Register::TRX, psyqo::GTE::Safe>(static_cast<std::uint32_t>(pose.Translation[0]));
+    psyqo::GTE::write<psyqo::GTE::Register::TRY, psyqo::GTE::Safe>(static_cast<std::uint32_t>(pose.Translation[1]));
+    psyqo::GTE::write<psyqo::GTE::Register::TRZ, psyqo::GTE::Safe>(static_cast<std::uint32_t>(pose.Translation[2]));
+    psyqo::GTE::write<psyqo::GTE::Register::H, psyqo::GTE::Safe>(static_cast<std::uint32_t>(pose.ProjectionDistance));
+    psyqo::GTE::write<psyqo::GTE::Register::DQA, psyqo::GTE::Safe>(static_cast<std::uint32_t>(0));
+    psyqo::GTE::write<psyqo::GTE::Register::DQB, psyqo::GTE::Safe>(static_cast<std::uint32_t>(0));
+    psyqo::GTE::write<psyqo::GTE::Register::OFX, psyqo::GTE::Safe>(
+        static_cast<std::uint32_t>(psyqo::FixedPoint<16>(160.0).raw()));
+    psyqo::GTE::write<psyqo::GTE::Register::OFY, psyqo::GTE::Safe>(
+        static_cast<std::uint32_t>(psyqo::FixedPoint<16>(120.0).raw()));
+}
+
+bool Ps1RasterRenderer::QueueAuthoredMesh(const Ps1GtePose& pose, const std::int16_t* vertices, std::uint32_t vertexCount,
+                                          const std::uint16_t* indices, std::uint32_t indexCount, psyqo::Color color,
+                                          bool doubleSided) {
+    Ps1FrameContext* context = m_authoredContext;
+    if (context == nullptr) {
+        ++m_stats.ownershipFailures;
+        m_stats.failure = Ps1RenderFailure::Ownership;
+        return false;
+    }
+    if (vertices == nullptr || indices == nullptr || vertexCount == 0 || indexCount == 0 || indexCount % 3u != 0) {
+        ++m_stats.invalid;
+        m_stats.failure = Ps1RenderFailure::Projection;
+        context->Cancel();
+        m_authoredContext = nullptr;
+        return false;
+    }
+    WriteAuthoredPose(pose);
+    for (std::uint32_t triangle = 0; triangle < indexCount; triangle += 3) {
+        const std::uint16_t i0 = indices[triangle];
+        const std::uint16_t i1 = indices[triangle + 1];
+        const std::uint16_t i2 = indices[triangle + 2];
+        if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount) {
+            ++m_stats.invalid;
+            m_stats.failure = Ps1RenderFailure::Projection;
+            context->Cancel();
+            m_authoredContext = nullptr;
+            return false;
+        }
+        const Ps1CubeMesh::Position p0{vertices[i0 * 3], vertices[i0 * 3 + 1], vertices[i0 * 3 + 2]};
+        const Ps1CubeMesh::Position p1{vertices[i1 * 3], vertices[i1 * 3 + 1], vertices[i1 * 3 + 2]};
+        const Ps1CubeMesh::Position p2{vertices[i2 * 3], vertices[i2 * 3 + 1], vertices[i2 * 3 + 2]};
+        WriteVertex0(p0);
+        WriteVertex1(p1);
+        WriteVertex2(p2);
+        psyqo::GTE::Kernels::rtpt();
+        m_stats.projectionFlags = psyqo::GTE::readRaw<psyqo::GTE::Register::FLAG, psyqo::GTE::Safe>();
+        if (m_stats.projectionFlags != 0) {
+            ++m_stats.invalid;
+            m_stats.failure = Ps1RenderFailure::Projection;
+            context->Cancel();
+            m_authoredContext = nullptr;
+            return false;
+        }
+        psyqo::Vertex a{};
+        psyqo::Vertex b{};
+        psyqo::Vertex c{};
+        psyqo::GTE::read<psyqo::GTE::Register::SXY0>(&a.packed);
+        psyqo::GTE::read<psyqo::GTE::Register::SXY1>(&b.packed);
+        psyqo::GTE::read<psyqo::GTE::Register::SXY2>(&c.packed);
+        std::uint32_t rawZ0 = 0;
+        std::uint32_t rawZ1 = 0;
+        std::uint32_t rawZ2 = 0;
+        psyqo::GTE::read<psyqo::GTE::Register::SZ1>(&rawZ0);
+        psyqo::GTE::read<psyqo::GTE::Register::SZ2>(&rawZ1);
+        psyqo::GTE::read<psyqo::GTE::Register::SZ3>(&rawZ2);
+        psyqo::GTE::write<psyqo::GTE::Register::SXY0, psyqo::GTE::Unsafe>(a.packed);
+        psyqo::GTE::write<psyqo::GTE::Register::SXY1, psyqo::GTE::Unsafe>(b.packed);
+        psyqo::GTE::write<psyqo::GTE::Register::SXY2, psyqo::GTE::Safe>(c.packed);
+        psyqo::GTE::Kernels::nclip();
+        const std::int32_t mac0 = static_cast<std::int32_t>(psyqo::GTE::readRaw<psyqo::GTE::Register::MAC0, psyqo::GTE::Safe>());
+        if (mac0 == 0) {
+            ++m_stats.degenerate;
+            continue;
+        }
+        if (mac0 > 0 && !doubleSided) {
+            ++m_stats.backfaceRejected;
+            continue;
+        }
+        std::uint16_t bucket = 0;
+        if (!Ps1DepthBucket::TryMap(ReadDepth(rawZ0), ReadDepth(rawZ1), ReadDepth(rawZ2), bucket)) {
+            ++m_stats.invalid;
+            m_stats.failure = Ps1RenderFailure::Depth;
+            context->Cancel();
+            m_authoredContext = nullptr;
+            return false;
+        }
+        auto* fragment = context->TryReserveTriangle();
+        if (fragment == nullptr) {
+            ++m_stats.capacityFailures;
+            m_stats.failure = Ps1RenderFailure::Capacity;
+            context->Cancel();
+            m_authoredContext = nullptr;
+            return false;
+        }
+        fragment->primitive.setOpaque().setColor(color);
+        fragment->primitive.setPointA(a).setPointB(b).setPointC(c);
+        if (!context->Insert(*fragment, bucket)) {
+            ++m_stats.capacityFailures;
+            m_stats.failure = Ps1RenderFailure::Capacity;
+            context->Cancel();
+            m_authoredContext = nullptr;
+            return false;
+        }
+        ++m_stats.submittedTriangles;
+    }
+    return true;
+}
+
+void Ps1RasterRenderer::CancelAuthoredFrame() {
+    Ps1FrameContext* context = m_authoredContext;
+    m_authoredContext = nullptr;
+    if (context != nullptr && context->IsBuilding()) {
+        context->Cancel();
+    }
+}
+
+bool Ps1RasterRenderer::SubmitAuthoredFrame(psyqo::GPU& gpu, psyqo::Color clearColor) {
+    Ps1FrameContext* context = m_authoredContext;
+    m_authoredContext = nullptr;
+    if (context == nullptr) {
+        ++m_stats.ownershipFailures;
+        m_stats.failure = Ps1RenderFailure::Ownership;
+        return false;
+    }
+    return SubmitContext(gpu, *context, clearColor);
 }
 
 }  // namespace helengine::ps1

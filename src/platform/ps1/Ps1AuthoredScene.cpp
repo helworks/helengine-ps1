@@ -18,6 +18,7 @@
 #include "platform/ps1/Ps1RenderManager3D.hpp"
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
 #include "platform/ps1/Ps1SceneBootstrap.hpp"
+#include "psyqo/alloc.h"
 #include "psyqo/kernel.hh"
 #include "runtime/native_list.hpp"
 
@@ -66,7 +67,7 @@ void Ps1AuthoredScene::InitializeCore() {
     m_options->set_RenderList3DInitialCapacity(16);
     m_options->set_CommitPendingSceneOperationsDuringDraw(false);
     m_options->set_DefaultUpdateDeltaSeconds(1.0 / 60.0);
-    m_render3D = new Ps1RenderManager3D();
+    m_render3D = new Ps1RenderManager3D(gpu(), m_renderer);
     m_render2D = new Ps1RenderManager2D();
     m_input = new Ps1InputBackend();
     m_platform = new ::PlatformInfo("ps1", "authored-cube-test");
@@ -115,6 +116,14 @@ void Ps1AuthoredScene::ReportSceneState(const char* marker) {
 }
 
 void Ps1AuthoredScene::frame() {
+    // Each frame() should follow exactly one VBlank; count every extra VBlank as a missed frame.
+    const std::uint32_t vblankFrame = gpu().getFrameCount();
+    if (m_frameSequence != 0) {
+        const std::uint32_t delta = vblankFrame - m_lastVblankFrame;
+        if (delta > 1u) m_missedVblanks += delta - 1u;
+        if (delta > m_worstVblankDelta) m_worstVblankDelta = delta;
+    }
+    m_lastVblankFrame = vblankFrame;
     const std::uint32_t now = gpu().now();
     double deltaSeconds = static_cast<double>(static_cast<std::uint32_t>(now - m_lastTimestamp)) / 1000000.0;
     m_lastTimestamp = now;
@@ -123,17 +132,48 @@ void Ps1AuthoredScene::frame() {
     }
     m_core->Update(deltaSeconds);
     m_core->CompleteFrameBoundary();
+    // Core::Draw drives the render manager, which converts the loaded camera and drawable into GTE
+    // poses and submits the frame through the shared renderer with the camera's clear color.
     m_core->Draw();
     ++m_frameSequence;
 
-    // Keep the approved presentation loop (clear, GPU completion marker, fresh-VBlank swap) alive
-    // until the loaded camera and cube are submitted through the GTE renderer.
-    if (!m_renderer.QueueClear(gpu())) {
-        psyqo::Kernel::assert(false, "PS1_RENDER_QUEUE_FAILED");
+    const Ps1RenderStats& stats = m_renderer.Stats();
+    // BIOS text output costs VBlanks, so steady-state reporting is opt-in like the diagnostic
+    // scenes. The default build reports the first frame and one cadence checkpoint after 600
+    // updates, whose VBlank count is unaffected by earlier printing.
+#if defined(PS1_PERIODIC_DIAGNOSTICS)
+    const bool periodicReport = (m_frameSequence % 120u) == 0;
+#else
+    const bool periodicReport = m_frameSequence == 1200;
+#endif
+    if (m_frameSequence == 600 || m_frameSequence == 1200) {
+        // One short line per checkpoint keeps the measured interval nearly free of BIOS output.
+        ramsyscall_printf("PS1_AUTHORED_CADENCE seq=%u vblank_frame=%u missed_vblanks=%u worst_delta=%u heap_end=%p\n",
+                          static_cast<unsigned>(m_frameSequence), static_cast<unsigned>(vblankFrame),
+                          static_cast<unsigned>(m_missedVblanks), static_cast<unsigned>(m_worstVblankDelta), psyqo_heap_end());
     }
-    if (m_frameSequence == 1 || (m_frameSequence % 120u) == 0) {
+    if (m_frameSequence == 1 || periodicReport || !m_render3D->LastFrameSubmitted()) {
         ReportSceneState(m_frameSequence == 1 ? "PS1_AUTHORED_FIRST_FRAME" : "PS1_AUTHORED_FRAME");
-        ramsyscall_printf("PS1_AUTHORED_DRAW visited=%u\n", static_cast<unsigned>(m_render3D->LastVisitedDrawables()));
+        ramsyscall_printf(
+            "PS1_AUTHORED_DRAW visited=%u submitted=%u backface=%u degenerate=%u invalid=%u flags=%08x packets=%u highwater=%u "
+            "guards=%u failure=%u\n",
+            static_cast<unsigned>(m_render3D->LastVisitedDrawables()), static_cast<unsigned>(stats.submittedTriangles),
+            static_cast<unsigned>(stats.backfaceRejected), static_cast<unsigned>(stats.degenerate), static_cast<unsigned>(stats.invalid),
+            static_cast<unsigned>(stats.projectionFlags), static_cast<unsigned>(stats.packetCount),
+            static_cast<unsigned>(stats.highWaterBytes), stats.guardsIntact ? 1u : 0u, static_cast<unsigned>(stats.failure));
+        // The pose proves the GTE inputs come from the loaded camera and cube transforms; the VBlank
+        // frame count against the scene sequence shows cadence; the heap end shows steady-state allocation.
+        const Ps1GtePose& pose = m_render3D->LastPose();
+        ramsyscall_printf("PS1_AUTHORED_POSE trx=%d try=%d trz=%d h=%d r0=%d,%d,%d r1=%d,%d,%d r2=%d,%d,%d vblank_frame=%u heap_end=%p\n",
+                          static_cast<int>(pose.Translation[0]), static_cast<int>(pose.Translation[1]), static_cast<int>(pose.Translation[2]),
+                          static_cast<int>(pose.ProjectionDistance), static_cast<int>(pose.Rotation[0][0]), static_cast<int>(pose.Rotation[0][1]),
+                          static_cast<int>(pose.Rotation[0][2]), static_cast<int>(pose.Rotation[1][0]), static_cast<int>(pose.Rotation[1][1]),
+                          static_cast<int>(pose.Rotation[1][2]), static_cast<int>(pose.Rotation[2][0]), static_cast<int>(pose.Rotation[2][1]),
+                          static_cast<int>(pose.Rotation[2][2]), static_cast<unsigned>(gpu().getFrameCount()), psyqo_heap_end());
+    }
+    if (!m_render3D->LastFrameSubmitted()) {
+        const char* marker = m_render3D->LastFailureMarker();
+        psyqo::Kernel::assert(false, marker == nullptr ? "PS1_RENDER_FRAME_REJECTED" : marker);
     }
 }
 

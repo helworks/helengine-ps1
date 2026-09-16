@@ -1,8 +1,10 @@
 #pragma once
 
+#include "platform/ps1/rendering/Ps1AuthoredProjection.hpp"
 #include "platform/ps1/rendering/Ps1CubeMesh.hpp"
 #include "platform/ps1/rendering/Ps1FrameContext.hpp"
 #include "psyqo/gpu.hh"
+#include "psyqo/primitives/common.hh"
 #include "psyqo/trigonometry.hh"
 
 #include <cstdint>
@@ -58,6 +60,17 @@ class Ps1RasterRenderer final {
     bool QueueCapacityDiagnostic(psyqo::GPU& gpu);
     bool QueueCompletionStress(psyqo::GPU& gpu);
 
+    /**
+     * Authored frame path used by the Core render manager: begin one frame context, queue each
+     * drawable's triangles through the GTE with its own pose, then submit with the camera's clear
+     * color. Any failure cancels the context and records the failure kind in the stats.
+     */
+    bool BeginAuthoredFrame(psyqo::GPU& gpu);
+    bool QueueAuthoredMesh(const Ps1GtePose& pose, const std::int16_t* vertices, std::uint32_t vertexCount,
+                           const std::uint16_t* indices, std::uint32_t indexCount, psyqo::Color color, bool doubleSided);
+    bool SubmitAuthoredFrame(psyqo::GPU& gpu, psyqo::Color clearColor);
+    void CancelAuthoredFrame();
+
     const Ps1RenderStats& Stats() const { return m_stats; }
 
   private:
@@ -68,7 +81,11 @@ class Ps1RasterRenderer final {
     void ResetStats(std::uint16_t phaseX, std::uint16_t phaseY);
     Ps1FrameContext* BeginContext(psyqo::GPU& gpu, std::uint32_t capacity = Ps1FrameContext::TriangleCapacity);
     bool QueueCubeAtTrz(psyqo::GPU& gpu, std::uint16_t phaseX, std::uint16_t phaseY, std::int32_t trz);
-    bool SubmitContext(psyqo::GPU& gpu, Ps1FrameContext& context);
+    bool SubmitContext(psyqo::GPU& gpu, Ps1FrameContext& context,
+                       psyqo::Color clearColor = Ps1FrameContext::DefaultClearColor);
+    void WriteAuthoredPose(const Ps1GtePose& pose);
+
+    Ps1FrameContext* m_authoredContext = nullptr;
     bool ConfigureGte(std::uint16_t phaseX, std::uint16_t phaseY, std::int32_t trz);
     bool ProjectFace(const Ps1CubeMesh::Face& face, psyqo::Vertex& a, psyqo::Vertex& b, psyqo::Vertex& c,
                      std::int32_t& z0, std::int32_t& z1, std::int32_t& z2, std::int32_t& mac0);

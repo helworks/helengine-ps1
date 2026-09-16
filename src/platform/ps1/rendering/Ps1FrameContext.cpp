@@ -66,7 +66,7 @@ bool Ps1FrameContext::Insert(TriangleFragment& fragment, std::uint16_t bucket) {
     return true;
 }
 
-bool Ps1FrameContext::Submit(psyqo::GPU& gpu) {
+bool Ps1FrameContext::Submit(psyqo::GPU& gpu, psyqo::Color clearColor) {
     if (m_state != State::Building) {
         AssertState(false, "PS1_FRAME_SUBMIT_WRONG_STATE");
         return false;
@@ -75,7 +75,7 @@ bool Ps1FrameContext::Submit(psyqo::GPU& gpu) {
         AssertState(false, "PS1_FRAME_GUARD_CORRUPTED");
         return false;
     }
-    gpu.getNextClear(m_clear.primitive, {{.r = 16, .g = 20, .b = 32}});
+    gpu.getNextClear(m_clear.primitive, clearColor);
     gpu.chain(m_clear);
     gpu.chain(m_table);
     m_lastSubmissionSequence = m_buildSequence;
