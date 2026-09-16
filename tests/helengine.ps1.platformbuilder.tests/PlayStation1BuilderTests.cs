@@ -32,8 +32,8 @@ public sealed class PlayStation1BuilderTests : IDisposable {
         [PlayStation1MaterialSchemaIds.TransparencyFieldId] = "opaque"
     };
 
-    static PlatformMaterialCookRequest CookRequest(Dictionary<string, string> fields, string schemaId = PlayStation1MaterialSchemaIds.UnlitSchemaId, string platform = "ps1") =>
-        new("b933266da88a40ca995a62781f4e12a2", "materials/rendering/cube_test/CubeTestSolid.hasset", platform, "release", "ps1-unlit", schemaId, fields);
+    static PlatformMaterialCookRequest CookRequest(Dictionary<string, string> fields, string schemaId = PlayStation1MaterialSchemaIds.OpaqueSchemaId, string platform = "ps1") =>
+        new("b933266da88a40ca995a62781f4e12a2", "materials/rendering/cube_test/CubeTestSolid.hasset", platform, "release", "ps1-opaque", schemaId, fields);
 
     static PlatformBuildManifest Manifest(string startupSceneId, PlatformBuildScene[] scenes, PlatformBuildArtifact[] artifacts, string[] features, string platform = "ps1") =>
         new(1, "demodisc", "1.0.0", "1.0.0+test", platform, "0.1.0", startupSceneId, scenes, [], artifacts, [],
@@ -42,7 +42,7 @@ public sealed class PlayStation1BuilderTests : IDisposable {
 
     static PlatformBuildTargetVariant[] Variants() => [new PlatformBuildTargetVariant("ps1", "ps1", "ps1", "ps1")];
 
-    static PlatformCookProfile[] CookProfiles() => [new PlatformCookProfile("ps1", "PS1", new PlatformCookProfileCapabilities("ps1-unlit", "none", "none", "hele", PlatformSerializationEndianness.LittleEndian))];
+    static PlatformCookProfile[] CookProfiles() => [new PlatformCookProfile("ps1", "PS1", new PlatformCookProfileCapabilities("ps1-opaque", "none", "none", "hele", PlatformSerializationEndianness.LittleEndian))];
 
     static PlatformBuildScene Scene(string sceneId) => new(sceneId, sceneId, $"scenes/rendering/{sceneId}.helen", [], []);
 
@@ -54,7 +54,7 @@ public sealed class PlayStation1BuilderTests : IDisposable {
             new PlatformBuildArtifact("cooked/materials/cube_test_solid.hasset", "b933266da88a40ca995a62781f4e12a2", "sha256:bb", "material", "shared"),
             new PlatformBuildArtifact("cooked/engine/models/cube.hasset", "engine:model:cube", "sha256:cc", "model", "shared")
         ],
-        ["scene", "mesh", "camera", "material"]);
+        ["scene", "mesh", "camera", "material", "light"]);
 
     [Fact]
     public void MaterialCooker_CooksOpaqueUnlitBaseColor() {
@@ -63,15 +63,40 @@ public sealed class PlayStation1BuilderTests : IDisposable {
         helengine.Asset asset = helengine.AssetSerializer.Deserialize(new MemoryStream(result.CookedMaterialBytes));
         helengine.PlatformMaterialAsset material = Assert.IsType<helengine.PlatformMaterialAsset>(asset);
         Assert.Equal("b933266da88a40ca995a62781f4e12a2", material.Id);
-        Assert.Equal("ps1-unlit", material.RendererFamilyId);
+        Assert.Equal("ps1-opaque", material.RendererFamilyId);
         Assert.Equal((0x3F, 0x7F, 0xBF, 0xFF), (material.BaseColorR, material.BaseColorG, material.BaseColorB, material.BaseColorA));
         Assert.False(material.Lit);
         Assert.Equal(string.Empty, material.TextureRelativePath);
     }
 
+    [Fact]
+    public void MaterialCooker_CooksVertexLitBaseColor() {
+        Dictionary<string, string> fields = UnlitFields();
+        fields[PlayStation1MaterialSchemaIds.LightingModeFieldId] = PlayStation1MaterialSchemaIds.VertexLitLightingMode;
+
+        PlatformMaterialCookResult result = new PlayStation1MaterialCooker().Cook(CookRequest(fields));
+
+        helengine.Asset asset = helengine.AssetSerializer.Deserialize(new MemoryStream(result.CookedMaterialBytes));
+        helengine.PlatformMaterialAsset material = Assert.IsType<helengine.PlatformMaterialAsset>(asset);
+        Assert.True(material.Lit);
+        Assert.Equal((0x3F, 0x7F, 0xBF), (material.BaseColorR, material.BaseColorG, material.BaseColorB));
+    }
+
+    [Fact]
+    public void MaterialCooker_DefaultsToVertexLitWhenNoLightingModeIsAuthored() {
+        Dictionary<string, string> fields = UnlitFields();
+        fields.Remove(PlayStation1MaterialSchemaIds.LightingModeFieldId);
+
+        PlatformMaterialCookResult result = new PlayStation1MaterialCooker().Cook(CookRequest(fields));
+
+        helengine.Asset asset = helengine.AssetSerializer.Deserialize(new MemoryStream(result.CookedMaterialBytes));
+        helengine.PlatformMaterialAsset material = Assert.IsType<helengine.PlatformMaterialAsset>(asset);
+        Assert.True(material.Lit);
+    }
+
     [Theory]
     [InlineData("texture-relative-path", "textures/cube.png", "texture")]
-    [InlineData("lighting-mode", "lit", "unlit")]
+    [InlineData("lighting-mode", "lit", "vertex-lit")]
     [InlineData("transparency", "blend", "opaque")]
     [InlineData("base-color", "#3F7FBF80", "alpha")]
     public void MaterialCooker_RejectsUnsupportedFields(string fieldId, string value, string expectedMessageFragment) {
@@ -189,7 +214,7 @@ public sealed class PlayStation1BuilderTests : IDisposable {
         string output = Path.Combine(Root, "output");
         RecordingNativeBuildExecutor executor = new();
         PlayStation1PlatformAssetBuilder builder = new(executor);
-        PlatformBuildRequest request = new(CubeManifest(), Variants(), CookProfiles(), output, working, "release", "ps1-unlit", "default", null, null, null, generatedCore);
+        PlatformBuildRequest request = new(CubeManifest(), Variants(), CookProfiles(), output, working, "release", "ps1-opaque", "default", null, null, null, generatedCore);
 
         PlatformBuildReport report = await builder.BuildAsync(request, new NullProgressReporter(), new CollectingDiagnosticReporter(), CancellationToken.None);
 
@@ -208,7 +233,7 @@ public sealed class PlayStation1BuilderTests : IDisposable {
         RecordingNativeBuildExecutor executor = new();
         PlayStation1PlatformAssetBuilder builder = new(executor);
         PlatformBuildManifest manifest = Manifest("cube_test", [Scene("cube_test")], [], ["scene"], platform: "n64");
-        PlatformBuildRequest request = new(manifest, Variants(), CookProfiles(), Path.Combine(Root, "output"), working, "release", "ps1-unlit", "default", null, null, null, Path.Combine(Root, "generated-core"));
+        PlatformBuildRequest request = new(manifest, Variants(), CookProfiles(), Path.Combine(Root, "output"), working, "release", "ps1-opaque", "default", null, null, null, Path.Combine(Root, "generated-core"));
         CollectingDiagnosticReporter diagnostics = new();
 
         PlatformBuildReport report = await builder.BuildAsync(request, new NullProgressReporter(), diagnostics, CancellationToken.None);

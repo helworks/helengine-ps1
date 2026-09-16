@@ -5,7 +5,7 @@ namespace helengine.ps1.builder;
 /// <summary>Rejects build manifests outside the one-scene, camera-plus-cube PS1 milestone.</summary>
 public sealed class PlayStation1SceneCompatibilityValidator {
     /// <summary>Runtime feature ids the PS1 authored runtime implements.</summary>
-    static readonly HashSet<string> SupportedFeatures = new(StringComparer.OrdinalIgnoreCase) { "scene", "mesh", "camera", "material" };
+    static readonly HashSet<string> SupportedFeatures = new(StringComparer.OrdinalIgnoreCase) { "scene", "mesh", "camera", "material", "light" };
 
     /// <summary>Throws when the manifest declares more than one scene, an unknown startup scene, or unsupported features.</summary>
     /// <param name="manifest">Cooked build manifest produced by the editor build graph.</param>

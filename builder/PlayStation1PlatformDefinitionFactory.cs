@@ -45,13 +45,14 @@ public static class PlayStation1PlatformDefinitionFactory {
                 new("codegen-compact-native-exception-messages", "Compact Native Exception Messages", PlatformSettingKind.Boolean, "true", true, [])
             ]);
         PlatformMaterialSchemaDefinition materialSchema = new(
-            PlayStation1MaterialSchemaIds.UnlitSchemaId,
+            PlayStation1MaterialSchemaIds.OpaqueSchemaId,
             "PS1 Opaque Unlit",
             [PlayStation1MaterialSchemaIds.RendererFamilyId],
             [
                 new(PlayStation1MaterialSchemaIds.BaseColorFieldId, "Base Color", PlatformMaterialFieldKind.Color, "#FFFFFFFF", true, []),
                 new(PlayStation1MaterialSchemaIds.TextureRelativePathFieldId, "Texture", PlatformMaterialFieldKind.Text, string.Empty, false, []),
-                new(PlayStation1MaterialSchemaIds.LightingModeFieldId, "Lighting", PlatformMaterialFieldKind.Choice, "unlit", true, ["unlit"]),
+                new(PlayStation1MaterialSchemaIds.LightingModeFieldId, "Lighting", PlatformMaterialFieldKind.Choice, PlayStation1MaterialSchemaIds.DefaultLightingMode, true,
+                    [PlayStation1MaterialSchemaIds.UnlitLightingMode, PlayStation1MaterialSchemaIds.VertexLitLightingMode]),
                 new(PlayStation1MaterialSchemaIds.TransparencyFieldId, "Transparency", PlatformMaterialFieldKind.Choice, "opaque", true, ["opaque"])
             ]);
         PlatformBuildProfileDefinition[] profiles = [
@@ -61,14 +62,14 @@ public static class PlayStation1PlatformDefinitionFactory {
             "ps1",
             "PlayStation",
             profiles,
-            [new PlatformGraphicsProfileDefinition(PlayStation1MaterialSchemaIds.RendererFamilyId, "PS1 Unlit", "PSYQo GTE opaque unlit renderer", [])],
+            [new PlatformGraphicsProfileDefinition(PlayStation1MaterialSchemaIds.RendererFamilyId, "PS1 Opaque", "PSYQo GTE opaque renderer, flat or per-vertex directional shading", [])],
             [new PlatformAssetRequirementDefinition("scene", "Scene", true, ["helen"])],
             [materialSchema],
             [
                 new PlatformComponentSupportRule("helengine.meshcomponent", PlatformComponentSupportKind.Transform, "One static triangle-list mesh is supported.", "Remove unsupported mesh components."),
                 new PlatformComponentSupportRule("helengine.cameracomponent", PlatformComponentSupportKind.Transform, "One perspective camera is supported.", "Keep one authored camera."),
-                new PlatformComponentSupportRule("helengine.lightcomponent", PlatformComponentSupportKind.Unsupported, "PS1 authored rendering is unlit.", "Remove light components."),
-                new PlatformComponentSupportRule("helengine.directionallightcomponent", PlatformComponentSupportKind.Unsupported, "PS1 authored rendering is unlit.", "Remove light components.")
+                new PlatformComponentSupportRule("helengine.lightcomponent", PlatformComponentSupportKind.Unsupported, "PS1 shades only directional lights.", "Replace point, spot and ambient lights with a directional light."),
+                new PlatformComponentSupportRule("helengine.directionallightcomponent", PlatformComponentSupportKind.Transform, "Up to three directional lights shade vertices on the GTE.", "Keep at most three directional lights.")
             ],
             [codegen],
             [new PlatformStorageProfileDefinition("embedded-archive", "Embedded Archive", PlatformStorageProfileKind.LooseFiles, "ps1-embedded-archive", false)],

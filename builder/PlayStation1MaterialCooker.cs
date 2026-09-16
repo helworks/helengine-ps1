@@ -5,9 +5,10 @@ using helengine.baseplatform.Results;
 namespace helengine.ps1.builder;
 
 /// <summary>
-/// Cooks the opaque unlit base-color material subset into the engine's platform material payload.
-/// Anything the PS1 milestone cannot represent (textures, lighting, transparency, translucent alpha)
-/// is rejected explicitly instead of being approximated.
+/// Cooks the opaque base-color material subset into the engine's platform material payload. The
+/// lighting mode selects between the flat unlit path and the GTE per-vertex directional path.
+/// Anything the PS1 milestone cannot represent (textures, transparency, translucent alpha) is
+/// rejected explicitly instead of being approximated.
 /// </summary>
 public sealed class PlayStation1MaterialCooker {
     /// <summary>Validates the requested material against the schema and serializes the cooked payload.</summary>
@@ -18,26 +19,27 @@ public sealed class PlayStation1MaterialCooker {
         if (!string.Equals(request.TargetPlatformId, "ps1", StringComparison.OrdinalIgnoreCase)) {
             throw new InvalidOperationException($"PS1 cannot cook materials for target platform '{request.TargetPlatformId}'.");
         }
-        if (!string.Equals(request.SchemaId, PlayStation1MaterialSchemaIds.UnlitSchemaId, StringComparison.OrdinalIgnoreCase)) {
+        if (!string.Equals(request.SchemaId, PlayStation1MaterialSchemaIds.OpaqueSchemaId, StringComparison.OrdinalIgnoreCase)) {
             throw new InvalidOperationException($"PS1 does not support material schema '{request.SchemaId}'.");
         }
 
         string texture = Resolve(request.FieldValues, PlayStation1MaterialSchemaIds.TextureRelativePathFieldId);
         if (!string.IsNullOrWhiteSpace(texture)) {
-            throw new InvalidOperationException($"PS1 {PlayStation1MaterialSchemaIds.UnlitSchemaId} does not support texture bindings ('{request.MaterialRelativePath}').");
+            throw new InvalidOperationException($"PS1 {PlayStation1MaterialSchemaIds.OpaqueSchemaId} does not support texture bindings ('{request.MaterialRelativePath}').");
         }
-        string lighting = Resolve(request.FieldValues, PlayStation1MaterialSchemaIds.LightingModeFieldId, "unlit");
-        if (!string.Equals(lighting, "unlit", StringComparison.OrdinalIgnoreCase)) {
-            throw new InvalidOperationException($"PS1 {PlayStation1MaterialSchemaIds.UnlitSchemaId} requires unlit lighting; '{request.MaterialRelativePath}' requested '{lighting}'.");
+        string lighting = Resolve(request.FieldValues, PlayStation1MaterialSchemaIds.LightingModeFieldId, PlayStation1MaterialSchemaIds.DefaultLightingMode);
+        bool lit = string.Equals(lighting, PlayStation1MaterialSchemaIds.VertexLitLightingMode, StringComparison.OrdinalIgnoreCase);
+        if (!lit && !string.Equals(lighting, PlayStation1MaterialSchemaIds.UnlitLightingMode, StringComparison.OrdinalIgnoreCase)) {
+            throw new InvalidOperationException($"PS1 {PlayStation1MaterialSchemaIds.OpaqueSchemaId} supports only '{PlayStation1MaterialSchemaIds.UnlitLightingMode}' and '{PlayStation1MaterialSchemaIds.VertexLitLightingMode}' lighting; '{request.MaterialRelativePath}' requested '{lighting}'.");
         }
         string transparency = Resolve(request.FieldValues, PlayStation1MaterialSchemaIds.TransparencyFieldId, "opaque");
         if (!string.Equals(transparency, "opaque", StringComparison.OrdinalIgnoreCase)) {
-            throw new InvalidOperationException($"PS1 {PlayStation1MaterialSchemaIds.UnlitSchemaId} requires opaque materials; '{request.MaterialRelativePath}' requested '{transparency}'.");
+            throw new InvalidOperationException($"PS1 {PlayStation1MaterialSchemaIds.OpaqueSchemaId} requires opaque materials; '{request.MaterialRelativePath}' requested '{transparency}'.");
         }
 
         ParseColor(Resolve(request.FieldValues, PlayStation1MaterialSchemaIds.BaseColorFieldId, "#FFFFFFFF"), out byte r, out byte g, out byte b, out byte a);
         if (a != 255) {
-            throw new InvalidOperationException($"PS1 {PlayStation1MaterialSchemaIds.UnlitSchemaId} requires an opaque base color alpha of FF; '{request.MaterialRelativePath}' has alpha {a:X2}.");
+            throw new InvalidOperationException($"PS1 {PlayStation1MaterialSchemaIds.OpaqueSchemaId} requires an opaque base color alpha of FF; '{request.MaterialRelativePath}' has alpha {a:X2}.");
         }
 
         helengine.PlatformMaterialAsset cooked = new() {
@@ -46,7 +48,7 @@ public sealed class PlayStation1MaterialCooker {
             TextureRelativePath = string.Empty,
             DoubleSided = false,
             UseVertexColor = false,
-            Lit = false,
+            Lit = lit,
             BaseColorR = r,
             BaseColorG = g,
             BaseColorB = b,
