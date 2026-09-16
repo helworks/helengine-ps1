@@ -1,0 +1,11 @@
+# Files consumed inside the pinned Linux build container must keep LF endings on
+# Windows checkouts: git apply rejects a CRLF patch, and GNU make and the linker
+# scripts misread CRLF recipes.
+*.patch -text
+Makefile text eol=lf
+*.mk text eol=lf
+*.ld text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+*.s text eol=lf
+*.json text eol=lf
