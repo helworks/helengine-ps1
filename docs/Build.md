@@ -101,6 +101,54 @@ The accepted diagnostic modes are:
 | `Capacity` | Prove bounded packet reservation fails before a write. |
 | `CompletionStress` | Exercise a bounded set of larger opaque packets and completion diagnostics. |
 
+## Authored cube_test build
+
+The authored build embeds the exported camera-and-cube subset and drives it
+through generated Core. It runs the engine's headless build graph with the PS1
+platform builder in `builder/`, then the same pinned native toolchain as the
+diagnostic builds. Inputs: the demodisc project (never modified), the Task 1
+subset written by `scripts/generate-authored-fixture.ps1` with its
+`report.json`, the PS1 engine checkout, an editor app built from that checkout,
+and the csharpcodegen checkout whose `codegen/bin/Debug/net9.0/codegen.exe`
+carries the bundled `.net.cpp` runtime.
+
+```powershell
+.\scripts\build-authored.ps1 `
+  -ProjectRoot C:\dev\helprojs\demodisc `
+  -SubsetScenePath C:\dev\helworks\builds\helengine-ps1\cube-test-subset-final-verified\subset.helen `
+  -EngineSourceRoot C:\dev\helworks\helengine-ps1-core `
+  -EditorAppPath <editor-app-build>\bin\helengine.editor.app\debug\helengine.editor.app.dll `
+  -CodegenRoot C:\dev\helworks\csharpcodegen\.worktrees\generic-freestanding-runtime `
+  -OutputRoot C:\dev\helworks\builds\helengine-ps1\<fresh-directory>
+```
+
+The wrapper stages a copy of the project's `assets` and `settings`, replaces
+the scene with the subset, prunes project code to the retained script
+components (recorded in `code-prune-report.json`), writes a build-local
+`user_settings/build_config.json` and platform registry, and invokes the
+editor with `--build ps1 --build-profile release`. The editor regenerates Core
+and the gameplay module, cooks the scene, material and engine cube, stages the
+declared files, and calls the builder, which writes the scene catalog and runs:
+
+```powershell
+.\scripts\build.ps1 -Configuration Release -Authored `
+  -GeneratedCoreRoot <workspace>\generated-core `
+  -AuthoredContentRoot <workspace>\builder\ps1-authored-content `
+  -AuthoredDeclarations <workspace>\builder\ps1-authored-declarations.json
+```
+
+`scripts/embed-authored-assets.py` packs the declared files into a sorted,
+four-byte-aligned little-endian archive that the Makefile links into `.rodata`
+through an `incbin` stub, and the retail memory check accounts for it. The
+executable, link map and manifest are copied into the editor output directory
+with `native-build-run-root.txt` naming the build run.
+
+Authored mode never falls back to the diagnostic cube: a missing catalog,
+undeclared asset, unsupported material, unsafe pose or packet failure stops
+the boot with a `PS1_*` marker. Periodic frame diagnostics are opt-in through
+`-SdkDefine PS1_PERIODIC_DIAGNOSTICS`; the default build reports the first
+frame and one cadence checkpoint after 600 updates.
+
 ## Host tests and memory validation
 
 Normal demos emit startup and failure diagnostics only. Periodic BIOS text

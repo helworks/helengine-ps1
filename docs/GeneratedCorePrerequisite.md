@@ -105,8 +105,59 @@ Source fixes required for this result, all outside generated output:
   `Stopwatch.StartNew()`) sample the clock before the GPU exists; the earlier
   provider treated that as fatal and stopped the boot before Core initialized.
 
-Scene loading with the exported `cube_test` scene is the next checkpoint and is
-not part of this result.
+### Authored cube_test result (2026-09-16, run `20260916-010501-785-Release-162de7934ad4447cbb2081f6ed165f12`)
+
+The exported camera-and-cube subset now loads through generated Core and
+renders through the GTE on PS1. The editor's headless build graph (PS1 platform
+builder in `builder/`, see [Build.md](Build.md)) regenerated Core, the input
+project and the pruned gameplay module, cooked the scene, the project material
+and the engine cube, and the native build embedded the 2172-byte archive with
+four declared assets. Guest TTY evidence (`duckstation-guest.log` beside the
+run manifest):
+
+- `PS1_AUTHORED_ARCHIVE_READY bytes=2172 assets=4`, then `PS1_CORE_READY`.
+- Scene load opened exactly the declared scene, material and cube assets;
+  `PS1_AUTHORED_MATERIAL ... color=FFFFFF` matches the authored `#ffffffff`
+  base color and `PS1_AUTHORED_MODEL id=engine:model:cube vertices=24 indices=36`.
+- `PS1_AUTHORED_SCENE_READY cameras=1 drawables=1 updateables=1`; the single
+  updateable is the generated `CubeTestSpinComponent`, and the logged cube
+  orientation advances at the authored pi/2 rad/s (for example
+  `0,991,0,-129` at 10.17 s and `0,-219,0,-975` at 20.28 s).
+- `PS1_AUTHORED_POSE trx=0 try=0 trz=640 h=208` is the authored camera at
+  (0,0,5) in GTE units with the documented 60 degree projection; the rotation
+  rows follow the spin. Two triangles are submitted head-on and four at oblique
+  angles, with ten or eight back-faces culled, zero GTE flags, guards intact.
+- Cadence: `PS1_AUTHORED_CADENCE seq=600 vblank_frame=617 missed_vblanks=18`
+  then `seq=1200 vblank_frame=1218 missed_vblanks=19`. The 600 updates between
+  checkpoints took 601 VBlanks; the one extra VBlank is the checkpoint line
+  itself, and the 18 early misses are the three-line first-frame report.
+  `heap_end` stayed at `0x80067770` after load, so steady-state frames allocate
+  nothing.
+
+| Measure | Value |
+| --- | --- |
+| PS-X EXE | `dbe843cdea13b8ed4431a50535090bb041d5e45dac5eba63760e49896e533ca0`, 325632 bytes |
+| PS-X EXE payload | 323584 bytes |
+| Static footprint | 344208 bytes |
+| Heap capacity | 1621872 bytes |
+| Packets per frame | 5 (clear + 4 triangles), 96 bytes high water |
+
+Conventions implemented in `Ps1AuthoredProjection.hpp` and covered by
+`tests/host/Ps1AuthoredProjectionTests.cpp`: engine space is right-handed with
+Y up and the camera looking down -Z; camera space maps to GTE space through
+(x, -y, -z), which preserves winding; one engine unit is 128 GTE units; the
+vertical field of view is 60 degrees (the engine serializes none); object scale
+folds into the 4.12 rotation matrix; poses whose bounding sphere leaves the
+ordering-table depth range, whose rotation overflows 4.12, or whose vertices
+leave 16-bit range are rejected before any packet is submitted.
+
+Limits of this result: the appearance in DuckStation still needs Helena's
+visual confirmation; the acceptance step that alters the staged camera, cube
+transform and color in separate export runs has not been performed, so the
+evidence that authored values drive rendering is the logged pose, material and
+orientation rather than a differential build; physical hardware and disc boot
+remain untested; the source `build_config.json` prebuild command that
+regenerates the cube_test scene is deliberately not run.
 ### Historical alternatives
 
 1. Keep the approved generated-Core architecture and add a freestanding
