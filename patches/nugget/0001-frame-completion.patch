@@ -1,0 +1,104 @@
+diff --git a/psyqo/gpu.hh b/psyqo/gpu.hh
+--- a/psyqo/gpu.hh
++++ b/psyqo/gpu.hh
+@@ -125,2 +125,6 @@
+     uint32_t getFrameCount() const { return m_previousFrameCount; }
++    /** Completion counters updated by the patched frame lifecycle. */
++    uint32_t getTransferSequence() const { return m_transferSequence; }
++    uint32_t getMarkerSequence() const { return m_markerSequence; }
++    uint32_t getPresentedSequence() const { return m_presentedSequence; }
+ 
+@@ -541,3 +545,6 @@
+     uint32_t m_frameCount = 0;
+     uint32_t m_previousFrameCount = 0;
++    uint32_t m_transferSequence = 0;
++    uint32_t m_markerSequence = 0;
++    uint32_t m_presentedSequence = 0;
+     unsigned m_parity = 0;
+diff --git a/psyqo/psyqo.mk b/psyqo/psyqo.mk
+--- a/psyqo/psyqo.mk
++++ b/psyqo/psyqo.mk
+@@ -8,5 +8,5 @@ CXXFLAGS += -std=c++20
+ include $(PSYQODIR)../common.mk
+ 
+ $(PSYQODIR)libpsyqo.a:
+-	$(MAKE) -C $(PSYQODIR) BUILD=$(BUILD) CPPFLAGS_$(BUILD)="$(CPPFLAGS_$(BUILD))" LDFLAGS_$(BUILD)="$(LDFLAGS_$(BUILD))"
++	$(MAKE) -C $(PSYQODIR) BUILD=$(BUILD) DEFINES="$(DEFINES)" CPPFLAGS_$(BUILD)="$(CPPFLAGS_$(BUILD))" LDFLAGS_$(BUILD)="$(LDFLAGS_$(BUILD))"
+ 
+diff --git a/psyqo/src/gpu.cpp b/psyqo/src/gpu.cpp
+--- a/psyqo/src/gpu.cpp
++++ b/psyqo/src/gpu.cpp
+@@ -220,9 +220,39 @@ void psyqo::GPU::checkOTCAndTriggerCallback() {
+ }
+
+ void psyqo::GPU::flip() {
+-    do {
++    // The deferred chain owns its packet and ordering-table storage until
++    // both GPU DMA and any scheduled OTC transfer have completed.
++    while (m_chainStatus == CHAIN_TRANSFERRING) {
+         pumpCallbacks();
+         eastl::atomic_signal_fence(eastl::memory_order_acquire);
+-    } while ((m_previousFrameCount == m_frameCount) || (m_chainStatus == CHAIN_TRANSFERRING));
++    }
++
++    // GP0(1F) is an ordered GPU IRQ marker.  This is deliberately polled:
++    // Kernel::Internal::prepare owns the CPU IRQ table, and GPU::initialize
++    // enables VBlank and DMA only, so no other handler owns this marker.
++    constexpr uint32_t kGpuIrqMarker = 0x1F000000;
++    constexpr uint32_t kGpuIrqAcknowledge = 0x02000000;
++    constexpr uint32_t kGpuStatIrqMask = 0x01000000;
++    Hardware::GPU::Ctrl = kGpuIrqAcknowledge;
++    waitFifo();
++    #ifndef PS1_GPU_OMIT_MARKER
++    sendRaw(kGpuIrqMarker);
++    #endif
++    const uint32_t markerStart = now();
++    while ((Hardware::GPU::Ctrl & kGpuStatIrqMask) == 0) {
++        pumpCallbacks();
++        Kernel::assert(static_cast<uint32_t>(now() - markerStart) < 500000,
++                       "PS1_GPU_COMPLETION_TIMEOUT");
++    }
++    Hardware::GPU::Ctrl = kGpuIrqAcknowledge;
++    ++m_markerSequence;
++
++    // Capture the count after the ordered marker, then require a later
++    // VBlank.  An older VBlank must not satisfy a slow frame's presentation.
++    m_previousFrameCount = m_frameCount;
++    while (m_frameCount == m_previousFrameCount) {
++        pumpCallbacks();
++        eastl::atomic_signal_fence(eastl::memory_order_acquire);
++    }
+
+     auto parity = m_parity;
+@@ -247,4 +247,5 @@ void psyqo::GPU::flip() {
+     m_chainStatus = CHAIN_IDLE;
+     m_parity = parity;
+     m_previousFrameCount = m_frameCount;
++    m_presentedSequence = m_previousFrameCount;
+     eastl::atomic_signal_fence(eastl::memory_order_release);
+@@ -257,8 +257,9 @@ void psyqo::GPU::flip() {
+     if (m_chainHead) {
+         m_chainStatus = CHAIN_TRANSFERRING;
+         eastl::atomic_signal_fence(eastl::memory_order_release);
+         sendChain(
+             [this]() {
+                 m_chainStatus = CHAIN_TRANSFERRED;
++                ++m_transferSequence;
+                 eastl::atomic_signal_fence(eastl::memory_order_release);
+             },
+diff --git a/psyqo/src/ordering-table.cpp b/psyqo/src/ordering-table.cpp
+--- a/psyqo/src/ordering-table.cpp
++++ b/psyqo/src/ordering-table.cpp
+@@ -30,6 +30,12 @@
+ {
+     table[0].setEndMarker();
+     for (size_t i = 1; i <= size; i++) {
++#ifdef PS1_PC_PORT
+         table[i].set(&table[i - 1], 0);
++#else
++        // ChainEntryPS1::set copies an existing link for head insertion.
++        // Clearing an OT instead needs the address of the preceding entry.
++        table[i].head = reinterpret_cast<uint32_t>(&table[i - 1]) & 0x00ffffff;
++#endif
+     }
+ }

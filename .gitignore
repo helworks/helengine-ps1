@@ -1,0 +1,4 @@
+.sentry-native/
+__pycache__/
+*.py[cod]
+out/

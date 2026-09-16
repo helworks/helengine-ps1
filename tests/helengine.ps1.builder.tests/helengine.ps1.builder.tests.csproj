@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <Nullable>disable</Nullable>
+    <HelengineRoot Condition="'$(HelengineRoot)' == '' and '$(HELENGINE_ROOT)' != ''">$(HELENGINE_ROOT)</HelengineRoot>
+    <HelengineRoot Condition="'$(HelengineRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..\helengine</HelengineRoot>
+    <EngineBinaryRoot Condition="'$(EngineBinaryRoot)' == '' and '$(HELENGINE_BINARY_ROOT)' != ''">$(HELENGINE_BINARY_ROOT)</EngineBinaryRoot>
+    <EngineBinaryRoot Condition="'$(EngineBinaryRoot)' == ''">$(HelengineRoot)\helengine.ui\helengine.editor.app\bin\vs\Debug\net9.0-windows</EngineBinaryRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\tools\helengine.ps1.samplegen\helengine.ps1.samplegen.csproj" SkipGetTargetFrameworkProperties="true" />
+    <Reference Include="helengine.editor" HintPath="$(EngineBinaryRoot)\helengine.editor.dll" />
+    <Reference Include="helengine.files" HintPath="$(EngineBinaryRoot)\helengine.files.dll" />
+    <Reference Include="helengine.core" HintPath="$(EngineBinaryRoot)\helengine.core.dll" />
+    <Reference Include="helengine.baseplatform" HintPath="$(EngineBinaryRoot)\helengine.baseplatform.dll" />
+    <Reference Include="helengine.shader" HintPath="$(EngineBinaryRoot)\helengine.shader.dll" />
+    <Reference Include="helengine.shader.compilation" HintPath="$(EngineBinaryRoot)\helengine.shader.compilation.dll" />
+  </ItemGroup>
+  <Target Name="ValidateHelengineRoot" BeforeTargets="CollectPackageReferences">
+    <Error Condition="!Exists('$(HelengineRoot)\engine\helengine.editor\helengine.editor.csproj')" Text="helengine checkout not found. Set HelengineRoot or HELENGINE_ROOT." />
+  </Target>
+</Project>
