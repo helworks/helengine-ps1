@@ -1,6 +1,18 @@
 #pragma once
 
-// C ABI functions supplied by the pinned uC-sdk fdlibm sources.
+// The pinned PS1 toolchain is built --without-headers, so no math.h exists and the C ABI
+// functions come from the pinned uC-sdk fdlibm sources compiled into the executable. Hosted
+// builds of the same headers (host tests) must use the platform libm declarations instead of
+// redeclaring them, because hosted C++ libraries add exception specifiers to those signatures.
+#if defined(__has_include)
+#if __has_include(<math.h>)
+#define PS1_MATH_HAS_HOSTED_MATH_HEADER 1
+#endif
+#endif
+
+#if defined(PS1_MATH_HAS_HOSTED_MATH_HEADER)
+#include <math.h>
+#else
 extern "C" {
 double ceil(double value);
 double floor(double value);
@@ -17,3 +29,4 @@ double fmod(double value, double divisor);
 double atan2(double y, double x);
 int finite(double value);
 }
+#endif
