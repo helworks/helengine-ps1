@@ -1,5 +1,6 @@
 #pragma once
 
+#include "platform/ps1/rendering/Ps1AuthoredLighting.hpp"
 #include "platform/ps1/rendering/Ps1AuthoredProjection.hpp"
 #include "platform/ps1/rendering/Ps1CubeMesh.hpp"
 #include "platform/ps1/rendering/Ps1FrameContext.hpp"
@@ -41,6 +42,10 @@ struct Ps1RenderStats {
     std::uint32_t peakPacketCount = 0;
     std::uint32_t peakHighWaterBytes = 0;
     std::uint32_t capacityLimit = 0;
+    /// <summary>Packed per-vertex colors the GTE produced for the frame's first lit triangle.</summary>
+    std::uint32_t litVertexColors[3] = {0, 0, 0};
+    /// <summary>True once litVertexColors holds a sample from this frame.</summary>
+    bool litSampled = false;
     Ps1RenderFailure failure = Ps1RenderFailure::None;
     bool reverseInsertion = false;
     bool guardsIntact = true;
@@ -67,7 +72,8 @@ class Ps1RasterRenderer final {
      */
     bool BeginAuthoredFrame(psyqo::GPU& gpu);
     bool QueueAuthoredMesh(const Ps1GtePose& pose, const std::int16_t* vertices, std::uint32_t vertexCount,
-                           const std::uint16_t* indices, std::uint32_t indexCount, psyqo::Color color, bool doubleSided);
+                           const std::uint16_t* indices, std::uint32_t indexCount, psyqo::Color color, bool doubleSided,
+                           const std::int16_t* normals = nullptr, const Ps1GteLighting* lighting = nullptr);
     bool SubmitAuthoredFrame(psyqo::GPU& gpu, psyqo::Color clearColor);
     void CancelAuthoredFrame();
 
@@ -84,6 +90,7 @@ class Ps1RasterRenderer final {
     bool SubmitContext(psyqo::GPU& gpu, Ps1FrameContext& context,
                        psyqo::Color clearColor = Ps1FrameContext::DefaultClearColor);
     void WriteAuthoredPose(const Ps1GtePose& pose);
+    void WriteAuthoredLighting(const Ps1GteLighting& lighting, psyqo::Color materialColor);
 
     Ps1FrameContext* m_authoredContext = nullptr;
     bool ConfigureGte(std::uint16_t phaseX, std::uint16_t phaseY, std::int32_t trz);

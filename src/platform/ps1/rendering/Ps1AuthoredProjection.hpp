@@ -151,6 +151,11 @@ public:
         return true;
     }
 
+    /// <summary>Rounds half away from zero using the SDK floor/ceil, which the freestanding toolchain provides.</summary>
+    static float Round(float value) {
+        return value >= 0.0f ? static_cast<float>(floor(static_cast<double>(value) + 0.5)) : static_cast<float>(ceil(static_cast<double>(value) - 0.5));
+    }
+
     /// <summary>Converts a unit-scale model vertex to 16-bit GTE units; out-of-range vertices are rejected.</summary>
     static bool TryConvertVertex(Ps1Vector3 vertex, std::int16_t (&result)[3]) {
         const float components[3] = {vertex.X, vertex.Y, vertex.Z};
@@ -164,11 +169,10 @@ public:
         return true;
     }
 
+    /// <summary>Public access to the quaternion rotation matrix, shared with the lighting helper.</summary>
+    static void RotationMatrixOf(Ps1Quaternion rotation, float (&matrix)[3][3]) { RotationMatrix(rotation, matrix); }
+
 private:
-    /// <summary>Rounds half away from zero using the SDK floor/ceil, which the freestanding toolchain provides.</summary>
-    static float Round(float value) {
-        return value >= 0.0f ? static_cast<float>(floor(static_cast<double>(value) + 0.5)) : static_cast<float>(ceil(static_cast<double>(value) - 0.5));
-    }
 
     /// <summary>Row-major rotation matrix of a unit quaternion (columns are the rotated basis vectors).</summary>
     static void RotationMatrix(Ps1Quaternion q, float (&matrix)[3][3]) {

@@ -4,11 +4,13 @@
 #include "AssetSerializer.hpp"
 #include "CameraClearSettings.hpp"
 #include "Core.hpp"
+#include "DirectionalLightComponent.hpp"
 #include "Entity.hpp"
 #include "ICamera.hpp"
 #include "IContentStreamSource.hpp"
 #include "IDrawable3D.hpp"
 #include "IRenderQueue3D.hpp"
+#include "LightDirectionUtility.hpp"
 #include "ModelAsset.hpp"
 #include "ObjectManager.hpp"
 #include "PlatformMaterialAsset.hpp"
@@ -18,6 +20,7 @@
 #include "float3.hpp"
 #include "float4.hpp"
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
+#include "platform/ps1/rendering/Ps1AuthoredLighting.hpp"
 #include "platform/ps1/rendering/Ps1AuthoredProjection.hpp"
 #include "platform/ps1/rendering/Ps1RuntimeMaterial.hpp"
 #include "platform/ps1/rendering/Ps1RuntimeModel.hpp"
@@ -30,7 +33,7 @@ namespace helengine::ps1 {
 namespace {
 
 /// <summary>Renderer family the cooked material must declare; written by the PS1 material cooker.</summary>
-constexpr const char kRendererFamilyId[] = "ps1-unlit";
+constexpr const char kRendererFamilyId[] = "ps1-opaque";
 
 /// <summary>Opens and deserializes one cooked asset through Core's content source.</summary>
 ::Asset* Deserialize(::IContentStreamSource* source, const HeCppString& path) {
@@ -77,15 +80,16 @@ Ps1RenderManager3D::Ps1RenderManager3D(psyqo::GPU& gpu, Ps1RasterRenderer& rende
     if (materialAsset == nullptr) {
         he_cpp_custom::Fail("PS1 cooked material is null");
     }
-    if (materialAsset->Lit || !materialAsset->TextureRelativePath.empty() || materialAsset->RendererFamilyId != kRendererFamilyId) {
+    if (!materialAsset->TextureRelativePath.empty() || materialAsset->RendererFamilyId != kRendererFamilyId) {
         ramsyscall_printf("PS1_AUTHORED_MATERIAL_UNSUPPORTED family=%s lit=%u textured=%u\n", materialAsset->RendererFamilyId.c_str(),
                           materialAsset->Lit ? 1u : 0u, materialAsset->TextureRelativePath.empty() ? 0u : 1u);
-        he_cpp_custom::Fail("PS1 authored scenes require opaque ps1-unlit materials without textures");
+        he_cpp_custom::Fail("PS1 authored scenes require opaque ps1-opaque materials without textures");
     }
-    ramsyscall_printf("PS1_AUTHORED_MATERIAL id=%s color=%02X%02X%02X\n", materialAsset->get_Id().c_str(),
+    ramsyscall_printf("PS1_AUTHORED_MATERIAL id=%s color=%02X%02X%02X lit=%u\n", materialAsset->get_Id().c_str(),
                       static_cast<unsigned>(materialAsset->BaseColorR), static_cast<unsigned>(materialAsset->BaseColorG),
-                      static_cast<unsigned>(materialAsset->BaseColorB));
-    return new Ps1RuntimeMaterial(materialAsset->BaseColorR, materialAsset->BaseColorG, materialAsset->BaseColorB, materialAsset->DoubleSided);
+                      static_cast<unsigned>(materialAsset->BaseColorB), materialAsset->Lit ? 1u : 0u);
+    return new Ps1RuntimeMaterial(materialAsset->BaseColorR, materialAsset->BaseColorG, materialAsset->BaseColorB, materialAsset->DoubleSided,
+                                  materialAsset->Lit);
 }
 
 ::RuntimeMaterial* Ps1RenderManager3D::BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset) {
@@ -142,6 +146,40 @@ void Ps1RenderManager3D::Reject(const char* marker) {
     }
 }
 
+bool Ps1RenderManager3D::TryBuildLighting() {
+    LightingValue = Ps1GteLighting{};
+    LightCountValue = 0;
+    ::List<::DirectionalLightComponent*>* lights = OwnerCore->get_ObjectManager()->get_DirectionalLights();
+    const std::uint32_t reported = lights == nullptr ? 0u : static_cast<std::uint32_t>(lights->get_Count());
+    if (reported > Ps1AuthoredLighting::MaxLights) {
+        return false;
+    }
+    Ps1DirectionalLight converted[Ps1AuthoredLighting::MaxLights];
+    std::uint32_t count = 0;
+    for (std::uint32_t index = 0; index < reported; ++index) {
+        ::DirectionalLightComponent* light = lights->get_Item(static_cast<int>(index));
+        if (light == nullptr || light->get_Parent() == nullptr) {
+            return false;
+        }
+        // The engine derives a directional light's world direction from its entity's forward axis;
+        // reuse that utility rather than reimplementing the convention on this platform.
+        const ::float3 direction = ::LightDirectionUtility::GetLightDirection(light);
+        const ::float4 color = light->get_Color();
+        converted[count].Direction = Ps1Vector3{direction.X, direction.Y, direction.Z};
+        converted[count].Color = Ps1Vector3{color.X, color.Y, color.Z};
+        converted[count].Intensity = light->get_Intensity();
+        ++count;
+    }
+    // The authored scene supplies no ambient term, so unlit faces stay black rather than being
+    // lifted by a value no one authored.
+    const Ps1Vector3 ambient{0.0f, 0.0f, 0.0f};
+    if (!Ps1AuthoredLighting::TryBuild(CameraTransform, converted, count, ambient, LightingValue)) {
+        return false;
+    }
+    LightCountValue = count;
+    return true;
+}
+
 void Ps1RenderManager3D::Draw() {
     VisitedDrawables = 0;
     FrameOpen = false;
@@ -166,6 +204,10 @@ void Ps1RenderManager3D::Draw() {
     ClearColor = clearSettings.ClearColorEnabled
         ? psyqo::Color{{.r = Channel(clearSettings.ClearColor.X), .g = Channel(clearSettings.ClearColor.Y), .b = Channel(clearSettings.ClearColor.Z)}}
         : Ps1FrameContext::DefaultClearColor;
+    if (!TryBuildLighting()) {
+        Reject("PS1_RENDER_LIGHTING_REJECTED");
+        return;
+    }
     if (!Renderer.BeginAuthoredFrame(Gpu)) {
         Reject("PS1_RENDER_FRAME_BEGIN_FAILED");
         return;
@@ -197,8 +239,9 @@ void Ps1RenderManager3D::Visit(::IDrawable3D* drawable) {
     if (material == nullptr) {
         he_cpp_custom::Fail("Authored drawable has no PS1 runtime material");
     }
+    const Ps1AuthoredTransform objectTransform = TransformOf(drawable->get_Parent());
     Ps1GtePose pose{};
-    if (!Ps1AuthoredProjection::TryBuildPose(CameraTransform, TransformOf(drawable->get_Parent()), model->BoundingRadius(),
+    if (!Ps1AuthoredProjection::TryBuildPose(CameraTransform, objectTransform, model->BoundingRadius(),
                                              Ps1AuthoredProjection::DefaultFieldOfViewRadians, pose)) {
         Reject("PS1_RENDER_POSE_REJECTED");
         FrameOpen = false;
@@ -207,8 +250,30 @@ void Ps1RenderManager3D::Visit(::IDrawable3D* drawable) {
     }
     LastPoseValue = pose;
     const psyqo::Color color{{.r = material->Red(), .g = material->Green(), .b = material->Blue()}};
+    const std::int16_t* normals = nullptr;
+    const Ps1GteLighting* lighting = nullptr;
+    Ps1GteLighting objectLighting{};
+    if (material->Lit()) {
+        // Model normals stay in local space; the object rotation folds into the light rows instead,
+        // which is what the GTE's single normal-colour pass expects.
+        normals = model->GteNormals();
+        if (normals == nullptr) {
+            Reject("PS1_RENDER_LIT_MODEL_HAS_NO_NORMALS");
+            FrameOpen = false;
+            Renderer.CancelAuthoredFrame();
+            return;
+        }
+        objectLighting = LightingValue;
+        if (!Ps1AuthoredLighting::TryBuildObjectLightMatrix(LightingValue, CameraTransform, objectTransform, objectLighting.LightMatrix)) {
+            Reject("PS1_RENDER_LIGHT_MATRIX_REJECTED");
+            FrameOpen = false;
+            Renderer.CancelAuthoredFrame();
+            return;
+        }
+        lighting = &objectLighting;
+    }
     if (!Renderer.QueueAuthoredMesh(pose, model->GteVertices(), model->VertexCount(), model->Indices(), model->IndexCount(), color,
-                                    material->DoubleSided())) {
+                                    material->DoubleSided(), normals, lighting)) {
         Reject("PS1_RENDER_MESH_REJECTED");
         FrameOpen = false;
     }

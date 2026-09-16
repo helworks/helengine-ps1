@@ -164,3 +164,52 @@ The completion marker and fresh-VBlank lifecycle are observed through guest
 diagnostics and the verified emulator configuration. Hardware timing,
 framebuffer appearance, five actual resets, and disc boot remain outside the
 evidence unless the pending rows acquire direct observations.
+
+## Authored directional lighting (2026-09-16)
+
+The cube_test scene's single directional light now drives per-vertex shading
+on the GTE. The subset exporter retains `CubeTestSun` with its
+`helengine.DirectionalLightComponent` alongside the camera and cube, the PS1
+material cooker emits `Lit = true` for the `vertex-lit` lighting mode, and the
+render manager reads `ObjectManager::get_DirectionalLights()` and builds the
+GTE light and colour matrices. Object rotation folds into the light rows so
+model normals stay in their authored local space, which is the arrangement the
+hardware's single normal-colour pass expects.
+
+Ambient is deliberately absent. The scene authors none, so faces turned away
+from the sun go black rather than being lifted by a value nobody wrote.
+
+Evidence, from
+`20260916-135424-842-Release-5fbfa3b1e3cd4667847d71af1739295e` booted in
+DuckStation under the verified portable configuration:
+
+```
+PS1_AUTHORED_MATERIAL id=Materials.rendering.cube_test.CubeTestSolid color=FFFFFF lit=1
+PS1_AUTHORED_LIGHT count=1 l0=-1636,-3077,-2152 l1=0,0,0 l2=0,0,0 c0=4096,4096,4096 bg=0,0,0
+PS1_AUTHORED_SHADE sampled=1 v0=858585 v1=858585 v2=858585      (frame 1)
+PS1_AUTHORED_SHADE sampled=1 v0=4d4d4d v1=4d4d4d v2=4d4d4d      (frame 1200)
+```
+
+The light row was verified by hand against the authored sun. Its orientation
+quaternion rotates the engine forward axis to a world direction of
+`(0.3994, -0.7512, -0.5254)`; negating and flipping into GTE camera axes gives
+`(-1636, -3077, -2152)` in 4.12, which is what the target reported.
+
+The two shade samples were also verified by hand and are the load-bearing
+evidence, because they are the hardware's own output rather than its input.
+At frame 1 the visible face normal is `(0, 0, 1)`, whose dot with the
+direction toward the light is `0.5254`; times the white base colour that is
+`133`, and the target reported `0x85`. At frame 1200 the cube has turned
+25.3 degrees, the same face normal becomes `(0.428, 0, 0.904)`, the dot falls
+to `0.3041`, and `77` is expected; the target reported `0x4d`. One light, one
+material, two orientations, two different measured brightnesses.
+
+`Ps1AuthoredLightingTests.cpp` runs in the host suite and checks the light and
+colour matrix construction, the per-object light matrix, normal conversion,
+clamping and saturation, and parity against an independent reference for all
+six cube face normals. It also checks the rejection paths: more than three
+lights, a degenerate light direction, and non-uniform object scale.
+
+This verifies the shading math and the values the GTE produced. It does not
+export framebuffer pixels, so the on-screen appearance remains observed rather
+than captured.

@@ -170,6 +170,21 @@ void Ps1AuthoredScene::frame() {
                           static_cast<int>(pose.Rotation[0][2]), static_cast<int>(pose.Rotation[1][0]), static_cast<int>(pose.Rotation[1][1]),
                           static_cast<int>(pose.Rotation[1][2]), static_cast<int>(pose.Rotation[2][0]), static_cast<int>(pose.Rotation[2][1]),
                           static_cast<int>(pose.Rotation[2][2]), static_cast<unsigned>(gpu().getFrameCount()), psyqo_heap_end());
+        // The light rows and colour columns prove the authored directional light reaches the GTE
+        // rather than the renderer inventing a shading term.
+        const Ps1GteLighting& lighting = m_render3D->LastLighting();
+        ramsyscall_printf("PS1_AUTHORED_LIGHT count=%u l0=%d,%d,%d l1=%d,%d,%d l2=%d,%d,%d c0=%d,%d,%d bg=%d,%d,%d\n",
+                          static_cast<unsigned>(m_render3D->LastLightCount()), static_cast<int>(lighting.LightMatrix[0][0]),
+                          static_cast<int>(lighting.LightMatrix[0][1]), static_cast<int>(lighting.LightMatrix[0][2]),
+                          static_cast<int>(lighting.LightMatrix[1][0]), static_cast<int>(lighting.LightMatrix[1][1]),
+                          static_cast<int>(lighting.LightMatrix[1][2]), static_cast<int>(lighting.LightMatrix[2][0]),
+                          static_cast<int>(lighting.LightMatrix[2][1]), static_cast<int>(lighting.LightMatrix[2][2]),
+                          static_cast<int>(lighting.ColorMatrix[0][0]), static_cast<int>(lighting.ColorMatrix[1][0]),
+                          static_cast<int>(lighting.ColorMatrix[2][0]), static_cast<int>(lighting.BackgroundColor[0]),
+                          static_cast<int>(lighting.BackgroundColor[1]), static_cast<int>(lighting.BackgroundColor[2]));
+        ramsyscall_printf("PS1_AUTHORED_SHADE sampled=%u v0=%06x v1=%06x v2=%06x\n", stats.litSampled ? 1u : 0u,
+                          static_cast<unsigned>(stats.litVertexColors[0]), static_cast<unsigned>(stats.litVertexColors[1]),
+                          static_cast<unsigned>(stats.litVertexColors[2]));
     }
     if (!m_render3D->LastFrameSubmitted()) {
         const char* marker = m_render3D->LastFailureMarker();

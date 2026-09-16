@@ -26,6 +26,9 @@ public:
 
     /// <summary>Interleaved x, y, z GTE-unit positions, three per vertex.</summary>
     const std::int16_t* GteVertices() const { return VerticesValue; }
+
+    /// <summary>Interleaved local-space normals in 4.12, three per vertex, or null when the model has none.</summary>
+    const std::int16_t* GteNormals() const { return NormalsValue; }
     const std::uint16_t* Indices() const { return IndicesValue; }
     std::uint32_t VertexCount() const { return VertexCountValue; }
     std::uint32_t IndexCount() const { return IndexCountValue; }
@@ -41,6 +44,7 @@ public:
 
 private:
     std::int16_t* VerticesValue = nullptr;
+    std::int16_t* NormalsValue = nullptr;
     std::uint16_t* IndicesValue = nullptr;
     std::uint32_t VertexCountValue = 0;
     std::uint32_t IndexCountValue = 0;

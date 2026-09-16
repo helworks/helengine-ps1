@@ -113,6 +113,7 @@ Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1SharedPtrTests.cpp'
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1RuntimeClockTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1RuntimeClockTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1EmbeddedArchiveTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1EmbeddedArchiveTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1AuthoredProjectionTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1AuthoredProjectionTests.cpp')
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1AuthoredLightingTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1AuthoredLightingTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1EmbeddedAssetStreamTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1EmbeddedAssetStreamTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\stream-config') -Destination (Join-Path $runRoot 'tests\host\stream-config') -Recurse
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\test_embed_authored_assets.py') -Destination (Join-Path $runRoot 'tests\host\test_embed_authored_assets.py')
@@ -140,6 +141,8 @@ $archiveCompileLog = Join-Path $runRoot 'embedded-archive-cpp-compile.log'
 $archiveRunLog = Join-Path $runRoot 'embedded-archive-cpp-run.log'
 $projectionCompileLog = Join-Path $runRoot 'authored-projection-cpp-compile.log'
 $projectionRunLog = Join-Path $runRoot 'authored-projection-cpp-run.log'
+$lightingCompileLog = Join-Path $runRoot 'authored-lighting-cpp-compile.log'
+$lightingRunLog = Join-Path $runRoot 'authored-lighting-cpp-run.log'
 $streamCompileLog = Join-Path $runRoot 'embedded-stream-cpp-compile.log'
 $streamRunLog = Join-Path $runRoot 'embedded-stream-cpp-run.log'
 $streamFailLog = Join-Path $runRoot 'embedded-stream-cpp-fail.log'
@@ -168,6 +171,10 @@ $projectionCompileStdout = Join-Path $runRoot 'authored-projection-cpp-compile.s
 $projectionCompileStderr = Join-Path $runRoot 'authored-projection-cpp-compile.stderr.log'
 $projectionRunStdout = Join-Path $runRoot 'authored-projection-cpp-run.stdout.log'
 $projectionRunStderr = Join-Path $runRoot 'authored-projection-cpp-run.stderr.log'
+$lightingCompileStdout = Join-Path $runRoot 'authored-lighting-cpp-compile.stdout.log'
+$lightingCompileStderr = Join-Path $runRoot 'authored-lighting-cpp-compile.stderr.log'
+$lightingRunStdout = Join-Path $runRoot 'authored-lighting-cpp-run.stdout.log'
+$lightingRunStderr = Join-Path $runRoot 'authored-lighting-cpp-run.stderr.log'
 $archiveCompileStdout = Join-Path $runRoot 'embedded-archive-cpp-compile.stdout.log'
 $archiveCompileStderr = Join-Path $runRoot 'embedded-archive-cpp-compile.stderr.log'
 $archiveRunStdout = Join-Path $runRoot 'embedded-archive-cpp-run.stdout.log'
@@ -333,6 +340,31 @@ Merge-ProcessLogs -StdoutPath $projectionRunResult.StdoutPath -StderrPath $proje
 Add-ExitMarker -LogPath $projectionRunLog -Name 'AUTHORED_PROJECTION_CPP_RUN' -ExitCode $projectionRunResult.ExitCode
 if ($projectionRunResult.ExitCode -ne 0) { throw ("PS1 authored projection executable failed with exit code {0}{1}{2}" -f $projectionRunResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $projectionRunResult.StdoutPath -StderrPath $projectionRunResult.StderrPath)) }
 
+$lightingCompileArgs = @(
+    'run', '--rm',
+    '--mount', "type=bind,source=$runRoot,target=/work",
+    '--workdir', '/work',
+    $dockerImage,
+    'g++', '-std=c++20', '-Wall', '-Wextra', '-Isrc',
+    '/work/tests/host/Ps1AuthoredLightingTests.cpp', '-o', '/work/ps1_authored_lighting_tests'
+)
+$lightingCompileResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $lightingCompileArgs -WorkingDirectory $runRoot -StdoutPath $lightingCompileStdout -StderrPath $lightingCompileStderr
+Merge-ProcessLogs -StdoutPath $lightingCompileResult.StdoutPath -StderrPath $lightingCompileResult.StderrPath -CombinedPath $lightingCompileLog
+Add-ExitMarker -LogPath $lightingCompileLog -Name 'AUTHORED_LIGHTING_CPP_COMPILE' -ExitCode $lightingCompileResult.ExitCode
+if ($lightingCompileResult.ExitCode -ne 0) { throw ("PS1 authored lighting compile failed with exit code {0}{1}{2}" -f $lightingCompileResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $lightingCompileResult.StdoutPath -StderrPath $lightingCompileResult.StderrPath)) }
+
+$lightingRunArgs = @(
+    'run', '--rm',
+    '--mount', "type=bind,source=$runRoot,target=/work",
+    '--workdir', '/work',
+    $dockerImage,
+    '/work/ps1_authored_lighting_tests'
+)
+$lightingRunResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $lightingRunArgs -WorkingDirectory $runRoot -StdoutPath $lightingRunStdout -StderrPath $lightingRunStderr
+Merge-ProcessLogs -StdoutPath $lightingRunResult.StdoutPath -StderrPath $lightingRunResult.StderrPath -CombinedPath $lightingRunLog
+Add-ExitMarker -LogPath $lightingRunLog -Name 'AUTHORED_LIGHTING_CPP_RUN' -ExitCode $lightingRunResult.ExitCode
+if ($lightingRunResult.ExitCode -ne 0) { throw ("PS1 authored lighting executable failed with exit code {0}{1}{2}" -f $lightingRunResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $lightingRunResult.StdoutPath -StderrPath $lightingRunResult.StderrPath)) }
+
 $archiveCompileArgs = @(
     'run', '--rm',
     '--mount', "type=bind,source=$runRoot,target=/work",
@@ -431,6 +463,8 @@ $summary = [ordered]@{
     embedded_archive_cpp_run = $archiveRunLog
     authored_projection_cpp_compile = $projectionCompileLog
     authored_projection_cpp_run = $projectionRunLog
+    authored_lighting_cpp_compile = $lightingCompileLog
+    authored_lighting_cpp_run = $lightingRunLog
     embedded_stream_status = $streamStatus
     embedded_stream_cpp_compile = $streamCompileLog
     embedded_stream_cpp_run = $streamRunLog

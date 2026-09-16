@@ -46,7 +46,16 @@ public:
     /// <summary>GTE pose submitted for the most recently visited drawable; evidence that authored transforms drive the GTE.</summary>
     const Ps1GtePose& LastPose() const { return LastPoseValue; }
 
+    /// <summary>Camera-space GTE lighting built for the most recent Draw; evidence that authored lights reach the hardware.</summary>
+    const Ps1GteLighting& LastLighting() const { return LightingValue; }
+
+    /// <summary>Directional lights the object manager reported during the most recent Draw.</summary>
+    std::uint32_t LastLightCount() const { return LightCountValue; }
+
 private:
+    /// <summary>Reads the scene's directional lights into camera-space GTE lighting state.</summary>
+    bool TryBuildLighting();
+
     /// <summary>Validates the cooked material and creates the runtime material.</summary>
     ::RuntimeMaterial* BuildMaterialAsset(::PlatformMaterialAsset* materialAsset);
 
@@ -58,6 +67,8 @@ private:
     Ps1AuthoredTransform CameraTransform{};
     psyqo::Color ClearColor = Ps1FrameContext::DefaultClearColor;
     Ps1GtePose LastPoseValue{};
+    Ps1GteLighting LightingValue{};
+    std::uint32_t LightCountValue = 0;
     std::uint32_t VisitedDrawables = 0;
     bool FrameOpen = false;
     bool FrameSubmitted = false;

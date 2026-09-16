@@ -398,9 +398,32 @@ void Ps1RasterRenderer::WriteAuthoredPose(const Ps1GtePose& pose) {
         static_cast<std::uint32_t>(psyqo::FixedPoint<16>(120.0).raw()));
 }
 
+void Ps1RasterRenderer::WriteAuthoredLighting(const Ps1GteLighting& lighting, psyqo::Color materialColor) {
+    psyqo::Matrix33 lightMatrix;
+    psyqo::Matrix33 colorMatrix;
+    for (unsigned row = 0; row < 3; ++row) {
+        lightMatrix.vs[row].x = psyqo::FixedPoint<12>(static_cast<std::int32_t>(lighting.LightMatrix[row][0]), psyqo::FixedPoint<12>::RAW);
+        lightMatrix.vs[row].y = psyqo::FixedPoint<12>(static_cast<std::int32_t>(lighting.LightMatrix[row][1]), psyqo::FixedPoint<12>::RAW);
+        lightMatrix.vs[row].z = psyqo::FixedPoint<12>(static_cast<std::int32_t>(lighting.LightMatrix[row][2]), psyqo::FixedPoint<12>::RAW);
+        colorMatrix.vs[row].x = psyqo::FixedPoint<12>(static_cast<std::int32_t>(lighting.ColorMatrix[row][0]), psyqo::FixedPoint<12>::RAW);
+        colorMatrix.vs[row].y = psyqo::FixedPoint<12>(static_cast<std::int32_t>(lighting.ColorMatrix[row][1]), psyqo::FixedPoint<12>::RAW);
+        colorMatrix.vs[row].z = psyqo::FixedPoint<12>(static_cast<std::int32_t>(lighting.ColorMatrix[row][2]), psyqo::FixedPoint<12>::RAW);
+    }
+    psyqo::GTE::writeSafe<psyqo::GTE::PseudoRegister::Light>(lightMatrix);
+    psyqo::GTE::writeSafe<psyqo::GTE::PseudoRegister::Color>(colorMatrix);
+    psyqo::GTE::write<psyqo::GTE::Register::RBK, psyqo::GTE::Safe>(static_cast<std::uint32_t>(lighting.BackgroundColor[0]));
+    psyqo::GTE::write<psyqo::GTE::Register::GBK, psyqo::GTE::Safe>(static_cast<std::uint32_t>(lighting.BackgroundColor[1]));
+    psyqo::GTE::write<psyqo::GTE::Register::BBK, psyqo::GTE::Safe>(static_cast<std::uint32_t>(lighting.BackgroundColor[2]));
+    // ncct multiplies its result by the material colour held in RGB, and copies RGB's
+    // high byte (the CODE field) into every colour it emits.  Preloading the opaque
+    // gouraud-triangle command word there means RGB0 reads back as a finished first word.
+    const std::uint32_t code = psyqo::Prim::GouraudTriangle().setOpaque().getCommandWord();
+    psyqo::GTE::write<psyqo::GTE::Register::RGB, psyqo::GTE::Safe>(code | (materialColor.packed & 0x00ffffffu));
+}
+
 bool Ps1RasterRenderer::QueueAuthoredMesh(const Ps1GtePose& pose, const std::int16_t* vertices, std::uint32_t vertexCount,
                                           const std::uint16_t* indices, std::uint32_t indexCount, psyqo::Color color,
-                                          bool doubleSided) {
+                                          bool doubleSided, const std::int16_t* normals, const Ps1GteLighting* lighting) {
     Ps1FrameContext* context = m_authoredContext;
     if (context == nullptr) {
         ++m_stats.ownershipFailures;
@@ -414,7 +437,11 @@ bool Ps1RasterRenderer::QueueAuthoredMesh(const Ps1GtePose& pose, const std::int
         m_authoredContext = nullptr;
         return false;
     }
+    const bool lit = normals != nullptr && lighting != nullptr;
     WriteAuthoredPose(pose);
+    if (lit) {
+        WriteAuthoredLighting(*lighting, color);
+    }
     for (std::uint32_t triangle = 0; triangle < indexCount; triangle += 3) {
         const std::uint16_t i0 = indices[triangle];
         const std::uint16_t i1 = indices[triangle + 1];
@@ -474,22 +501,66 @@ bool Ps1RasterRenderer::QueueAuthoredMesh(const Ps1GtePose& pose, const std::int
             m_authoredContext = nullptr;
             return false;
         }
-        auto* fragment = context->TryReserveTriangle();
-        if (fragment == nullptr) {
-            ++m_stats.capacityFailures;
-            m_stats.failure = Ps1RenderFailure::Capacity;
-            context->Cancel();
-            m_authoredContext = nullptr;
-            return false;
-        }
-        fragment->primitive.setOpaque().setColor(color);
-        fragment->primitive.setPointA(a).setPointB(b).setPointC(c);
-        if (!context->Insert(*fragment, bucket)) {
-            ++m_stats.capacityFailures;
-            m_stats.failure = Ps1RenderFailure::Capacity;
-            context->Cancel();
-            m_authoredContext = nullptr;
-            return false;
+        if (lit) {
+            // Second GTE pass over the same triangle: local normals in, per-vertex colours out.
+            const Ps1CubeMesh::Position n0{normals[i0 * 3], normals[i0 * 3 + 1], normals[i0 * 3 + 2]};
+            const Ps1CubeMesh::Position n1{normals[i1 * 3], normals[i1 * 3 + 1], normals[i1 * 3 + 2]};
+            const Ps1CubeMesh::Position n2{normals[i2 * 3], normals[i2 * 3 + 1], normals[i2 * 3 + 2]};
+            WriteVertex0(n0);
+            WriteVertex1(n1);
+            WriteVertex2(n2);
+            psyqo::GTE::Kernels::ncct();
+            std::uint32_t rgb0 = 0;
+            std::uint32_t rgb1 = 0;
+            std::uint32_t rgb2 = 0;
+            psyqo::GTE::read<psyqo::GTE::Register::RGB0>(&rgb0);
+            psyqo::GTE::read<psyqo::GTE::Register::RGB1>(&rgb1);
+            psyqo::GTE::read<psyqo::GTE::Register::RGB2>(&rgb2);
+            if (!m_stats.litSampled) {
+                // One sample per frame: the colours the hardware actually produced, so shading is
+                // observable evidence rather than something inferred from the light matrix.
+                m_stats.litVertexColors[0] = rgb0 & 0x00ffffffu;
+                m_stats.litVertexColors[1] = rgb1 & 0x00ffffffu;
+                m_stats.litVertexColors[2] = rgb2 & 0x00ffffffu;
+                m_stats.litSampled = true;
+            }
+            auto* fragment = context->TryReserveGouraud();
+            if (fragment == nullptr) {
+                ++m_stats.capacityFailures;
+                m_stats.failure = Ps1RenderFailure::Capacity;
+                context->Cancel();
+                m_authoredContext = nullptr;
+                return false;
+            }
+            fragment->primitive.setColorAPacked(rgb0);
+            fragment->primitive.setColorB(psyqo::Color{.packed = rgb1 & 0x00ffffffu});
+            fragment->primitive.setColorC(psyqo::Color{.packed = rgb2 & 0x00ffffffu});
+            fragment->primitive.setPointA(a).setPointB(b).setPointC(c);
+            if (!context->Insert(*fragment, bucket)) {
+                ++m_stats.capacityFailures;
+                m_stats.failure = Ps1RenderFailure::Capacity;
+                context->Cancel();
+                m_authoredContext = nullptr;
+                return false;
+            }
+        } else {
+            auto* fragment = context->TryReserveTriangle();
+            if (fragment == nullptr) {
+                ++m_stats.capacityFailures;
+                m_stats.failure = Ps1RenderFailure::Capacity;
+                context->Cancel();
+                m_authoredContext = nullptr;
+                return false;
+            }
+            fragment->primitive.setOpaque().setColor(color);
+            fragment->primitive.setPointA(a).setPointB(b).setPointC(c);
+            if (!context->Insert(*fragment, bucket)) {
+                ++m_stats.capacityFailures;
+                m_stats.failure = Ps1RenderFailure::Capacity;
+                context->Cancel();
+                m_authoredContext = nullptr;
+                return false;
+            }
         }
         ++m_stats.submittedTriangles;
     }

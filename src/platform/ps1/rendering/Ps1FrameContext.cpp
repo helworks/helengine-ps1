@@ -30,6 +30,9 @@ bool Ps1FrameContext::Begin(std::uint32_t sceneSequence, std::uint32_t triangleC
     m_reservedCount = 0;
     m_insertedCount = 0;
     for (unsigned i = 0; i < TriangleCapacity; ++i) m_inserted[i] = 0;
+    m_gouraudReservedCount = 0;
+    m_gouraudInsertedCount = 0;
+    for (unsigned i = 0; i < GouraudCapacity; ++i) m_gouraudInserted[i] = 0;
     m_buildSequence = sceneSequence;
     m_state = State::Building;
     return true;
@@ -63,6 +66,35 @@ bool Ps1FrameContext::Insert(TriangleFragment& fragment, std::uint16_t bucket) {
     m_table.insert(fragment, bucket);
     m_inserted[index] = 1;
     ++m_insertedCount;
+    return true;
+}
+
+Ps1FrameContext::GouraudFragment* Ps1FrameContext::TryReserveGouraud() {
+    if (m_state != State::Building) {
+        AssertState(false, "PS1_GOURAUD_RESERVE_WRONG_STATE");
+        return nullptr;
+    }
+    if (m_gouraudReservedCount >= GouraudCapacity) return nullptr;
+    return &m_gouraud[m_gouraudReservedCount++];
+}
+
+bool Ps1FrameContext::Insert(GouraudFragment& fragment, std::uint16_t bucket) {
+    if (m_state != State::Building) {
+        AssertState(false, "PS1_GOURAUD_INSERT_WRONG_STATE");
+        return false;
+    }
+    if (bucket >= 256u) return false;
+
+    const auto first = reinterpret_cast<std::uintptr_t>(&m_gouraud[0]);
+    const auto last = reinterpret_cast<std::uintptr_t>(&m_gouraud[GouraudCapacity]);
+    const auto address = reinterpret_cast<std::uintptr_t>(&fragment);
+    if (address < first || address >= last || ((address - first) % sizeof(GouraudFragment)) != 0) return false;
+    const unsigned index = static_cast<unsigned>((address - first) / sizeof(GouraudFragment));
+    if (index >= m_gouraudReservedCount || m_gouraudInserted[index] != 0) return false;
+
+    m_table.insert(fragment, bucket);
+    m_gouraudInserted[index] = 1;
+    ++m_gouraudInsertedCount;
     return true;
 }
 
