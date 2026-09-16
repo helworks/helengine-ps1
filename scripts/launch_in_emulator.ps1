@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][ValidateScript({ [IO.Path]::IsPathRooted($_) })][string] $Manifest,
-    [Parameter(Mandatory = $true)][ValidateScript({ [IO.Path]::IsPathRooted($_) })][string] $EmulatorPath
+    [Parameter(Mandatory = $true)][ValidateScript({ [IO.Path]::IsPathRooted($_) })][string] $EmulatorPath,
+    # Shows the emulator window for a visual check; unattended evidence runs keep it hidden.
+    [switch] $ShowWindow
 )
 
 Set-StrictMode -Version Latest
@@ -129,7 +131,8 @@ $launchLog = Join-Path $manifestDirectory ('duckstation-' + $launchStamp + '.log
 $errorLog = Join-Path $manifestDirectory ('duckstation-' + $launchStamp + '.err.log')
 $quotedExecutablePath = Quote-ProcessArgument -Value $exePath
 $arguments = @('-batch', '-nogui', '-earlyconsole', $quotedExecutablePath)
-$process = Start-Process -FilePath $emulatorPath -ArgumentList $arguments -WorkingDirectory $portableDirectory -WindowStyle Hidden -RedirectStandardOutput $launchLog -RedirectStandardError $errorLog -PassThru
+$windowStyle = if ($ShowWindow) { 'Normal' } else { 'Hidden' }
+$process = Start-Process -FilePath $emulatorPath -ArgumentList $arguments -WorkingDirectory $portableDirectory -WindowStyle $windowStyle -RedirectStandardOutput $launchLog -RedirectStandardError $errorLog -PassThru
 
 $launchRecord = [ordered]@{
     schema = 2
@@ -150,6 +153,7 @@ $launchRecord = [ordered]@{
     stdout_log = $launchLog
     stderr_log = $errorLog
     arguments = $arguments
+    window_shown = [bool]$ShowWindow
 }
 $launchRecord | ConvertTo-Json -Depth 8 | Out-File -LiteralPath (Join-Path $manifestDirectory 'last-launch.json') -Encoding utf8
 $launchRecord | ConvertTo-Json -Depth 8
