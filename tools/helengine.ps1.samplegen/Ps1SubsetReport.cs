@@ -26,6 +26,8 @@ public sealed class Ps1SubsetReport {
 
     public Ps1SpinPayloadReport Spin { get; set; }
 
+    public Ps1DirectionalLightPayloadReport DirectionalLight { get; set; }
+
     public List<Ps1EngineAssemblyReport> EngineAssemblies { get; set; } = new();
 }
 
@@ -107,6 +109,15 @@ public sealed class Ps1CameraPayloadReport {
     public string PostProcessTier { get; set; }
 
     public byte PostProcessTierValue { get; set; }
+}
+
+/// <summary>Authored directional-light values the PS1 GTE lighting path consumes.</summary>
+public sealed class Ps1DirectionalLightPayloadReport {
+    /// <summary>Linear RGBA light colour.</summary>
+    public float[] Color { get; set; }
+
+    /// <summary>Authored intensity multiplier applied to the colour.</summary>
+    public float Intensity { get; set; }
 }
 
 public sealed class Ps1SpinPayloadReport {

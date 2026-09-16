@@ -14,8 +14,10 @@ public sealed class Ps1SceneSubsetExporter {
     public const string SceneId = "scenes/rendering/cube_test.helen";
     public const string CameraComponentTypeId = "helengine.CameraComponent";
     public const string MeshComponentTypeId = "helengine.MeshComponent";
+    public const string DirectionalLightComponentTypeId = "helengine.DirectionalLightComponent";
     public const string CubeTestSpinComponentTypeId = "city.rendering.CubeTestSpinComponent, gameplay";
     public const string OrbitComponentTypeId = "city.rendering.DemoDiscOrbitCameraComponent, gameplay";
+    public const string SunEntityName = "CubeTestSun";
 
     static readonly JsonSerializerOptions ReportJsonOptions = new() {
         WriteIndented = true,
@@ -63,6 +65,7 @@ public sealed class Ps1SceneSubsetExporter {
         SceneEntityAsset[] roots = source.RootEntities ?? Array.Empty<SceneEntityAsset>();
         List<SceneEntityAsset> cameras = new();
         List<SceneEntityAsset> cubes = new();
+        List<SceneEntityAsset> suns = new();
         foreach (SceneEntityAsset root in roots) {
             foreach (SceneEntityAsset entity in Enumerate(root)) {
                 if (string.Equals(entity.Name, "CubeTestCamera", StringComparison.Ordinal)
@@ -73,6 +76,10 @@ public sealed class Ps1SceneSubsetExporter {
                     && HasComponent(entity, MeshComponentTypeId)
                     && HasComponent(entity, CubeTestSpinComponentTypeId)) {
                     cubes.Add(entity);
+                }
+                if (string.Equals(entity.Name, SunEntityName, StringComparison.Ordinal)
+                    && HasComponent(entity, DirectionalLightComponentTypeId)) {
+                    suns.Add(entity);
                 }
             }
         }
@@ -95,14 +102,13 @@ public sealed class Ps1SceneSubsetExporter {
                 break;
             }
         }
-        List<SceneEntityAsset> associatedCubes = cubes.Where(cube => {
-            SceneEntityAsset[] cubeRoots = FindContainingRoot(roots, cube);
-            if (cubeRoots.Length != 1) return false;
-            int cubeRootIndex = Array.IndexOf(roots, cubeRoots[0]);
-            return cubeRootIndex >= cameraRootIndex && cubeRootIndex < nextCameraRootIndex;
-        }).ToList();
+        List<SceneEntityAsset> associatedCubes = cubes.Where(cube => IsInCameraWindow(roots, cube, cameraRootIndex, nextCameraRootIndex)).ToList();
         if (associatedCubes.Count != 1) {
             throw new InvalidOperationException($"Expected exactly one authored CubeTestCube in the CubeTestCamera root hierarchy; found {associatedCubes.Count}.");
+        }
+        List<SceneEntityAsset> associatedSuns = suns.Where(sun => IsInCameraWindow(roots, sun, cameraRootIndex, nextCameraRootIndex)).ToList();
+        if (associatedSuns.Count != 1) {
+            throw new InvalidOperationException($"Expected exactly one authored {SunEntityName} in the CubeTestCamera root hierarchy; found {associatedSuns.Count}.");
         }
 
         if (!ReferenceEquals(camera, cameraRoot[0])) {
@@ -112,9 +118,14 @@ public sealed class Ps1SceneSubsetExporter {
         if (cubeRoot.Length != 1 || !ReferenceEquals(associatedCubes[0], cubeRoot[0])) {
             throw new InvalidOperationException("The authored CubeTestCube must be a root entity; nested cube transforms are outside this fixed fixture subset.");
         }
+        SceneEntityAsset[] sunRoot = FindContainingRoot(roots, associatedSuns[0]);
+        if (sunRoot.Length != 1 || !ReferenceEquals(associatedSuns[0], sunRoot[0])) {
+            throw new InvalidOperationException($"The authored {SunEntityName} must be a root entity; nested light transforms are outside this fixed fixture subset.");
+        }
 
         ValidateAllowedComponents(camera, CameraComponentTypeId, OrbitComponentTypeId);
         ValidateRetainedComponents(associatedCubes[0], MeshComponentTypeId, CubeTestSpinComponentTypeId);
+        ValidateRetainedComponents(associatedSuns[0], DirectionalLightComponentTypeId);
         SceneAssetReference[] dependencies = ResolveMeshDependencies(source, associatedCubes[0]);
 
         return new SceneAsset {
@@ -124,7 +135,11 @@ public sealed class Ps1SceneSubsetExporter {
             FormerAuthoringAssetIds = source.FormerAuthoringAssetIds?.ToArray() ?? Array.Empty<string>(),
             SceneSettings = source.SceneSettings,
             Physics3DSceneFeatureFlags = source.Physics3DSceneFeatureFlags,
-            RootEntities = [CloneEntity(camera, [CameraComponentTypeId]), CloneEntity(associatedCubes[0], [MeshComponentTypeId, CubeTestSpinComponentTypeId])],
+            RootEntities = [
+                CloneEntity(camera, [CameraComponentTypeId]),
+                CloneEntity(associatedSuns[0], [DirectionalLightComponentTypeId]),
+                CloneEntity(associatedCubes[0], [MeshComponentTypeId, CubeTestSpinComponentTypeId])
+            ],
             AssetReferences = dependencies
         };
     }
@@ -191,6 +206,9 @@ public sealed class Ps1SceneSubsetExporter {
         SceneEntityAsset retainedCube = subset.RootEntities.Single(entity => entity.Name == "CubeTestCube");
         SceneComponentAssetRecord spinRecord = retainedCube.Components.Single(component => component.ComponentTypeId == CubeTestSpinComponentTypeId);
         report.Spin = DecodeSpinPayload(spinRecord.Payload);
+        SceneEntityAsset retainedSun = subset.RootEntities.Single(entity => entity.Name == SunEntityName);
+        SceneComponentAssetRecord sunRecord = retainedSun.Components.Single(component => component.ComponentTypeId == DirectionalLightComponentTypeId);
+        report.DirectionalLight = DecodeDirectionalLightPayload(sunRecord.Payload);
         return report;
     }
 
@@ -402,6 +420,36 @@ public sealed class Ps1SceneSubsetExporter {
             BaseYawRadians = baseYawReader.ReadSingle(),
             AngularSpeedRadians = angularSpeedReader.ReadSingle()
         };
+    }
+
+    /// <summary>
+    /// Decodes the colour and intensity the PS1 GTE lighting path consumes. The light's world
+    /// direction is not stored on the component; it comes from the owning entity orientation
+    /// through LightDirectionUtility, and the retained-entity record carries that orientation.
+    /// </summary>
+    /// <param name="payload">Serialized directional-light component payload.</param>
+    /// <returns>The decoded colour and intensity.</returns>
+    static Ps1DirectionalLightPayloadReport DecodeDirectionalLightPayload(byte[] payload) {
+        EditorTaggedSceneComponentFieldReader fields = new(payload ?? Array.Empty<byte>());
+        float4 color = ReadRequiredFloat4Field(fields, "Color");
+        float intensity = ReadRequiredSingleField(fields, "Intensity");
+        return new Ps1DirectionalLightPayloadReport {
+            Color = [color.X, color.Y, color.Z, color.W],
+            Intensity = intensity
+        };
+    }
+
+    /// <summary>Returns whether the entity's root sits inside the selected camera's root window.</summary>
+    /// <param name="roots">Every scene root entity, in authored order.</param>
+    /// <param name="entity">Entity being tested.</param>
+    /// <param name="cameraRootIndex">Index of the selected camera's root.</param>
+    /// <param name="nextCameraRootIndex">Index of the next root that owns a camera, or the root count.</param>
+    /// <returns>True when the entity belongs to exactly one root inside the window.</returns>
+    static bool IsInCameraWindow(SceneEntityAsset[] roots, SceneEntityAsset entity, int cameraRootIndex, int nextCameraRootIndex) {
+        SceneEntityAsset[] containing = FindContainingRoot(roots, entity);
+        if (containing.Length != 1) return false;
+        int rootIndex = Array.IndexOf(roots, containing[0]);
+        return rootIndex >= cameraRootIndex && rootIndex < nextCameraRootIndex;
     }
 
     static EngineBinaryReader RequireField(EditorTaggedSceneComponentFieldReader fields, string fieldName) {
