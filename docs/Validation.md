@@ -327,3 +327,59 @@ but the generated Core references neither `he_cpp_bind_front` nor
 `std::bind_front` anywhere, because PS1 runs with `codegen-use-std-function`
 false. So this check shows the change does not break PS1; it does not validate
 the helper itself, which needs a target that emits delegates.
+
+## Authored data drives rendering (2026-09-17)
+
+The outstanding acceptance item was to alter authored data and confirm the
+target follows, so that matching values cannot be coincidence. The authoring
+project is never modified: `assets`, `settings` and `project.heproj` are copied
+to a build directory, the copy is edited, and the pipeline runs against it with
+`-ProjectRoot` pointing at the copy.
+
+One value changed. The cube material's authored base colour went from
+`#ffffffff` to `#3f7fbfff`, a same-length edit to the copy alone. Everything
+else was held: same scene subset, same camera, same light, same geometry, same
+engine and codegen commits.
+
+Predicted from the front face's already-measured intensity of 0.5254:
+
+| Channel | Authored | Expected |
+|---|---|---|
+| R | 0x3F, 63 | 33, 0x21 |
+| G | 0x7F, 127 | 66, 0x42 |
+| B | 0xBF, 191 | 100, 0x64 |
+
+Reported by the target:
+
+```
+PS1_AUTHORED_MATERIAL id=Materials.rendering.cube_test.CubeTestSolid color=3F7FBF lit=1
+PS1_AUTHORED_SHADE sampled=1 v0=644221 v1=644221 v2=644221
+```
+
+`644221` is B `0x64`, G `0x42`, R `0x21`. All three channels moved
+independently and each landed on its predicted value. The white material could
+not have shown this, because three equal channels are consistent with any
+channel order; this run also confirms the GTE emits red in the low byte, which
+is what the gouraud fragment assumes.
+
+Taken with the two earlier checks, three authored inputs have now been varied
+and tracked to the hardware: the cube's rotation, through the shade moving from
+`0x85` to `0x4d` across frames; the camera's field of view, through `h` moving
+from 208 to 290; and now the material's base colour. Camera position and light
+direction remain verified by hand calculation against a single build rather
+than by variation.
+
+### A defect this found
+
+The first attempt failed to compile, and not because of the colour:
+
+```
+error: 'he_cpp_bind_front' was not declared in this scope
+```
+
+`dotnet publish` leaves files it considers up to date, so publishing the
+engine-pinned csharpcodegen over the master build from the earlier forward check
+produced a directory with one commit's tool and the other's bundled headers.
+Each build had passed on its own; only switching between them exposed it. The
+wrapper now clears that directory first. Recorded because a mixed toolchain
+directory fails in a way that looks like a code generation bug.
