@@ -383,3 +383,54 @@ produced a directory with one commit's tool and the other's bundled headers.
 Each build had passed on its own; only switching between them exposed it. The
 wrapper now clears that directory first. Recorded because a mixed toolchain
 directory fails in a way that looks like a code generation bug.
+
+## What the whole cube_test scene needs (2026-09-17)
+
+PS1 runs the camera, cube and sun subset of `cube_test`. This measures what the
+unmodified scene needs, by running the real scene through the pipeline with no
+subsetting and recording each failure in turn rather than predicting them.
+
+Three blockers surfaced, in order.
+
+**Project scripts that need C++ exceptions.** Codegen rejected
+`SoftwarePathTracer.InitializeProgressive` with CPP1001, because PS1 sets
+`codegen-use-exceptions` false and the method recovers from a thrown exception.
+Across the project's runtime modules only two files use try/catch,
+`SoftwarePathTracer.cs` and `SoftwarePathTracerComponent.cs`, and both belong to
+a software path tracer that will never run on this hardware. Every other
+`catch` is in a `.tools` or `.tests` module, which the wrapper already drops.
+Excluding those two is enough.
+
+**Script pruning is wrong for a whole scene.** The wrapper kept only classes
+named by a scene component, which broke the C# build because those components
+reference helpers no component names. `-RetainAllRuntimeScripts` keeps the
+runtime codebase, and `-ExcludeScriptClasses` drops named classes with a check
+that each one was actually found.
+
+**Memory, which is the real blocker.** With both of the above resolved, the
+build reaches the linker and fails there:
+
+```
+out/helengine_ps1.elf section `.rodata' will not fit in region `ram'
+region `ram' overflowed by 6707352 bytes
+```
+
+The scene cooks to 36 files totalling 7.9 MB, against 2 MB of main RAM:
+
+| Count | Size each | What |
+|---|---|---|
+| 30 | 262,254 bytes | imported textures, 512x512 at 8 bits plus header |
+| 1 | 266,030 bytes | `demodiscbody.hefont` |
+| 1 | 134,954 bytes | imported asset |
+| 3 | under 15 KB | scene, model, material |
+
+The 30 texture pages alone are 7.5 MB. The console has 2 MB of main RAM and
+1 MB of VRAM, so this content is roughly four times over both budgets at once.
+
+This is not a missing feature. Sprite, text, viewport and rounded-rect
+components could all be implemented and the build would still not link. The
+whole scene needs PS1-specific asset cooking before it needs any new renderer:
+4-bit CLUT textures at sizes that fit a texture page, a reduced font charset,
+and loading from disc instead of embedding in the executable. The font charset
+is shared across platforms, so changing it is a proposal rather than a PS1
+decision.

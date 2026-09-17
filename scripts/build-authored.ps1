@@ -15,7 +15,16 @@ param(
     # Fresh output root below C:\dev\helworks\builds\helengine-ps1.
     [Parameter(Mandatory = $true)][string] $OutputRoot,
     [string] $SceneRelativePath = 'scenes/rendering/cube_test.helen',
-    [string] $SceneId = 'cube_test'
+    [string] $SceneId = 'cube_test',
+    # Keeps every runtime script instead of pruning to the classes the scene's components name.
+    # Pruning exists because the subset milestone only needed one component and the rest of the
+    # project may use constructs the PS1 runtime rejects. A whole authored scene needs the whole
+    # runtime codebase, because its components reference helpers no component names directly.
+    [switch] $RetainAllRuntimeScripts,
+    # Class names to drop even when retaining everything else, for project scripts the PS1 runtime
+    # profile cannot transpile. Each entry is a deliberate, recorded exclusion rather than a silent
+    # one: the build fails if a named class is not found.
+    [string[]] $ExcludeScriptClasses = @()
 )
 
 Set-StrictMode -Version Latest
@@ -96,7 +105,14 @@ $retainedScripts = @()
 $removedScripts = @()
 foreach ($script in Get-ChildItem -LiteralPath $codebaseRoot -Recurse -Filter '*.cs') {
     $className = [IO.Path]::GetFileNameWithoutExtension($script.Name)
-    if ($retainedScriptClasses -contains $className) {
+    if ($ExcludeScriptClasses -contains $className) {
+        $removedScripts += $script.FullName.Substring($stagedProject.Length + 1).Replace('\', '/')
+        Remove-Item -LiteralPath $script.FullName -Force
+        $sidecarPath = $script.FullName + '.hmeta'
+        if (Test-Path -LiteralPath $sidecarPath) { Remove-Item -LiteralPath $sidecarPath -Force }
+        continue
+    }
+    if ($RetainAllRuntimeScripts -or $retainedScriptClasses -contains $className) {
         $retainedScripts += $script.FullName.Substring($stagedProject.Length + 1).Replace('\', '/')
         continue
     }
@@ -107,6 +123,12 @@ foreach ($script in Get-ChildItem -LiteralPath $codebaseRoot -Recurse -Filter '*
 }
 foreach ($className in $retainedScriptClasses) {
     if (-not ($retainedScripts | Where-Object { $_.EndsWith('/' + $className + '.cs') })) { throw "Retained component script was not found in the project codebase: $className.cs" }
+}
+foreach ($excluded in $ExcludeScriptClasses) {
+    if (-not ($removedScripts | Where-Object { $_.EndsWith('/' + $excluded + '.cs') })) { throw "Excluded script class was not found in the project codebase: $excluded.cs" }
+}
+if ($RetainAllRuntimeScripts -and $removedScripts.Count -ne $ExcludeScriptClasses.Count) {
+    throw "RetainAllRuntimeScripts removed $($removedScripts.Count) scripts but only $($ExcludeScriptClasses.Count) were excluded."
 }
 [ordered]@{
     retainedScriptClasses = $retainedScriptClasses
