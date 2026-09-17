@@ -309,3 +309,21 @@ exactly, so neither the engine merge nor the codegen bump changed PS1 output.
 `c3c0521` is the fix for the RTTI capability-default regression this session's
 `7d6fe36` introduced; PS1 was never affected because it opts into RTTI
 explicitly.
+
+### Forward check against csharpcodegen master (2026-09-17)
+
+The `-CodegenRoot` override exists to test a generator change before the engine
+pins it. Its first use: PS1 rebuilt through the full pipeline against
+csharpcodegen master at `4f11363`, which routes generated delegate construction
+through `he_cpp_bind_front` instead of naming `std::bind_front` directly.
+
+The build succeeded and boots with output identical to the engine-pinned build
+at `c3c0521`: `lit=1`, `milliradians=785`, `h=290`, `l0=-1636,-3077,-2152`,
+`v0=858585`. The record shows `codegen_is_engine_pinned: false` with
+`codegen_commit: 4f11363...`, so it cannot be confused with a pinned build.
+
+PS1 does not exercise the changed path. The published tool carries the helper,
+but the generated Core references neither `he_cpp_bind_front` nor
+`std::bind_front` anywhere, because PS1 runs with `codegen-use-std-function`
+false. So this check shows the change does not break PS1; it does not validate
+the helper itself, which needs a target that emits delegates.
