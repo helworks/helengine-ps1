@@ -191,6 +191,10 @@ $registry | ConvertTo-Json -Depth 8 | Out-File -LiteralPath (Join-Path $engineUs
 # publishes into HELENGINE_BUILD_WORKSPACE_ROOT. That root is fresh per build here, so the fallback's
 # commit-keyed cache would never hit and would republish about 37 MB on every run.
 $publishedCodegen = Join-Path (Split-Path -Parent $editorApp) 'codegen'
+# Clear it first. dotnet publish leaves files it considers up to date, so publishing a different
+# csharpcodegen over an earlier one yields a directory holding one commit's tool and another
+# commit's bundled .net.cpp headers. That mix compiles a Core whose calls the headers do not declare.
+if (Test-Path -LiteralPath $publishedCodegen) { Remove-Item -LiteralPath $publishedCodegen -Recurse -Force }
 $codegenPublishLog = Join-Path $logsRoot 'codegen-publish.log'
 & dotnet publish $codegenProject -c Release -o $publishedCodegen -v:q --nologo *> $codegenPublishLog
 if ($LASTEXITCODE -ne 0) { Get-Content $codegenPublishLog -Tail 20; throw "Publishing codegen beside the editor failed with exit code $LASTEXITCODE." }
