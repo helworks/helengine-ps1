@@ -108,19 +108,35 @@ through generated Core. It runs the engine's headless build graph with the PS1
 platform builder in `builder/`, then the same pinned native toolchain as the
 diagnostic builds. Inputs: the demodisc project (never modified), the Task 1
 subset written by `scripts/generate-authored-fixture.ps1` with its
-`report.json`, the PS1 engine checkout, an editor app built from that checkout,
-and the csharpcodegen checkout whose `codegen/bin/Debug/net9.0/codegen.exe`
-carries the bundled `.net.cpp` runtime.
+`report.json`, the engine checkout, and an editor app built from that checkout.
 
 ```powershell
 .\scripts\build-authored.ps1 `
   -ProjectRoot C:\dev\helprojs\demodisc `
-  -SubsetScenePath C:\dev\helworks\builds\helengine-ps1\cube-test-subset-final-verified\subset.helen `
-  -EngineSourceRoot C:\dev\helworks\helengine-ps1-core `
+  -SubsetScenePath C:\dev\helworks\builds\helengine-ps1\cube-test-subset-fov\subset.helen `
+  -EngineSourceRoot C:\dev\helworks\helengine `
   -EditorAppPath <editor-app-build>\bin\helengine.editor.app\debug\helengine.editor.app.dll `
-  -CodegenRoot C:\dev\helworks\csharpcodegen\.worktrees\generic-freestanding-runtime `
   -OutputRoot C:\dev\helworks\builds\helengine-ps1\<fresh-directory>
 ```
+
+The generator comes from the engine's own `engine/vendor/csharpcodegen`
+submodule, so PS1 transpiles with the codegen that engine commit pins rather
+than one chosen here. Initialise it first with
+`git -C <engine> submodule update --init --recursive`. The wrapper publishes it
+into a `codegen` directory beside the editor assembly, which is the first place
+the editor looks, and records the resolved commit in `authored-build.json` as
+`codegen_commit`.
+
+`-CodegenRoot` still exists and overrides that pin, for bisecting a generator
+change before it lands. `authored-build.json` records
+`codegen_is_engine_pinned: false` when it is used, so an overridden build cannot
+be mistaken for a pinned one. Prefer bumping the submodule in the engine.
+
+Letting the editor resolve codegen on its own also works: it builds the
+submodule on demand into `HELENGINE_BUILD_WORKSPACE_ROOT`. This wrapper points
+that root at a fresh per-build directory, so the on-demand cache never hits and
+republishes roughly 37 MB every run, measured at about 49 seconds. Publishing it
+ourselves costs about 3 seconds.
 
 The wrapper stages a copy of the project's `assets` and `settings`, replaces
 the scene with the subset, prunes project code to the retained script

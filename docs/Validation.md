@@ -257,3 +257,55 @@ render manager and two editor build fixes that speed up editor-app rebuilds.
 `TestFieldOfViewRadians` and is now used only by the host projection tests, so
 their expected screen coordinates stay fixed and no production path can read a
 field of view that the authored camera did not supply.
+
+## Embedded codegen resolution (2026-09-17)
+
+The editor now resolves csharpcodegen itself. The registry's `codegenToolPath`
+is retired, and `EngineCodegenToolProvider` looks first for a `codegen`
+directory beside the editor assembly, then builds the engine's
+`engine/vendor/csharpcodegen` submodule on demand into
+`HELENGINE_BUILD_WORKSPACE_ROOT`, keyed by the submodule commit.
+
+Both paths were measured end to end against helengine `cd9b996d` with the
+submodule at `c3c0521`, using the same subset scene. Each produced a working
+328 KB PS-X EXE.
+
+| Path | Step that fired | Wall time |
+|---|---|---|
+| Nothing beside the editor | on-demand submodule publish | 10 min 33 s |
+| Codegen published beside the editor | pre-populated copy, no fallback | 9 min 44 s |
+
+The on-demand publish succeeded with only `git` and `dotnet` on the headless
+process's PATH, with no intervention. It wrote 273 files totalling 37 MB into
+`<output>\workspace\codegen\<commit>\`.
+
+That location is the finding. `build-authored.ps1` refuses to reuse an output
+directory and derives the workspace root from it, so the root is new on every
+run and the commit key can never match. The on-demand publish therefore recurs
+on every PS1 build while the submodule sits unchanged. `%TEMP%\helengine-builds`
+stayed empty, confirming the workspace root overrode it. This is recorded as a
+follow-up against the engine: the cache belongs under an unconditional location
+or its own variable, not under a root that pipelines are entitled to treat as
+per-build scratch.
+
+Neither run logged which path it took, so the step had to be inferred from
+where files appeared. One provider log line naming the resolved tool would
+replace that inference.
+
+PS1 now publishes the generator itself, from the engine's pinned submodule by
+default. A pinned build records `codegen_is_engine_pinned: true` and the
+resolved `codegen_commit`, and completes in 9 min 10 s:
+
+```
+engine_version           1.0.0+cd9b996df2572d69f002800352013689cdae2946
+codegen_root             ...\helengine\engine\vendor\csharpcodegen
+codegen_is_engine_pinned True
+codegen_commit           c3c0521cb5069cc19f9c7980d4a9af24551dde68
+```
+
+That build boots with `lit=1`, `milliradians=785`, `h=290`,
+`l0=-1636,-3077,-2152` and `v0=858585`, matching the previous engine revision
+exactly, so neither the engine merge nor the codegen bump changed PS1 output.
+`c3c0521` is the fix for the RTTI capability-default regression this session's
+`7d6fe36` introduced; PS1 was never affected because it opts into RTTI
+explicitly.

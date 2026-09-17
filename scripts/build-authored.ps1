@@ -8,8 +8,10 @@ param(
     [Parameter(Mandatory = $true)][string] $EngineSourceRoot,
     # helengine.editor.app.dll built from that checkout.
     [Parameter(Mandatory = $true)][string] $EditorAppPath,
-    # csharpcodegen checkout whose codegen/bin/Debug/net9.0/codegen.exe transpiles Core and gameplay code.
-    [Parameter(Mandatory = $true)][string] $CodegenRoot,
+    # csharpcodegen checkout whose codegen/codegen.csproj transpiles Core and gameplay code. Defaults
+    # to the engine's own engine/vendor/csharpcodegen submodule, so PS1 uses the generator the engine
+    # commit pins rather than one chosen here. Pass this only to deliberately override that pin.
+    [string] $CodegenRoot = '',
     # Fresh output root below C:\dev\helworks\builds\helengine-ps1.
     [Parameter(Mandatory = $true)][string] $OutputRoot,
     [string] $SceneRelativePath = 'scenes/rendering/cube_test.helen',
@@ -24,14 +26,16 @@ $projectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
 $subsetScene = (Resolve-Path -LiteralPath $SubsetScenePath).Path
 $engineRoot = (Resolve-Path -LiteralPath $EngineSourceRoot).Path
 $editorApp = (Resolve-Path -LiteralPath $EditorAppPath).Path
-$codegenRoot = (Resolve-Path -LiteralPath $CodegenRoot).Path
+$pinnedCodegenRoot = Join-Path $engineRoot 'engine\vendor\csharpcodegen'
+$codegenIsPinned = [string]::IsNullOrWhiteSpace($CodegenRoot)
+$codegenRoot = if ($codegenIsPinned) { $pinnedCodegenRoot } else { (Resolve-Path -LiteralPath $CodegenRoot).Path }
+if (-not (Test-Path -LiteralPath $codegenRoot -PathType Container)) {
+    throw "csharpcodegen is missing at ${codegenRoot}; run: git -C $engineRoot submodule update --init --recursive"
+}
+$codegenProject = Join-Path $codegenRoot 'codegen\codegen.csproj'
+if (-not (Test-Path -LiteralPath $codegenProject -PathType Leaf)) { throw "codegen project is missing: $codegenProject" }
 $output = [IO.Path]::GetFullPath($OutputRoot)
 if (Test-Path -LiteralPath $output) { throw "Use a fresh authored build output directory: $output" }
-$codegenTool = Join-Path $codegenRoot 'codegen\bin\Debug\net9.0\codegen.exe'
-if (-not (Test-Path -LiteralPath $codegenTool -PathType Leaf)) { throw "codegen tool is missing; build codegen/codegen.csproj first: $codegenTool" }
-if (-not (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $codegenTool) '.net.cpp\system\io\stream.hpp') -PathType Leaf)) {
-    throw 'codegen tool directory does not carry the bundled .net.cpp runtime.'
-}
 $sceneBytes = [IO.File]::ReadAllBytes($subsetScene)
 if ($sceneBytes.Length -lt 32 -or [Text.Encoding]::ASCII.GetString($sceneBytes, 0, 4) -ne 'HELE') { throw "Subset scene is not a serialized Helengine asset: $subsetScene" }
 
@@ -176,14 +180,28 @@ $registry = [ordered]@{
             builderAssemblyPath = $builderAssembly
             playerSourceRootPath = $repoRoot
             generatedCoreCppRootPath = $generatedCoreRoot
-            codegenToolPath = $codegenTool
             pluginManifestPath = ''
         }
     )
 }
 $registry | ConvertTo-Json -Depth 8 | Out-File -LiteralPath (Join-Path $engineUserSettings 'platforms.json') -Encoding utf8
 
-# 4. Run the editor's headless build graph for the staged project.
+# 4. Publish codegen beside the editor assembly, which is the first place the editor looks for it.
+# Doing this ourselves keeps the generator explicit and skips the editor's on-demand fallback, which
+# publishes into HELENGINE_BUILD_WORKSPACE_ROOT. That root is fresh per build here, so the fallback's
+# commit-keyed cache would never hit and would republish about 37 MB on every run.
+$publishedCodegen = Join-Path (Split-Path -Parent $editorApp) 'codegen'
+$codegenPublishLog = Join-Path $logsRoot 'codegen-publish.log'
+& dotnet publish $codegenProject -c Release -o $publishedCodegen -v:q --nologo *> $codegenPublishLog
+if ($LASTEXITCODE -ne 0) { Get-Content $codegenPublishLog -Tail 20; throw "Publishing codegen beside the editor failed with exit code $LASTEXITCODE." }
+$codegenTool = Join-Path $publishedCodegen 'codegen.exe'
+if (-not (Test-Path -LiteralPath $codegenTool -PathType Leaf)) { throw "codegen publish did not produce the tool: $codegenTool" }
+if (-not (Test-Path -LiteralPath (Join-Path $publishedCodegen '.net.cpp\system\io\stream.hpp') -PathType Leaf)) {
+    throw "Published codegen directory does not carry the bundled .net.cpp runtime: $publishedCodegen"
+}
+$codegenCommit = (& git -c "safe.directory=$codegenRoot" -C $codegenRoot rev-parse HEAD 2>$null | Out-String).Trim()
+
+# 5. Run the editor's headless build graph for the staged project.
 $workspaceRoot = Join-Path $output 'workspace'
 New-Item -ItemType Directory -Path $workspaceRoot | Out-Null
 $env:HELENGINE_SOURCE_ROOT = $engineRoot
@@ -200,6 +218,9 @@ $editorExit = $LASTEXITCODE
     engine_version = $engineVersion
     engine_source_root = $engineRoot
     editor_app = $editorApp
+    codegen_root = $codegenRoot
+    codegen_is_engine_pinned = $codegenIsPinned
+    codegen_commit = $codegenCommit
     codegen_tool = $codegenTool
     builder_assembly = $builderAssembly
     project_root = $projectRoot
