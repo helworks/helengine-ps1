@@ -5,23 +5,28 @@ using helengine.baseplatform.Manifest;
 namespace helengine.ps1.builder;
 
 /// <summary>
-/// Copies only manifest-declared cooked files from the editor's package-source tree into the archive
-/// staging root, and writes the declared-file list that scripts/embed-authored-assets.py packs.
-/// Undeclared files never reach the archive.
+/// Copies only declared cooked files from the package-source tree into the archive staging root, and
+/// writes the declared-file list that scripts/embed-authored-assets.py packs. Two kinds of file are
+/// declared: the manifest's cooked artifacts, and the outputs of builder-owned cook work items, which
+/// this builder produced itself and which the manifest therefore does not list. Nothing else reaches
+/// the archive.
 /// </summary>
 public sealed class PlayStation1ContentStager {
-    /// <summary>Stages every declared artifact and returns the staged list sorted by canonical path.</summary>
+    /// <summary>Stages every declared file and returns the staged list sorted by canonical path.</summary>
     /// <param name="artifacts">Cooked artifacts declared by the build manifest.</param>
-    /// <param name="sourceRootPath">Editor package-source root that owns the cooked files.</param>
+    /// <param name="cookWorkItems">Builder-owned cook work items whose outputs this builder wrote.</param>
+    /// <param name="sourceRootPath">Package-source root that owns the cooked files.</param>
     /// <param name="stagingRootPath">Fresh staging root; any previous content is removed.</param>
     /// <param name="cancellationToken">Cancellation token for the copy loop.</param>
     /// <returns>Staged assets keyed by the relative path the runtime will request.</returns>
     public IReadOnlyList<PlayStation1StagedAsset> Stage(
         IReadOnlyList<PlatformBuildArtifact> artifacts,
+        IReadOnlyList<PlatformCookWorkItem> cookWorkItems,
         string sourceRootPath,
         string stagingRootPath,
         CancellationToken cancellationToken) {
         if (artifacts == null) throw new ArgumentNullException(nameof(artifacts));
+        if (cookWorkItems == null) throw new ArgumentNullException(nameof(cookWorkItems));
         if (string.IsNullOrWhiteSpace(sourceRootPath)) throw new ArgumentException("Source root is required.", nameof(sourceRootPath));
         if (string.IsNullOrWhiteSpace(stagingRootPath)) throw new ArgumentException("Staging root is required.", nameof(stagingRootPath));
 
@@ -42,6 +47,22 @@ public sealed class PlayStation1ContentStager {
             string sourcePath = ResolveUnderRoot(sourceRoot, relativePath);
             if (!File.Exists(sourcePath)) {
                 throw new FileNotFoundException($"PS1 cooked artifact '{relativePath}' was not found under package source root '{sourceRoot}'.", sourcePath);
+            }
+            string destinationPath = ResolveUnderRoot(stagingRoot, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath) ?? stagingRoot);
+            File.Copy(sourcePath, destinationPath, true);
+            staged.Add(new PlayStation1StagedAsset(relativePath, destinationPath));
+        }
+
+        foreach (PlatformCookWorkItem workItem in cookWorkItems) {
+            cancellationToken.ThrowIfCancellationRequested();
+            string relativePath = NormalizeRelativePath(workItem.OutputRelativePath);
+            // A cook work item that also appears as a manifest artifact is already staged; staging it
+            // twice would be a path collision rather than a duplicate copy.
+            if (!paths.Add(relativePath)) continue;
+            string sourcePath = ResolveUnderRoot(sourceRoot, relativePath);
+            if (!File.Exists(sourcePath)) {
+                throw new FileNotFoundException($"PS1 cooked work item output '{relativePath}' was not found under package source root '{sourceRoot}'.", sourcePath);
             }
             string destinationPath = ResolveUnderRoot(stagingRoot, relativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath) ?? stagingRoot);

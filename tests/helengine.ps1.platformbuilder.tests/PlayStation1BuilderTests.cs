@@ -136,7 +136,7 @@ public sealed class PlayStation1BuilderTests : IDisposable {
         WriteFile(Path.Combine(packageSource, "cooked", "stray.bin"), "STRAY");
         string staging = Path.Combine(Root, "staging");
 
-        IReadOnlyList<PlayStation1StagedAsset> staged = new PlayStation1ContentStager().Stage(CubeManifest().CookedArtifacts, packageSource, staging, CancellationToken.None);
+        IReadOnlyList<PlayStation1StagedAsset> staged = new PlayStation1ContentStager().Stage(CubeManifest().CookedArtifacts, [], packageSource, staging, CancellationToken.None);
         string declarationsPath = Path.Combine(Root, "declarations.json");
         PlayStation1ContentStager.WriteDeclarations(staged, declarationsPath);
 
@@ -152,15 +152,63 @@ public sealed class PlayStation1BuilderTests : IDisposable {
     }
 
     [Fact]
+    public void ContentStager_StagesBuilderOwnedCookOutputs() {
+        // Cooked textures are produced by this builder rather than declared in the manifest, so a
+        // stager that only reads the manifest leaves them out of the archive and the runtime cannot
+        // open them.
+        string packageSource = Path.Combine(Root, "package-source");
+        WriteFile(Path.Combine(packageSource, "cooked", "scenes", "cube_test.hasset"), "HELE");
+        WriteFile(Path.Combine(packageSource, "cooked", "materials", "cube_test_solid.hasset"), "MAT");
+        WriteFile(Path.Combine(packageSource, "cooked", "engine", "models", "cube.hasset"), "MDL");
+        WriteFile(Path.Combine(packageSource, "cooked", "imported", "atlas.hetex"), "TEX");
+        string staging = Path.Combine(Root, "staging");
+
+        IReadOnlyList<PlayStation1StagedAsset> staged = new PlayStation1ContentStager().Stage(
+            CubeManifest().CookedArtifacts,
+            [CookWorkItem("cooked/imported/atlas.hetex")],
+            packageSource,
+            staging,
+            CancellationToken.None);
+
+        Assert.Equal(4, staged.Count);
+        Assert.True(File.Exists(Path.Combine(staging, "cooked", "imported", "atlas.hetex")));
+        Assert.Contains(staged, asset => asset.RelativePath == "cooked/imported/atlas.hetex");
+    }
+
+    [Fact]
+    public void ContentStager_DoesNotStageACookOutputTwiceWhenTheManifestAlsoDeclaresIt() {
+        string packageSource = Path.Combine(Root, "package-source");
+        WriteFile(Path.Combine(packageSource, "cooked", "scenes", "cube_test.hasset"), "HELE");
+        WriteFile(Path.Combine(packageSource, "cooked", "materials", "cube_test_solid.hasset"), "MAT");
+        WriteFile(Path.Combine(packageSource, "cooked", "engine", "models", "cube.hasset"), "MDL");
+        string staging = Path.Combine(Root, "staging");
+
+        IReadOnlyList<PlayStation1StagedAsset> staged = new PlayStation1ContentStager().Stage(
+            CubeManifest().CookedArtifacts,
+            [CookWorkItem("cooked/scenes/cube_test.hasset")],
+            packageSource,
+            staging,
+            CancellationToken.None);
+
+        Assert.Equal(3, staged.Count);
+    }
+
+    /// <summary>Builds one cook work item whose only interesting field here is its output path.</summary>
+    /// <param name="outputRelativePath">Path the cook wrote under the package source root.</param>
+    /// <returns>Cook work item for staging tests.</returns>
+    static PlatformCookWorkItem CookWorkItem(string outputRelativePath) =>
+        new("work-1", "source.png", "texture", "ps1", "runtime-texture", outputRelativePath, "artifact-1", "sha256:aa", "sha256:bb", "{}", []);
+
+    [Fact]
     public void ContentStager_RejectsEscapingCollidingAndMissingPaths() {
         string packageSource = Path.Combine(Root, "package-source");
         WriteFile(Path.Combine(packageSource, "cooked", "a.hasset"), "A");
         PlayStation1ContentStager stager = new();
         string staging = Path.Combine(Root, "staging");
 
-        Assert.Throws<InvalidOperationException>(() => stager.Stage([new PlatformBuildArtifact("../a.hasset", "sha256:aa", "scene", "shared")], packageSource, staging, CancellationToken.None));
-        Assert.Throws<InvalidOperationException>(() => stager.Stage([new PlatformBuildArtifact("cooked/a.hasset", "sha256:aa", "scene", "shared"), new PlatformBuildArtifact("cooked\\a.hasset", "sha256:aa", "scene", "shared")], packageSource, staging, CancellationToken.None));
-        Assert.Throws<FileNotFoundException>(() => stager.Stage([new PlatformBuildArtifact("cooked/missing.hasset", "sha256:aa", "scene", "shared")], packageSource, staging, CancellationToken.None));
+        Assert.Throws<InvalidOperationException>(() => stager.Stage([new PlatformBuildArtifact("../a.hasset", "sha256:aa", "scene", "shared")], [], packageSource, staging, CancellationToken.None));
+        Assert.Throws<InvalidOperationException>(() => stager.Stage([new PlatformBuildArtifact("cooked/a.hasset", "sha256:aa", "scene", "shared"), new PlatformBuildArtifact("cooked\\a.hasset", "sha256:aa", "scene", "shared")], [], packageSource, staging, CancellationToken.None));
+        Assert.Throws<FileNotFoundException>(() => stager.Stage([new PlatformBuildArtifact("cooked/missing.hasset", "sha256:aa", "scene", "shared")], [], packageSource, staging, CancellationToken.None));
     }
 
     [Fact]

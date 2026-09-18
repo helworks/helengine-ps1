@@ -97,7 +97,7 @@ public sealed class PlayStation1PlatformAssetBuilder : IPlatformAssetBuilder {
             }
 
             progressReporter.Report(new PlatformBuildProgressUpdate("Stage Content", "manifest", 0, 1, "Staging declared PS1 cooked artifacts."));
-            IReadOnlyList<PlayStation1StagedAsset> staged = new PlayStation1ContentStager().Stage(request.Manifest.CookedArtifacts, packageSourceRoot, stagingRoot, cancellationToken);
+            IReadOnlyList<PlayStation1StagedAsset> staged = new PlayStation1ContentStager().Stage(request.Manifest.CookedArtifacts, cookWorkItems, packageSourceRoot, stagingRoot, cancellationToken);
             PlayStation1ContentStager.WriteDeclarations(staged, declarationsPath);
             new PlayStation1StartupManifestWriter().Write(request.GeneratedCoreCppRootPath, request.Manifest);
 
