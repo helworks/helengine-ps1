@@ -1,6 +1,7 @@
 using helengine.baseplatform.Builders;
 using helengine.baseplatform.Definitions;
 using helengine.baseplatform.Descriptors;
+using helengine.baseplatform.Manifest;
 using helengine.baseplatform.Reporting;
 using helengine.baseplatform.Requests;
 using helengine.baseplatform.Results;
@@ -79,8 +80,23 @@ public sealed class PlayStation1PlatformAssetBuilder : IPlatformAssetBuilder {
             }
             new PlayStation1SceneCompatibilityValidator().Validate(request.Manifest);
 
-            progressReporter.Report(new PlatformBuildProgressUpdate("Stage Content", "manifest", 0, 1, "Staging declared PS1 cooked artifacts."));
             string packageSourceRoot = ResolvePackageSourceRoot(request.WorkingRoot);
+            // Builder-owned cooks run before staging, because they write the artifacts staging then collects.
+            PlatformCookWorkItem[] cookWorkItems = request.Manifest.PlatformCookWorkItems ?? [];
+            PlayStation1PlatformCookWorkItemExecutor cookExecutor = new();
+            for (int index = 0; index < cookWorkItems.Length; index++) {
+                cancellationToken.ThrowIfCancellationRequested();
+                PlatformCookWorkItem workItem = cookWorkItems[index];
+                if (!string.Equals(workItem.TargetPlatformId, "ps1", StringComparison.OrdinalIgnoreCase)) {
+                    throw new InvalidOperationException($"PS1 builder received a cook work item for platform '{workItem.TargetPlatformId}'.");
+                }
+                cookExecutor.Execute(workItem, packageSourceRoot);
+                progressReporter.Report(new PlatformBuildProgressUpdate(
+                    "Cook Platform Assets", workItem.OutputLogicalArtifactId, index + 1, cookWorkItems.Length,
+                    $"Cooked '{workItem.OutputRelativePath}'."));
+            }
+
+            progressReporter.Report(new PlatformBuildProgressUpdate("Stage Content", "manifest", 0, 1, "Staging declared PS1 cooked artifacts."));
             IReadOnlyList<PlayStation1StagedAsset> staged = new PlayStation1ContentStager().Stage(request.Manifest.CookedArtifacts, packageSourceRoot, stagingRoot, cancellationToken);
             PlayStation1ContentStager.WriteDeclarations(staged, declarationsPath);
             new PlayStation1StartupManifestWriter().Write(request.GeneratedCoreCppRootPath, request.Manifest);

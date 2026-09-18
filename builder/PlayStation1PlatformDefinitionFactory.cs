@@ -1,5 +1,6 @@
 using helengine.baseplatform.Definitions;
 using helengine.baseplatform.Profiles;
+using helengine.editor;
 
 namespace helengine.ps1.builder;
 
@@ -11,6 +12,52 @@ namespace helengine.ps1.builder;
 public static class PlayStation1PlatformDefinitionFactory {
     /// <summary>Catalog features the PS1 runtime does not implement; ids must exist in the engine feature catalog.</summary>
     const string ForcedDisabledFeatures = "shaders;debug_overlay";
+
+    /// <summary>
+    /// Default cook settings for ordinary textures. The GPU samples paletted textures from a 256x256
+    /// texture page, so an 8-bit CLUT at 64 pixels a side leaves room for several textures per page.
+    /// </summary>
+    /// <returns>Serialized default PS1 texture cook settings.</returns>
+    static string CreateDefaultSerializedTextureCookSettings() {
+        return PlayStation1TextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
+            MaxResolution = 64,
+            ColorFormat = TextureAssetColorFormat.Indexed8,
+            AlphaPrecision = TextureAssetAlphaPrecision.Binary
+        });
+    }
+
+    /// <summary>
+    /// Default cook settings for font atlases. Glyph coverage matters more than colour depth, so atlases
+    /// take a 4-bit CLUT, which is a quarter of the VRAM an 8-bit page would cost.
+    /// </summary>
+    /// <returns>Serialized default PS1 font-atlas cook settings.</returns>
+    static string CreateDefaultSerializedFontAtlasTextureCookSettings() {
+        return PlayStation1TextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
+            MaxResolution = 128,
+            ColorFormat = TextureAssetColorFormat.Indexed4,
+            AlphaPrecision = TextureAssetAlphaPrecision.Binary
+        });
+    }
+
+    /// <summary>Texture formats the PS1 GPU can sample, which is paletted only.</summary>
+    /// <returns>Texture capability metadata for the PS1 builder-owned cook contracts.</returns>
+    static PlatformTextureFormatCapabilityDefinition CreateTextureFormatCapabilities() {
+        return new PlatformTextureFormatCapabilityDefinition(
+            [
+                TextureAssetColorFormat.Indexed4.ToString(),
+                TextureAssetColorFormat.Indexed8.ToString()
+            ],
+            [
+                TextureAssetAlphaPrecision.Binary,
+                TextureAssetAlphaPrecision.Opaque
+            ],
+            [
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed4.ToString(), TextureAssetAlphaPrecision.Binary),
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed4.ToString(), TextureAssetAlphaPrecision.Opaque),
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed8.ToString(), TextureAssetAlphaPrecision.Binary),
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed8.ToString(), TextureAssetAlphaPrecision.Opaque)
+            ]);
+    }
 
     /// <summary>Builds the PS1 platform definition.</summary>
     /// <returns>Platform definition consumed by the editor build graph.</returns>
@@ -74,6 +121,23 @@ public static class PlayStation1PlatformDefinitionFactory {
             [codegen],
             [new PlatformStorageProfileDefinition("embedded-archive", "Embedded Archive", PlatformStorageProfileKind.LooseFiles, "ps1-embedded-archive", false)],
             [new PlatformMediaProfileDefinition("ps1-exe", "PS-X EXE", PlatformMediaLayoutKind.InstallTree, false, true)],
-            new RuntimeGenerationContract(RuntimeMaterialResolutionMode.CookedPlatformOwned, true, PackagedPathPolicy.ContentRelativeOnly));
+            new RuntimeGenerationContract(RuntimeMaterialResolutionMode.CookedPlatformOwned, true, PackagedPathPolicy.ContentRelativeOnly),
+            null,
+            assetCookCapabilities: [
+                new PlatformAssetCookCapabilityDefinition(
+                    "texture",
+                    "runtime-texture",
+                    PlatformAssetCookOwnershipKind.BuilderOwned,
+                    "ps1-texture",
+                    CreateDefaultSerializedTextureCookSettings(),
+                    CreateTextureFormatCapabilities()),
+                new PlatformAssetCookCapabilityDefinition(
+                    "font-atlas-texture",
+                    "runtime-texture",
+                    PlatformAssetCookOwnershipKind.BuilderOwned,
+                    "ps1-font-atlas-texture",
+                    CreateDefaultSerializedFontAtlasTextureCookSettings(),
+                    CreateTextureFormatCapabilities())
+            ]);
     }
 }

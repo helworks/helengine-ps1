@@ -427,10 +427,62 @@ The scene cooks to 36 files totalling 7.9 MB, against 2 MB of main RAM:
 The 30 texture pages alone are 7.5 MB. The console has 2 MB of main RAM and
 1 MB of VRAM, so this content is roughly four times over both budgets at once.
 
-This is not a missing feature. Sprite, text, viewport and rounded-rect
-components could all be implemented and the build would still not link. The
-whole scene needs PS1-specific asset cooking before it needs any new renderer:
-4-bit CLUT textures at sizes that fit a texture page, a reduced font charset,
-and loading from disc instead of embedding in the executable. The font charset
-is shared across platforms, so changing it is a proposal rather than a PS1
-decision.
+**This conclusion was wrong and is corrected below.** It read as though the
+engine lacked the machinery. It does not. PS1 simply declared none of it.
+
+## PS1 texture cooking (2026-09-18)
+
+The 7.9 MB above was not what the scene costs. It was what a platform that
+declares no texture cook capabilities costs.
+
+`PlatformDefinition` takes an optional `assetCookCapabilities` array, and the
+PS1 factory stopped before it. Nintendo DS declares three entries and gets its
+textures downsampled and palettised at cook time; N64 declares one. PS1
+declared none, so the editor emitted source assets unchanged: thirty 512x512
+8-bit pages. The same shape as the field of view and the draw-call count, where
+a platform that declared nothing received a silently unreasonable default.
+
+PS1 now declares two builder-owned cook capabilities. Ordinary textures default
+to Indexed8 at 64 pixels a side, font atlases to Indexed4 at 128. The GPU
+samples only 4-bit and 8-bit paletted textures from a 256x256 page, so the
+format capability advertises those two and the settings serializer rejects a
+direct-colour request rather than ignoring it.
+
+Almost no new code was needed. The resize and quantisation are the engine's own
+`TextureAssetProcessor`, which the builder already had access to. PS1 adds a
+settings serializer, a source decoder ported from N64, and a work-item executor
+that resolves settings, source and destination.
+
+Measured on the whole scene, same inputs as the failing build above:
+
+| | Before | After |
+|---|---|---|
+| Cooked files | 36 | 6 |
+| Cooked content | 7.9 MB | 0.02 MB |
+| Font atlas | 262,260 bytes | 8,349 bytes |
+| Link result | RAM overflow by 6,707,352 bytes | links |
+| Static footprint | did not link | 475,288 bytes |
+| Free heap | did not link | 1,490,792 bytes |
+
+The whole scene now boots. It reads its 6-asset archive, opens the 14 KB scene
+and then stops:
+
+```
+PS1_AUTHORED_ARCHIVE_READY bytes=23324 assets=6
+PS1_AUTHORED_SCENE_LOADING id=cube_test
+PS1_AUTHORED_ASSET_OPEN cooked/scenes/rendering/cube_test.hasset bytes=14054
+PS1_CORE_FATAL Exception
+```
+
+That is the expected next wall rather than a regression. The scene carries
+sprite, text, viewport, rounded-rect, FPS, interactable and blueprint-instance
+components, and PS1 implements none of them. The failure text is bare because
+the PS1 codegen profile sets `codegen-compact-native-exception-messages`, which
+strips the detail; identifying the exact component needs a build with that
+turned off.
+
+Two known gaps in the cook work, both unfinished rather than broken. The cooked
+`.hetex` atlases are written into the package source but are not staged into the
+embedded archive, so text has no glyph pages even once text rendering exists.
+And the manifest now reports one cooked artifact where it previously reported
+36, which is not yet explained.
