@@ -63,12 +63,12 @@ void Ps1AuthoredScene::InitializeCore() {
     m_options->set_UpdateOrderLayers(4);
     m_options->set_RenderOrderLayers3D(4);
     m_options->set_UpdateListInitialCapacity(16);
-    m_options->set_RenderList2DInitialCapacity(0);
+    m_options->set_RenderList2DInitialCapacity(16);
     m_options->set_RenderList3DInitialCapacity(16);
     m_options->set_CommitPendingSceneOperationsDuringDraw(false);
     m_options->set_DefaultUpdateDeltaSeconds(1.0 / 60.0);
     m_render3D = new Ps1RenderManager3D(gpu(), m_renderer);
-    m_render2D = new Ps1RenderManager2D();
+    m_render2D = new Ps1RenderManager2D(gpu());
     m_input = new Ps1InputBackend();
     m_platform = new ::PlatformInfo("ps1", "authored-cube-test");
     m_core = new ::Core(m_options);
@@ -91,8 +91,11 @@ void Ps1AuthoredScene::InitializeCore() {
     ::ObjectManager* objectManager = m_core->get_ObjectManager();
     const int32_t cameraCount = objectManager->get_Cameras() == nullptr ? 0 : objectManager->get_Cameras()->get_Count();
     const int32_t drawableCount = objectManager->get_Drawables3D() == nullptr ? 0 : objectManager->get_Drawables3D()->get_Count();
-    if (cameraCount != 1 || drawableCount != 1) {
-        he_cpp_custom::Fail("Authored scene must register exactly one camera and one drawable");
+    // The subset milestone asserted exactly one of each. A whole authored scene brings several
+    // cameras and drawables, so only an empty scene is a failure; the counts stay reported because
+    // they are the evidence that loading populated the object manager at all.
+    if (cameraCount == 0 || drawableCount == 0) {
+        he_cpp_custom::Fail("Authored scene registered no camera or no drawable");
     }
 }
 
