@@ -9,14 +9,9 @@ namespace helengine.ps1.samplegen;
 /// Exports a whole authored scene for a PS1 build.
 ///
 /// The subset exporter selects a fixed camera-and-cube fixture. This one keeps everything, because a
-/// PS1 build of the real scene needs the real scene.
-///
-/// It can also copy another platform's entity-existence overrides onto PS1. An authored scene decides
-/// per platform which entities exist, and an entity that declares no override for a platform exists
-/// on it. The demodisc cube_test scene declares overrides for every console except PS1, so PS1 alone
-/// receives the other platforms' camera rigs, their duplicate suns and the UI. Mirroring a comparable
-/// console reuses the authored intent instead of inventing a selection here. It is a build-time
-/// stand-in: the durable fix is authoring PS1 overrides in the editor like every other platform has.
+/// PS1 build of the real scene needs the real scene. Which entities PS1 receives is decided by the
+/// scene's own override scopes (Common, platform groups, platforms) and resolved by the engine's
+/// packager against the staged project's <c>settings/platform-groups.json</c>; nothing is patched here.
 /// </summary>
 public sealed class Ps1SceneFullExporter {
     /// <summary>Platform id the exported scene is built for.</summary>
@@ -32,9 +27,8 @@ public sealed class Ps1SceneFullExporter {
     /// </summary>
     /// <param name="sourceScenePath">Authored scene to export; never modified.</param>
     /// <param name="outputRootPath">Directory receiving the scene and its report.</param>
-    /// <param name="mirrorExistenceFromPlatformId">Platform whose existence overrides are copied onto PS1, or empty for none.</param>
     /// <returns>Path of the written scene.</returns>
-    public string Export(string sourceScenePath, string outputRootPath, string mirrorExistenceFromPlatformId) {
+    public string Export(string sourceScenePath, string outputRootPath) {
         ArgumentNullException.ThrowIfNull(sourceScenePath);
         ArgumentNullException.ThrowIfNull(outputRootPath);
 
@@ -47,32 +41,6 @@ public sealed class Ps1SceneFullExporter {
         SceneAsset source = Ps1SceneSerialization.Deserialize(sourceBytes);
         SceneEntityAsset[] roots = source.RootEntities ?? [];
 
-        List<object> mirrored = [];
-        if (!string.IsNullOrWhiteSpace(mirrorExistenceFromPlatformId)) {
-            int applied = 0;
-            foreach (SceneEntityAsset entity in Enumerate(roots)) {
-                SceneEntityPlatformExistenceOverrideAsset[] overrides = entity.PlatformExistenceOverrides ?? [];
-                SceneEntityPlatformExistenceOverrideAsset reference = overrides.FirstOrDefault(item =>
-                    string.Equals(item.PlatformId, mirrorExistenceFromPlatformId, StringComparison.OrdinalIgnoreCase));
-                if (reference == null) continue;
-                if (overrides.Any(item => string.Equals(item.PlatformId, TargetPlatformId, StringComparison.OrdinalIgnoreCase))) {
-                    // The scene already states what PS1 wants; authored data wins over the mirror.
-                    continue;
-                }
-                entity.PlatformExistenceOverrides = [.. overrides, new SceneEntityPlatformExistenceOverrideAsset {
-                    PlatformId = TargetPlatformId,
-                    EnvironmentId = reference.EnvironmentId,
-                    Exists = reference.Exists
-                }];
-                mirrored.Add(new { entityName = entity.Name, exists = reference.Exists });
-                applied++;
-            }
-            if (applied == 0) {
-                throw new InvalidOperationException(
-                    $"Scene '{source.Id}' declares no entity-existence overrides for platform '{mirrorExistenceFromPlatformId}', so there was nothing to mirror onto {TargetPlatformId}.");
-            }
-        }
-
         Directory.CreateDirectory(outputRootPath);
         string scenePath = Path.Combine(outputRootPath, "scene.helen");
         Ps1SceneSerialization.Write(scenePath, source);
@@ -82,14 +50,12 @@ public sealed class Ps1SceneFullExporter {
             sourceSceneHash = Convert.ToHexString(SHA256.HashData(sourceBytes)).ToLowerInvariant(),
             sceneId = source.Id,
             authoringAssetId = source.AuthoringAssetId,
-            mirrorExistenceFromPlatformId = mirrorExistenceFromPlatformId ?? string.Empty,
-            mirroredExistenceOverrides = mirrored,
             rootEntityNames = roots.Select(entity => entity.Name).ToList(),
-            existingPlatformIds = Enumerate(roots)
+            existenceOverrideScopes = Enumerate(roots)
                 .SelectMany(entity => entity.PlatformExistenceOverrides ?? [])
-                .Select(item => item.PlatformId)
+                .Select(item => SceneOverrideScopePath.Format(item.Scope))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                 .ToList(),
             retainedComponents = Enumerate(roots)
                 .SelectMany(entity => (entity.Components ?? []).Select(component => component.ComponentTypeId))
