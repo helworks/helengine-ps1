@@ -288,3 +288,44 @@ The emulator evidence currently verifies guest markers, packet chains, GDB
 memory, and allocator/stack diagnostics. It does not prove framebuffer pixel
 appearance. See [Validation.md](Validation.md) for the acceptance table and
 the exact pending limits.
+
+## Whole authored scene on the override tree
+
+Since 2026-09-19 the demodisc authors platform overrides on scope paths
+(Common, platform groups, platforms) and the engine packager resolves them
+against the staged project's `settings/platform-groups.json`. The whole
+`cube_test` scene therefore builds for PS1 without any PS1-specific
+authoring: the DS/3DS rigs live beneath `handhelds/nintendo-dual-screen`
+and PS1, a member of `consoles`, receives one camera, one sun and one cube.
+Export the scene unchanged with `helengine.ps1.samplegen --full <scene>
+<output-root>` (the report lists the authored scope paths) and build with:
+
+```powershell
+.\scripts\build-authored.ps1 `
+  -ProjectRoot C:\dev\helprojs\demodisc `
+  -SubsetScenePath <export-root>\scene.helen `
+  -EngineSourceRoot C:\dev\helworks\helengine `
+  -EditorAppPath <editor-app-build>\bin\helengine.editor.app\debug\helengine.editor.app.dll `
+  -OutputRoot C:\dev\helworks\builds\helengine-ps1\<fresh-directory> `
+  -RetainAllRuntimeScripts `
+  -ExcludeScriptClasses @('SoftwareBvh','SoftwareMaterialKind','SoftwareModelComponent','SoftwarePathTracer','SoftwarePathTracerComponent','SoftwareScatteringMaterial','SoftwareSpecularScattering','SoftwareTraceScene')
+```
+
+`-RetainAllRuntimeScripts` is required because the component pruner keeps
+only the classes the scene names, and `DemoDiscLightToggleComponent` now
+depends on `DemoDiscDirectionalLightToggleState`, a helper the pruner does
+not follow. The excluded files are the software path tracer, which uses
+exception recovery the PS1 runtime profile rejects (`CPP1001`); they form a
+closed family with no other runtime references. Pass the exclusions as a
+PowerShell array through `-Command`; `-File` hands the list over as one
+comma-joined string and the script rejects it.
+
+As of csharpcodegen `46b6371` (engine pin `881f9bf0`) the generator's
+freestanding math runtime defines `sin`, `cos`, `sqrt` and friends as global
+symbols, which collide at link time with `src/platform/ps1/Ps1Math.hpp`, and
+its float ABI flags disagree with psyqo. Until that is reconciled, build PS1
+with `-CodegenRoot` pointing at a checkout of csharpcodegen `9432bfe`; the
+build records `codegen_is_engine_pinned: false`. Build
+`authored-groups-10` (engine `dd43413f`) is the reference: 620 KB `ps-exe`,
+scene entity names in the ELF confirm one `CubeTestSun`, one `CubeTestCube`,
+one `CubeTestCamera` and no DS screen cameras.
