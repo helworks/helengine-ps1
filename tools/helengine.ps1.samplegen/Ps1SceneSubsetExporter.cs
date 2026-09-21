@@ -15,8 +15,8 @@ public sealed class Ps1SceneSubsetExporter {
     public const string CameraComponentTypeId = "helengine.CameraComponent";
     public const string MeshComponentTypeId = "helengine.MeshComponent";
     public const string DirectionalLightComponentTypeId = "helengine.DirectionalLightComponent";
-    public const string CubeTestSpinComponentTypeId = "city.rendering.CubeTestSpinComponent, gameplay";
-    public const string OrbitComponentTypeId = "city.rendering.DemoDiscOrbitCameraComponent, gameplay";
+    public const string CubeTestSpinComponentTypeId = "DemoDisc.rendering.CubeTestSpinComponent, DemoDisc";
+    public const string OrbitComponentTypeId = "DemoDisc.rendering.DemoDiscOrbitCameraComponent, DemoDisc";
     public const string SunEntityName = "CubeTestSun";
 
     static readonly JsonSerializerOptions ReportJsonOptions = new() {
