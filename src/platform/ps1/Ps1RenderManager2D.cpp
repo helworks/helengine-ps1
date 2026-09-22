@@ -83,13 +83,15 @@ Ps1RenderManager2D::Ps1RenderManager2D(psyqo::GPU& gpu) : Gpu(gpu) {}
     const std::uint16_t pixelsPerWord = fourBit ? 4u : 2u;
     const std::uint16_t width = asset->Width;
     const std::uint16_t height = asset->Height;
-    if (width == 0 || height == 0 || (width % pixelsPerWord) != 0) {
+    if (width == 0 || height == 0) {
         ramsyscall_printf("PS1_TEXTURE_UNSUPPORTED_SIZE width=%u height=%u\n", static_cast<unsigned>(width),
                           static_cast<unsigned>(height));
-        he_cpp_custom::Fail("PS1 textures must have a width that packs whole 16-bit words");
+        he_cpp_custom::Fail("PS1 textures must have positive dimensions");
     }
 
-    const std::uint16_t widthInWords = static_cast<std::uint16_t>(width / pixelsPerWord);
+    // Indexed rows are transferred as 16-bit VRAM words. Keep the authored logical width (which
+    // may be odd for a pre-scaled icon) and round only the transport width up to a complete word.
+    const std::uint16_t widthInWords = static_cast<std::uint16_t>((width + pixelsPerWord - 1u) / pixelsPerWord);
     std::uint16_t vramX = 0;
     std::uint16_t vramY = 0;
     if (!VramAllocator.TryAllocate(widthInWords, height, vramX, vramY)) {
@@ -99,18 +101,30 @@ Ps1RenderManager2D::Ps1RenderManager2D(psyqo::GPU& gpu) : Gpu(gpu) {}
         he_cpp_custom::Fail("PS1 ran out of VRAM for a cooked texture");
     }
 
-    // Indexed pixel bytes are already packed for the GPU at 8 bits; at 4 bits the cook packs two
-    // pixels per byte, so in both cases the byte stream is the VRAM word stream.
+    // Indexed pixels are stored row-major by the cook. Pad each row to a complete 16-bit VRAM
+    // word for odd authored widths while keeping the runtime texture's logical width unchanged.
     const std::uint32_t expectedBytes = static_cast<std::uint32_t>(widthInWords) * height * 2u;
-    if (static_cast<std::uint32_t>(asset->Colors->Length) != expectedBytes) {
-        ramsyscall_printf("PS1_TEXTURE_PIXEL_LENGTH expected=%u actual=%u\n", static_cast<unsigned>(expectedBytes),
+    const std::uint32_t sourceRowBytes = fourBit
+        ? (static_cast<std::uint32_t>(width) + 1u) / 2u
+        : static_cast<std::uint32_t>(width);
+    const std::uint32_t sourceBytes = sourceRowBytes * height;
+    if (static_cast<std::uint32_t>(asset->Colors->Length) != sourceBytes) {
+        ramsyscall_printf("PS1_TEXTURE_PIXEL_LENGTH expected=%u actual=%u\n", static_cast<unsigned>(sourceBytes),
                           static_cast<unsigned>(asset->Colors->Length));
         he_cpp_custom::Fail("PS1 cooked texture pixel length does not match its declared size");
+    }
+    std::uint8_t* uploadBytes = new std::uint8_t[expectedBytes];
+    __builtin_memset(uploadBytes, 0, expectedBytes);
+    const std::uint32_t uploadRowBytes = static_cast<std::uint32_t>(widthInWords) * 2u;
+    for (std::uint16_t row = 0; row < height; ++row) {
+        __builtin_memcpy(uploadBytes + static_cast<std::uint32_t>(row) * uploadRowBytes,
+                         &(*asset->Colors)[static_cast<std::uint32_t>(row) * sourceRowBytes], sourceRowBytes);
     }
     psyqo::Rect pixelRegion;
     pixelRegion.pos = {{.x = static_cast<std::int16_t>(vramX), .y = static_cast<std::int16_t>(vramY)}};
     pixelRegion.size = {{.w = static_cast<std::int16_t>(widthInWords), .h = static_cast<std::int16_t>(height)}};
-    Gpu.uploadToVRAM(reinterpret_cast<const std::uint16_t*>(&(*asset->Colors)[0]), pixelRegion);
+    Gpu.uploadToVRAM(reinterpret_cast<const std::uint16_t*>(uploadBytes), pixelRegion);
+    delete[] uploadBytes;
 
     const std::uint16_t paletteEntries = fourBit ? FourBitPaletteEntries : EightBitPaletteEntries;
     const std::uint32_t suppliedEntries = static_cast<std::uint32_t>(asset->PaletteColors->Length) / 4u;
