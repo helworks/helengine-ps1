@@ -305,10 +305,12 @@ Since 2026-09-19 the demodisc authors platform overrides on scope paths
 (Common, platform groups, platforms) and the engine packager resolves them
 against the staged project's `settings/platform-groups.json`. The whole
 `cube_test` scene therefore builds for PS1 without any PS1-specific
-authoring. Since 2026-09-21 the groups are `hd`, `sd` and `sd/dual-screen`
-(DS and 3DS); PS1 is a member of `sd` and, like every non-dual-screen
-device, receives the full scene: camera, sun, cube, UI root and both
-instruction overlays. Nothing is excluded per platform any more.
+authoring. Since 2026-09-21 the groups include `hd`, `sd`, nested `sd/msd`
+(N64 and PS1), and `sd/dual-screen` (DS and 3DS). PS1 is a member of
+`sd/msd`, so it receives the shared content plus the single-screen
+presentation: camera, sun, cube, instruction overlay, console camera/light
+blueprint and standard UI kit. The dual-screen bottom-screen presentation and
+its chrome remain scoped to `sd/dual-screen` and do not enter PS1.
 Export the scene unchanged with `helengine.ps1.samplegen --full <scene>
 <output-root>` (the report lists the authored scope paths) and build with:
 

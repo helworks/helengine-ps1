@@ -532,3 +532,23 @@ component throws first in this layout. The earlier wall was the generated
 `dpad.png` texture work item carrying raw `Rgba32`, not scene-component
 construction. Evidence: `20260922-diagnostic-runtime-3/editor-output/manifest.json`
 and the adjacent `duckstation-20260922-155115-567.log`.
+
+## PS1-only authored controls and pre-scaled icon upload (2026-09-22)
+
+The shared control blueprint still emits cook work items for every platform
+variant. The PS1 stager now keeps only the `generated/ps1` control textures,
+while preserving each authored PS1 override's resolution. The unchanged
+`cube_test` scene produced 11 declared archive assets (three imported PS1
+controls, two fonts and their atlases, scene, material and model) and a 37,028
+byte embedded archive. The imported control payloads were 1,842–1,895 bytes;
+the previous all-variant package contained 36 imported payloads at 5,262 bytes
+each.
+
+The authored PS1 icon overrides are 26/27 pixels wide. PS1 upload now pads odd
+indexed rows to complete VRAM words without changing the logical texture size.
+DuckStation `0.1-11894-gc66b2694d` booted the resulting PS-X EXE and logged two
+27x27 8-bit uploads, one 26x26 upload, the default font upload, scene-ready,
+first-frame and cadence-600 markers. The log contains no `PS1_CORE_FATAL`,
+exception or assertion. Evidence: native manifest
+`C:\dev\helworks\builds\helengine-ps1\20260922-163735-294-Release-27694b231ae44009bd1f4e96f0ed2f56\manifest.json`
+and the adjacent `duckstation.log` output.
