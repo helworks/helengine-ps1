@@ -612,12 +612,17 @@ The fresh PS1 build used the unchanged `cube_test` export (source SHA-256
 shared `helengine` revision `72a4fcbfd6b2fa6cc2c59a618c09eb4a49bf9637`.
 The linked PS-X EXE is 468,992 bytes, with a 498,464-byte static footprint and
 1,467,616 bytes of heap. The host test suite completed with all required exit
-codes at zero. The emulator has not been launched after this correction, so
-post-fix framebuffer appearance remains unverified.
+codes at zero. The manifest-checked DuckStation boot after this correction
+logged `PS1_AUTHORED_FIRST_FRAME`, `sprites=3`, `submitted_sprites=3`,
+`submitted_triangles=98`, 101 total packets, intact guards and no fatal marker.
+This confirms the corrected packets reached the frame chain, but not the
+framebuffer's pixels; no screenshot was captured.
 
 Evidence: build manifest
 `C:\dev\helworks\builds\helengine-ps1\20260922-ui-fix-Release\editor-output\manifest.json`,
 authored build record
 `C:\dev\helworks\builds\helengine-ps1\20260922-ui-fix-Release\authored-build.json`,
 and host summary
-`C:\dev\helworks\builds\helengine-ps1\host-tests-20260922-201017-283-3976aad036b04557b6cf882f4b4c0e36\summary.json`.
+`C:\dev\helworks\builds\helengine-ps1\host-tests-20260922-201017-283-3976aad036b04557b6cf882f4b4c0e36\summary.json`,
+and DuckStation log
+`C:\dev\helworks\emus\ps1\duckstation-windows-x64-release\duckstation.log`.
