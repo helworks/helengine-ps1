@@ -7,6 +7,7 @@ using helengine.baseplatform.Reporting;
 using helengine.baseplatform.Requests;
 using helengine.baseplatform.Results;
 using helengine.baseplatform.Targets;
+using helengine.editor;
 using helengine.ps1.builder;
 
 namespace helengine.ps1.platformbuilder.tests;
@@ -248,6 +249,25 @@ public sealed class PlayStation1BuilderTests : IDisposable {
         Assert.Contains("shaders", settings[PlatformCodegenSettingIds.ForcedDisabledFeatures]);
         Assert.Equal(PlatformSerializationEndianness.LittleEndian, codegen.Endianness);
         Assert.Equal(RuntimeMaterialResolutionMode.CookedPlatformOwned, definition.RuntimeGenerationContract.MaterialResolutionMode);
+    }
+
+    [Fact]
+    public void FontAtlasSettings_ConvertsGeneratedRawRgbaToPs1IndexedDefaults() {
+        TextureAssetProcessorSettings settings = PlayStation1TextureCookSettingsSerializer.DeserializeFontAtlas(
+            "{\"maxResolution\":512,\"colorFormat\":\"Rgba32\",\"alphaPrecision\":\"Full\"}");
+
+        Assert.Equal(128, settings.MaxResolution);
+        Assert.Equal(TextureAssetColorFormat.Indexed4, settings.ColorFormat);
+        Assert.Equal(TextureAssetAlphaPrecision.Binary, settings.AlphaPrecision);
+    }
+
+    [Fact]
+    public void TextureSettings_StillRejectDirectColourRequests() {
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
+            PlayStation1TextureCookSettingsSerializer.Deserialize(
+                "{\"maxResolution\":512,\"colorFormat\":\"Rgba32\",\"alphaPrecision\":\"Full\"}"));
+
+        Assert.Contains("Indexed4 or Indexed8", error.Message);
     }
 
     [Fact]

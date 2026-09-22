@@ -71,4 +71,24 @@ public static class PlayStation1TextureCookSettingsSerializer {
             AlphaPrecision = alphaPrecision
         };
     }
+
+    /// <summary>
+    /// Parses a generated font-atlas request while accepting the shared editor's raw RGBA default.
+    /// Generated font atlases are source images; PS1 still owns their final indexed cook.
+    /// </summary>
+    public static TextureAssetProcessorSettings DeserializeFontAtlas(string serializedSettings) {
+        if (!string.IsNullOrWhiteSpace(serializedSettings)) {
+            using JsonDocument document = JsonDocument.Parse(serializedSettings);
+            if (document.RootElement.TryGetProperty("colorFormat", out JsonElement colorFormatElement)
+                && string.Equals(colorFormatElement.GetString(), "Rgba32", StringComparison.OrdinalIgnoreCase)) {
+                return new TextureAssetProcessorSettings {
+                    MaxResolution = 128,
+                    ColorFormat = TextureAssetColorFormat.Indexed4,
+                    AlphaPrecision = TextureAssetAlphaPrecision.Binary
+                };
+            }
+        }
+
+        return Deserialize(serializedSettings);
+    }
 }

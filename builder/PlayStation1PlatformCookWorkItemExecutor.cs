@@ -34,7 +34,9 @@ public sealed class PlayStation1PlatformCookWorkItemExecutor {
             throw new InvalidOperationException($"PS1 does not support cook work item source kind '{workItem.SourceAssetKind}'.");
         }
 
-        TextureAssetProcessorSettings settings = PlayStation1TextureCookSettingsSerializer.Deserialize(workItem.SerializedPlatformSettings);
+        TextureAssetProcessorSettings settings = string.Equals(workItem.SourceAssetKind, "font-atlas-texture", StringComparison.OrdinalIgnoreCase)
+            ? PlayStation1TextureCookSettingsSerializer.DeserializeFontAtlas(workItem.SerializedPlatformSettings)
+            : PlayStation1TextureCookSettingsSerializer.Deserialize(workItem.SerializedPlatformSettings);
         TextureAsset decoded = SourceTextureDecoder.Decode(workItem.SourceAssetPath);
         TextureAsset cooked = TextureProcessor.Apply(decoded, settings);
         cooked.Id = workItem.OutputLogicalArtifactId;
