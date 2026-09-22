@@ -262,12 +262,13 @@ public sealed class PlayStation1BuilderTests : IDisposable {
     }
 
     [Fact]
-    public void TextureSettings_StillRejectDirectColourRequests() {
-        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
-            PlayStation1TextureCookSettingsSerializer.Deserialize(
-                "{\"maxResolution\":512,\"colorFormat\":\"Rgba32\",\"alphaPrecision\":\"Full\"}"));
+    public void TextureSettings_ConvertsGeneratedRawRgbaToPs1IndexedDefaults() {
+        TextureAssetProcessorSettings settings = PlayStation1TextureCookSettingsSerializer.Deserialize(
+            "{\"maxResolution\":512,\"colorFormat\":\"Rgba32\",\"alphaPrecision\":\"Full\"}");
 
-        Assert.Contains("Indexed4 or Indexed8", error.Message);
+        Assert.Equal(64, settings.MaxResolution);
+        Assert.Equal(TextureAssetColorFormat.Indexed8, settings.ColorFormat);
+        Assert.Equal(TextureAssetAlphaPrecision.Binary, settings.AlphaPrecision);
     }
 
     [Fact]

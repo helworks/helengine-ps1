@@ -445,8 +445,9 @@ a platform that declared nothing received a silently unreasonable default.
 PS1 now declares two builder-owned cook capabilities. Ordinary textures default
 to Indexed8 at 64 pixels a side, font atlases to Indexed4 at 128. The GPU
 samples only 4-bit and 8-bit paletted textures from a 256x256 page, so the
-format capability advertises those two and the settings serializer rejects a
-direct-colour request rather than ignoring it.
+format capability advertises those two. Raw `Rgba32` values carried forward
+by the shared importer are treated as source-image markers and converted to
+the indexed PS1 defaults by the builder.
 
 Almost no new code was needed. The resize and quantisation are the engine's own
 `TextureAssetProcessor`, which the builder already had access to. PS1 adds a

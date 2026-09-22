@@ -34,16 +34,27 @@ public sealed class PlayStation1PlatformCookWorkItemExecutor {
             throw new InvalidOperationException($"PS1 does not support cook work item source kind '{workItem.SourceAssetKind}'.");
         }
 
-        TextureAssetProcessorSettings settings = string.Equals(workItem.SourceAssetKind, "font-atlas-texture", StringComparison.OrdinalIgnoreCase)
-            ? PlayStation1TextureCookSettingsSerializer.DeserializeFontAtlas(workItem.SerializedPlatformSettings)
-            : PlayStation1TextureCookSettingsSerializer.Deserialize(workItem.SerializedPlatformSettings);
+        string outputRelativePath = NormalizeRelativePath(workItem.OutputRelativePath);
+        bool isFontAtlas = string.Equals(workItem.SourceAssetKind, "font-atlas-texture", StringComparison.OrdinalIgnoreCase)
+            || outputRelativePath.Contains("/fonts/", StringComparison.OrdinalIgnoreCase)
+            || outputRelativePath.StartsWith("cooked/fonts/", StringComparison.OrdinalIgnoreCase);
+        TextureAssetProcessorSettings settings;
+        try {
+            settings = isFontAtlas
+                ? PlayStation1TextureCookSettingsSerializer.DeserializeFontAtlas(workItem.SerializedPlatformSettings)
+                : PlayStation1TextureCookSettingsSerializer.Deserialize(workItem.SerializedPlatformSettings);
+        } catch (InvalidOperationException exception) {
+            throw new InvalidOperationException(
+                $"PS1 texture settings failed for source kind '{workItem.SourceAssetKind}', output '{outputRelativePath}', source '{workItem.SourceAssetPath}': {exception.Message}",
+                exception);
+        }
         TextureAsset decoded = SourceTextureDecoder.Decode(workItem.SourceAssetPath);
         TextureAsset cooked = TextureProcessor.Apply(decoded, settings);
         cooked.Id = workItem.OutputLogicalArtifactId;
 
         string destinationPath = Path.Combine(
             Path.GetFullPath(packageSourceRootPath),
-            NormalizeRelativePath(workItem.OutputRelativePath).Replace('/', Path.DirectorySeparatorChar));
+            outputRelativePath.Replace('/', Path.DirectorySeparatorChar));
         string destinationDirectory = Path.GetDirectoryName(destinationPath)
             ?? throw new InvalidOperationException($"PS1 cooked texture destination directory could not be resolved for '{destinationPath}'.");
         Directory.CreateDirectory(destinationDirectory);

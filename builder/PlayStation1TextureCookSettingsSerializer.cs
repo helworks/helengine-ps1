@@ -56,8 +56,17 @@ public static class PlayStation1TextureCookSettingsSerializer {
         if (!Enum.TryParse(colorFormatName, true, out TextureAssetColorFormat colorFormat)) {
             throw new InvalidOperationException($"Unsupported PS1 texture color format '{colorFormatName}'.");
         }
-        // The GPU samples 4-bit and 8-bit paletted textures out of a texture page and nothing else, so a
-        // direct-colour request would be silently ignored at draw time rather than honoured.
+        // The shared importer can carry the source image's raw Rgba32 format into a builder-owned work item.
+        // PS1 owns the final cook, so convert that source marker to the platform's ordinary indexed default.
+        if (colorFormat == TextureAssetColorFormat.Rgba32) {
+            return new TextureAssetProcessorSettings {
+                MaxResolution = 64,
+                ColorFormat = TextureAssetColorFormat.Indexed8,
+                AlphaPrecision = TextureAssetAlphaPrecision.Binary
+            };
+        }
+
+        // The GPU samples 4-bit and 8-bit paletted textures out of a texture page and nothing else.
         if (colorFormat != TextureAssetColorFormat.Indexed4 && colorFormat != TextureAssetColorFormat.Indexed8) {
             throw new InvalidOperationException($"PS1 textures must cook to Indexed4 or Indexed8; received '{colorFormatName}'.");
         }
