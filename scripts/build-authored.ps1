@@ -160,6 +160,7 @@ $buildConfig = [ordered]@{
     platforms = @(
         [ordered]@{
             platformId = 'ps1'
+            overridesProjectScenes = $true
             selectedSceneReferences = @([ordered]@{
                 sourceKind = 1
                 relativePath = $SceneRelativePath
