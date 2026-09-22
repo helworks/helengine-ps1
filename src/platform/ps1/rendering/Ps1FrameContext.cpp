@@ -33,6 +33,12 @@ bool Ps1FrameContext::Begin(std::uint32_t sceneSequence, std::uint32_t triangleC
     m_gouraudReservedCount = 0;
     m_gouraudInsertedCount = 0;
     for (unsigned i = 0; i < GouraudCapacity; ++i) m_gouraudInserted[i] = 0;
+    m_uiReservedCount = 0;
+    m_uiInsertedCount = 0;
+    for (unsigned i = 0; i < UiTriangleCapacity; ++i) m_uiInserted[i] = 0;
+    m_texturedReservedCount = 0;
+    m_texturedInsertedCount = 0;
+    for (unsigned i = 0; i < TexturedTriangleCapacity; ++i) m_texturedInserted[i] = 0;
     m_buildSequence = sceneSequence;
     m_state = State::Building;
     return true;
@@ -98,6 +104,60 @@ bool Ps1FrameContext::Insert(GouraudFragment& fragment, std::uint16_t bucket) {
     return true;
 }
 
+Ps1FrameContext::UiTriangleFragment* Ps1FrameContext::TryReserveUiTriangle() {
+    if (m_state != State::Building) {
+        AssertState(false, "PS1_UI_TRIANGLE_RESERVE_WRONG_STATE");
+        return nullptr;
+    }
+    if (m_uiReservedCount >= UiTriangleCapacity) return nullptr;
+    return &m_uiTriangles[m_uiReservedCount++];
+}
+
+bool Ps1FrameContext::Insert(UiTriangleFragment& fragment, std::uint16_t bucket) {
+    if (m_state != State::Building) {
+        AssertState(false, "PS1_UI_TRIANGLE_INSERT_WRONG_STATE");
+        return false;
+    }
+    if (bucket >= 256u) return false;
+    const auto first = reinterpret_cast<std::uintptr_t>(&m_uiTriangles[0]);
+    const auto last = reinterpret_cast<std::uintptr_t>(&m_uiTriangles[UiTriangleCapacity]);
+    const auto address = reinterpret_cast<std::uintptr_t>(&fragment);
+    if (address < first || address >= last || ((address - first) % sizeof(UiTriangleFragment)) != 0) return false;
+    const unsigned index = static_cast<unsigned>((address - first) / sizeof(UiTriangleFragment));
+    if (index >= m_uiReservedCount || m_uiInserted[index] != 0) return false;
+    m_table.insert(fragment, bucket);
+    m_uiInserted[index] = 1;
+    ++m_uiInsertedCount;
+    return true;
+}
+
+Ps1FrameContext::TexturedTriangleFragment* Ps1FrameContext::TryReserveTexturedTriangle() {
+    if (m_state != State::Building) {
+        AssertState(false, "PS1_TEXTURED_TRIANGLE_RESERVE_WRONG_STATE");
+        return nullptr;
+    }
+    if (m_texturedReservedCount >= TexturedTriangleCapacity) return nullptr;
+    return &m_texturedTriangles[m_texturedReservedCount++];
+}
+
+bool Ps1FrameContext::Insert(TexturedTriangleFragment& fragment, std::uint16_t bucket) {
+    if (m_state != State::Building) {
+        AssertState(false, "PS1_TEXTURED_TRIANGLE_INSERT_WRONG_STATE");
+        return false;
+    }
+    if (bucket >= 256u) return false;
+    const auto first = reinterpret_cast<std::uintptr_t>(&m_texturedTriangles[0]);
+    const auto last = reinterpret_cast<std::uintptr_t>(&m_texturedTriangles[TexturedTriangleCapacity]);
+    const auto address = reinterpret_cast<std::uintptr_t>(&fragment);
+    if (address < first || address >= last || ((address - first) % sizeof(TexturedTriangleFragment)) != 0) return false;
+    const unsigned index = static_cast<unsigned>((address - first) / sizeof(TexturedTriangleFragment));
+    if (index >= m_texturedReservedCount || m_texturedInserted[index] != 0) return false;
+    m_table.insert(fragment, bucket);
+    m_texturedInserted[index] = 1;
+    ++m_texturedInsertedCount;
+    return true;
+}
+
 bool Ps1FrameContext::Submit(psyqo::GPU& gpu, psyqo::Color clearColor) {
     if (m_state != State::Building) {
         AssertState(false, "PS1_FRAME_SUBMIT_WRONG_STATE");
@@ -125,6 +185,12 @@ void Ps1FrameContext::Cancel() {
     m_budgetCapacity = TriangleCapacity;
     m_reservedCount = 0;
     m_insertedCount = 0;
+    m_gouraudReservedCount = 0;
+    m_gouraudInsertedCount = 0;
+    m_uiReservedCount = 0;
+    m_uiInsertedCount = 0;
+    m_texturedReservedCount = 0;
+    m_texturedInsertedCount = 0;
     m_state = State::Available;
 }
 

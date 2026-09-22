@@ -20,6 +20,21 @@ void TestPacketBudget() {
 
     helengine::ps1::Ps1PacketBudget zero(0);
     assert(!zero.TryReserve(slot));
+
+    using Limits = helengine::ps1::Ps1FramePacketLimits;
+    assert(Limits::PacketBudgetBytes == 8192);
+    assert(Limits::GouraudTriangles == 64);
+    assert(Limits::UiTriangles == 96);
+    assert(Limits::TexturedTriangles == 48);
+    assert(Limits::FixedBytes == 5520);
+    assert(Limits::SceneTriangles == 133);
+    assert(Limits::FixedBytes + Limits::SceneTriangles * Limits::TriangleFragmentBytes <= Limits::PacketBudgetBytes);
+    assert(Limits::FixedBytes + (Limits::SceneTriangles + 1) * Limits::TriangleFragmentBytes > Limits::PacketBudgetBytes);
+    helengine::ps1::Ps1PacketBudget ui(Limits::UiTriangles);
+    for (std::uint32_t i = 0; i < Limits::UiTriangles; ++i) assert(ui.TryReserve(slot));
+    assert(!ui.TryReserve(slot) && ui.Used() == Limits::UiTriangles);
+    ui.Reset(Limits::UiTriangles);
+    assert(ui.TryReserve(slot) && slot == 0);
 }
 
 void TestDepthBuckets() {

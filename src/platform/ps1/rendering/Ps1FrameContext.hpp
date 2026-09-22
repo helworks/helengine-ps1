@@ -22,18 +22,25 @@ class Ps1FrameContext final {
     using ClearFragment = psyqo::Fragments::SimpleFragment<psyqo::Prim::FastFill>;
     /** Per-vertex lit triangles used only by the authored scene path. */
     using GouraudFragment = psyqo::Fragments::SimpleFragment<psyqo::Prim::GouraudTriangle>;
+    using UiTriangleFragment = TriangleFragment;
+    using TexturedTriangleFragment = psyqo::Fragments::SimpleFragment<psyqo::Prim::TexturedTriangle>;
 
     /** Authored scenes submit far fewer triangles than the diagnostic stress modes. */
-    static constexpr unsigned GouraudCapacity = 64;
+    static constexpr unsigned GouraudCapacity = Ps1FramePacketLimits::GouraudTriangles;
+    static constexpr unsigned UiTriangleCapacity = Ps1FramePacketLimits::UiTriangles;
+    static constexpr unsigned TexturedTriangleCapacity = Ps1FramePacketLimits::TexturedTriangles;
 
-    static constexpr std::uint32_t PacketBudgetBytes = 4096;
-    static constexpr unsigned TriangleCapacity =
-        (PacketBudgetBytes - sizeof(ClearFragment)) / sizeof(TriangleFragment);
+    static constexpr std::uint32_t PacketBudgetBytes = Ps1FramePacketLimits::PacketBudgetBytes;
+    static constexpr unsigned TriangleCapacity = Ps1FramePacketLimits::SceneTriangles;
 
 #ifndef PS1_PC_PORT
     static_assert(sizeof(TriangleFragment) == 20);
     static_assert(sizeof(psyqo::OrderingTable<256>) == 1028);
-    static_assert(TriangleCapacity >= 12);
+    static_assert(sizeof(TexturedTriangleFragment) == 32);
+    static_assert(sizeof(GouraudFragment) == Ps1FramePacketLimits::GouraudFragmentBytes);
+    static_assert(sizeof(UiTriangleFragment) == Ps1FramePacketLimits::UiFragmentBytes);
+    static_assert(sizeof(ClearFragment) == Ps1FramePacketLimits::ClearFragmentBytes);
+    static_assert(TriangleCapacity == 133);
 #endif
 
     /** Clear color used by the diagnostic scenes; authored scenes pass the camera's clear color. */
@@ -44,19 +51,29 @@ class Ps1FrameContext final {
     bool Insert(TriangleFragment& fragment, std::uint16_t bucket);
     GouraudFragment* TryReserveGouraud();
     bool Insert(GouraudFragment& fragment, std::uint16_t bucket);
+    UiTriangleFragment* TryReserveUiTriangle();
+    bool Insert(UiTriangleFragment& fragment, std::uint16_t bucket);
+    TexturedTriangleFragment* TryReserveTexturedTriangle();
+    bool Insert(TexturedTriangleFragment& fragment, std::uint16_t bucket);
     bool Submit(psyqo::GPU& gpu, psyqo::Color clearColor = DefaultClearColor);
     void Cancel();
 
-    std::uint32_t UsedPackets() const { return 1u + m_insertedCount + m_gouraudInsertedCount; }
+    std::uint32_t UsedPackets() const {
+        return 1u + m_insertedCount + m_gouraudInsertedCount + m_uiInsertedCount + m_texturedInsertedCount;
+    }
     std::uint32_t HighWaterBytes() const {
         return static_cast<std::uint32_t>(sizeof(ClearFragment) + m_reservedCount * sizeof(TriangleFragment) +
-                                          m_gouraudReservedCount * sizeof(GouraudFragment));
+                                          m_gouraudReservedCount * sizeof(GouraudFragment) +
+                                          m_uiReservedCount * sizeof(UiTriangleFragment) +
+                                          m_texturedReservedCount * sizeof(TexturedTriangleFragment));
     }
     std::uint32_t LastSubmissionSequence() const { return m_lastSubmissionSequence; }
     std::uint32_t Capacity() const { return m_budgetCapacity; }
     bool GuardsIntact() const {
         return m_packetGuardBefore == PacketGuardValue && m_packetGuardAfter == PacketGuardValue &&
-               m_gouraudGuardAfter == PacketGuardValue;
+               m_gouraudGuardAfter == PacketGuardValue && m_uiGuardBefore == PacketGuardValue &&
+               m_uiGuardAfter == PacketGuardValue && m_texturedGuardBefore == PacketGuardValue &&
+               m_texturedGuardAfter == PacketGuardValue;
     }
     bool IsBuilding() const { return m_state == State::Building; }
 
@@ -83,8 +100,20 @@ class Ps1FrameContext final {
     std::uint32_t m_gouraudGuardAfter = PacketGuardValue;
     std::uint16_t m_gouraudReservedCount = 0;
     std::uint16_t m_gouraudInsertedCount = 0;
+    std::uint32_t m_uiGuardBefore = PacketGuardValue;
+    UiTriangleFragment m_uiTriangles[UiTriangleCapacity];
+    std::uint32_t m_uiGuardAfter = PacketGuardValue;
+    std::uint16_t m_uiReservedCount = 0;
+    std::uint16_t m_uiInsertedCount = 0;
+    std::uint32_t m_texturedGuardBefore = PacketGuardValue;
+    TexturedTriangleFragment m_texturedTriangles[TexturedTriangleCapacity];
+    std::uint32_t m_texturedGuardAfter = PacketGuardValue;
+    std::uint16_t m_texturedReservedCount = 0;
+    std::uint16_t m_texturedInsertedCount = 0;
     std::uint8_t m_inserted[TriangleCapacity]{};
     std::uint8_t m_gouraudInserted[GouraudCapacity]{};
+    std::uint8_t m_uiInserted[UiTriangleCapacity]{};
+    std::uint8_t m_texturedInserted[TexturedTriangleCapacity]{};
 };
 
 }  // namespace helengine::ps1

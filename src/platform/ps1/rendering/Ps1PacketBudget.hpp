@@ -4,6 +4,23 @@
 
 namespace helengine::ps1 {
 
+struct Ps1FramePacketLimits final {
+    static constexpr std::uint32_t PacketBudgetBytes = 8192;
+    static constexpr std::uint32_t GouraudTriangles = 64;
+    static constexpr std::uint32_t UiTriangles = 96;
+    static constexpr std::uint32_t TexturedTriangles = 48;
+    static constexpr std::uint32_t ClearFragmentBytes = 16;
+    static constexpr std::uint32_t TriangleFragmentBytes = 20;
+    static constexpr std::uint32_t GouraudFragmentBytes = 32;
+    static constexpr std::uint32_t UiFragmentBytes = 20;
+    static constexpr std::uint32_t TexturedFragmentBytes = 32;
+    static constexpr std::uint32_t FixedBytes = ClearFragmentBytes + GouraudTriangles * GouraudFragmentBytes +
+                                                UiTriangles * UiFragmentBytes +
+                                                TexturedTriangles * TexturedFragmentBytes;
+    static constexpr std::uint32_t SceneTriangles = (PacketBudgetBytes - FixedBytes) / TriangleFragmentBytes;
+    static_assert(FixedBytes < PacketBudgetBytes);
+};
+
 /**
  * Fixed-capacity reservation counter used by packet builders.  It owns no
  * storage; the caller owns the corresponding typed packet array.
