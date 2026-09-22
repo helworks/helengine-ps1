@@ -482,11 +482,12 @@ the PS1 codegen profile sets `codegen-compact-native-exception-messages`, which
 strips the detail; identifying the exact component needs a build with that
 turned off.
 
-Two known gaps in the cook work, both unfinished rather than broken. The cooked
-`.hetex` atlases are written into the package source but are not staged into the
-embedded archive, so text has no glyph pages even once text rendering exists.
-And the manifest now reports one cooked artifact where it previously reported
-36, which is not yet explained.
+At this 2026-09-18 cook checkpoint, the cooked `.hetex` atlas pages were not
+staged into the embedded archive, and the manifest reported one cooked artifact
+where it previously reported 36. The atlas-staging gap is since resolved: the
+2026-09-22 authored UI archive contains both font atlases. Text rendering is
+still unimplemented, and the manifest artifact-count discrepancy remains
+unexplained.
 
 ## Workspace correction (2026-09-22)
 
@@ -552,3 +553,46 @@ first-frame and cadence-600 markers. The log contains no `PS1_CORE_FATAL`,
 exception or assertion. Evidence: native manifest
 `C:\dev\helworks\builds\helengine-ps1\20260922-163735-294-Release-27694b231ae44009bd1f4e96f0ed2f56\manifest.json`
 and the adjacent `duckstation.log` output.
+
+## Authored PS1 sprite and rounded-shape rendering (2026-09-22)
+
+The unchanged `cube_test` scene now traverses its ordered 2D camera queue and
+submits indexed sprites and rounded rectangles in the same GPU frame chain as
+the 3D scene. The render path uses three chords per rounded quarter-circle so
+both authored bordered panels fit within the 96-triangle UI reservation. PS1
+fractional alpha uses the hardware's fixed half-back/half-front blend; fully
+transparent pixels are skipped. This is a 50% blend approximation for all
+non-binary alpha values.
+
+The build used shared engine revision
+`72a4fcbfd6b2fa6cc2c59a618c09eb4a49bf9637` and the `cube_test` export. Its 11
+declared assets produced a 37,028-byte embedded archive. The three imported
+PS1 control textures remained 27x27, 27x27 and 26x26 pixels. Both default and
+DemoDisc body font atlases are present in the archive; text rendering remains
+unimplemented and the five visible text drawables are skipped.
+
+DuckStation `0.1-11894-gc66b2694d` booted the PS-X EXE and reported
+`sprites=3 shapes=2 skipped_text=5 submitted_sprites=3 submitted_triangles=98
+failure=none`; the combined draw chain had 101 packets, 2,104 bytes high-water,
+intact guards, and no fatal or abort. Rounded-corner arc samples use a constant
+lookup instead of per-frame software sine/cosine calls. The optimized build
+reports VBlank 1,251 / 652 missed at sequence 600 and VBlank 2,452 / 1,253
+missed at sequence 1,200, about 29.4 scene updates per second in this
+DuckStation configuration. The heap end remained `0x80096d78`. This run
+does not establish real-hardware frame timing or visually verify framebuffer
+pixels; no screenshot was captured.
+
+| Measure | Value |
+|---|---:|
+| PS-X EXE | 468,992 bytes |
+| PS-X EXE payload | 466,944 bytes |
+| Static footprint | 498,464 bytes |
+| Heap capacity | 1,467,616 bytes |
+| Embedded authored archive | 37,028 bytes (11 declared assets) |
+| UI packets | 98 triangles + 3 sprites (101 combined packets) |
+| PS-X EXE SHA-256 | `75e2940fd755021a0de0d48399ba1dbc61965a9b4418e492b5ca17e497849bc7` |
+
+Evidence: build manifest
+`C:\dev\helworks\builds\helengine-ps1\20260922-193546-150-Release-9be13469f6b542dda60b2832a928722c\manifest.json`
+and DuckStation log
+`C:\dev\helworks\emus\ps1\duckstation-windows-x64-release\duckstation.log`.

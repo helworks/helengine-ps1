@@ -311,6 +311,9 @@ authoring. Since 2026-09-21 the groups include `hd`, `sd`, nested `sd/msd`
 presentation: camera, sun, cube, instruction overlay, console camera/light
 blueprint and standard UI kit. The dual-screen bottom-screen presentation and
 its chrome remain scoped to `sd/dual-screen` and do not enter PS1.
+The 2026-09-22 full export report resolved the scene from `common`,
+`sd/msd`, and `sd/dual-screen`; the PS1 build inherits the single-screen
+`sd/msd` content while filtering the `sd/dual-screen` presentation.
 Export the scene unchanged with `helengine.ps1.samplegen --full <scene>
 <output-root>` (the report lists the authored scope paths) and build with:
 
