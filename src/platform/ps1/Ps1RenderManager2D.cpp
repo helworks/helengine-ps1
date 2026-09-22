@@ -2,14 +2,28 @@
 
 #include "Asset.hpp"
 #include "AssetSerializer.hpp"
+#include "Entity.hpp"
+#include "ICamera.hpp"
+#include "IDrawable2D.hpp"
 #include "IContentStreamSource.hpp"
+#include "IRenderQueue2D.hpp"
+#include "IRoundedRectDrawable2D.hpp"
+#include "ISpriteDrawable2D.hpp"
+#include "ITextDrawable2D.hpp"
+#include "RoundedRectCorners.hpp"
 #include "TextureAsset.hpp"
 #include "TextureAssetColorFormat.hpp"
+#include "byte4.hpp"
 #include "common/syscalls/syscalls.h"
+#include "float3.hpp"
+#include "float4.hpp"
+#include "int2.hpp"
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
+#include "platform/ps1/rendering/Ps1RuntimeTexture.hpp"
 #include "runtime/array.hpp"
 #include "runtime/native_cast.hpp"
 #include "system/io/stream.hpp"
+
 
 namespace helengine::ps1 {
 namespace {
@@ -17,6 +31,9 @@ namespace {
 /// <summary>Palette entries the GPU reads for each supported depth.</summary>
 constexpr std::uint16_t FourBitPaletteEntries = 16;
 constexpr std::uint16_t EightBitPaletteEntries = 256;
+constexpr std::int16_t DisplayWidth = 320;
+constexpr std::int16_t DisplayHeight = 240;
+constexpr unsigned MaximumRoundedTriangles = 46;
 
 /// <summary>
 /// Converts one straight RGBA8888 palette entry to the GPU's 16-bit BGR555 with its semi-transparency
@@ -25,7 +42,7 @@ constexpr std::uint16_t EightBitPaletteEntries = 256;
 /// <param name="red">Red channel.</param>
 /// <param name="green">Green channel.</param>
 /// <param name="blue">Blue channel.</param>
-/// <param name="alpha">Alpha channel; only fully transparent is representable.</param>
+/// <param name="alpha">Alpha channel; zero skips the entry and visible entries set the PS1 STP bit.</param>
 /// <returns>Packed BGR555 palette entry.</returns>
 std::uint16_t PackPaletteEntry(std::uint8_t red, std::uint8_t green, std::uint8_t blue, std::uint8_t alpha) {
     if (alpha == 0) { return 0; }
@@ -35,12 +52,152 @@ std::uint16_t PackPaletteEntry(std::uint8_t red, std::uint8_t green, std::uint8_
     const std::uint16_t packed = static_cast<std::uint16_t>(r | (g << 5) | (b << 10));
     // Black would otherwise pack to zero and be treated as transparent, so lift it to the darkest
     // value the GPU still draws.
-    return packed == 0 ? static_cast<std::uint16_t>(0x8000) : packed;
+    return static_cast<std::uint16_t>(packed | 0x8000u);
+}
+
+bool TryScreenTransform(::Entity* entity, Ps1UiPoint& position, Ps1UiPoint& scale, float& rotation) {
+    if (entity == nullptr) return false;
+    const ::float3 worldPosition = entity->get_Position();
+    const ::float3 worldScale = entity->get_Scale();
+    const ::float4 orientation = entity->get_Orientation();
+    const float rightX = 1.0f - 2.0f * (orientation.Y * orientation.Y + orientation.Z * orientation.Z);
+    const float rightY = 2.0f * (orientation.X * orientation.Y + orientation.W * orientation.Z);
+    position = {worldPosition.X, worldPosition.Y};
+    scale = {worldScale.X, worldScale.Y};
+    rotation = ui_geometry_detail::Atan2(rightY, rightX);
+    return ui_geometry_detail::Finite(position.x) && ui_geometry_detail::Finite(position.y) &&
+           ui_geometry_detail::Finite(scale.x) && ui_geometry_detail::Finite(scale.y) &&
+           ui_geometry_detail::Finite(rotation);
+}
+
+std::uint8_t TextureModulation(std::uint8_t channel) {
+    return static_cast<std::uint8_t>((static_cast<std::uint32_t>(channel) * 128u + 127u) / 255u);
+}
+
+void TryColor(::byte4 color, bool modulation, psyqo::Color& gpuColor) {
+    gpuColor = {{.r = modulation ? TextureModulation(color.X) : color.X,
+                 .g = modulation ? TextureModulation(color.Y) : color.Y,
+                 .b = modulation ? TextureModulation(color.Z) : color.Z}};
+}
+
+std::uint8_t MapCoreRoundedCorners(std::uint8_t coreCorners) {
+    // Core enum values are TL=1, TR=2, BL=4, BR=8; geometry walks TL, TR, BR, BL.
+    return static_cast<std::uint8_t>((coreCorners & 0x03u) | ((coreCorners & 0x04u) << 1u) |
+                                     ((coreCorners & 0x08u) >> 1u));
 }
 
 }  // namespace
 
-Ps1RenderManager2D::Ps1RenderManager2D(psyqo::GPU& gpu) : Gpu(gpu) {}
+Ps1RenderManager2D::Ps1RenderManager2D(psyqo::GPU& gpu, Ps1RasterRenderer& renderer)
+    : Gpu(gpu), Renderer(renderer) {}
+
+bool Ps1RenderManager2D::ResolveViewport(::ICamera* camera, Ps1ScreenRect& viewport) const {
+    if (camera == nullptr) return false;
+    const ::float4 authored = camera->get_Viewport();
+    if (!ui_geometry_detail::Finite(authored.X) || !ui_geometry_detail::Finite(authored.Y) ||
+        !ui_geometry_detail::Finite(authored.Z) || !ui_geometry_detail::Finite(authored.W) ||
+        authored.Z <= 0.0f || authored.W <= 0.0f) return false;
+    float x = authored.X;
+    float y = authored.Y;
+    float width = authored.Z;
+    float height = authored.W;
+    if (width <= 1.0f && height <= 1.0f) {
+        x *= DisplayWidth;
+        y *= DisplayHeight;
+        width *= DisplayWidth;
+        height *= DisplayHeight;
+    }
+    const long ix = ui_geometry_detail::Round(x);
+    const long iy = ui_geometry_detail::Round(y);
+    const long iw = ui_geometry_detail::Round(width);
+    const long ih = ui_geometry_detail::Round(height);
+    if (iw <= 0 || ih <= 0 || ix < 0 || iy < 0 || ix + iw > DisplayWidth || iy + ih > DisplayHeight) return false;
+    viewport = {static_cast<std::int16_t>(ix), static_cast<std::int16_t>(iy), static_cast<std::int16_t>(iw),
+                static_cast<std::int16_t>(ih)};
+    return true;
+}
+
+void Ps1RenderManager2D::Reject(const char* marker) {
+    if (FailureMarker == nullptr) FailureMarker = marker;
+}
+
+bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
+    VisitedSprites = 0;
+    VisitedShapes = 0;
+    SkippedTexts = 0;
+    PendingCount = 0;
+    PendingShapes = 0;
+    PendingSprites = 0;
+    FailureMarker = nullptr;
+    if (!ResolveViewport(camera, ActiveViewport)) {
+        Reject("PS1_UI_VIEWPORT_UNSUPPORTED");
+        return false;
+    }
+    if (camera->get_RenderQueue2D() == nullptr) {
+        Reject("PS1_UI_QUEUE_MISSING");
+        return false;
+    }
+    QueueOpen = true;
+    camera->get_RenderQueue2D()->VisitOrdered(this);
+    QueueOpen = false;
+    return FailureMarker == nullptr && FlushPendingInVisitOrder();
+}
+
+bool Ps1RenderManager2D::AppendPending(const PendingUiDrawable& drawable) {
+    if (PendingCount >= PendingUiCapacity) {
+        Reject("PS1_UI_QUEUE_CAPACITY");
+        return false;
+    }
+    if (drawable.IsSprite) {
+        if (PendingSprites >= Ps1FramePacketLimits::TexturedTriangles / 2u) {
+            Reject("PS1_UI_SPRITE_CAPACITY");
+            return false;
+        }
+        ++PendingSprites;
+    } else {
+        if (PendingShapes >= Ps1FramePacketLimits::UiTriangles) {
+            Reject("PS1_UI_SHAPE_CAPACITY");
+            return false;
+        }
+        ++PendingShapes;
+    }
+    Pending[PendingCount++] = drawable;
+    return true;
+}
+
+bool Ps1RenderManager2D::FlushPendingInVisitOrder() {
+    for (std::uint16_t i = PendingCount; i > 0; --i) {
+        const PendingUiDrawable& pending = Pending[i - 1u];
+        bool queued = false;
+        if (pending.IsSprite && pending.Texture != nullptr) {
+            const Ps1RuntimeTexture& texture = *pending.Texture;
+            queued = Renderer.QueueAuthoredUiSprite(pending.Vertices, texture.VramX, texture.VramY, texture.ClutX,
+                                                     texture.ClutY, texture.PixelsPerWord(),
+                                                     texture.PixelDepth == Ps1RuntimeTexture::Depth::FourBit,
+                                                     pending.Color, pending.SemiTransparent, pending.Bucket);
+        } else {
+            const Ps1UiTriangle triangle{pending.Vertices[0], pending.Vertices[1], pending.Vertices[2]};
+            queued = Renderer.QueueAuthoredUiTriangle(triangle, pending.Color, pending.SemiTransparent, pending.Bucket);
+        }
+        if (!queued) {
+            Reject(Renderer.Stats().failure == Ps1RenderFailure::Capacity ? "PS1_UI_PACKET_CAPACITY"
+                                                                          : "PS1_UI_FRAME_OWNERSHIP");
+            return false;
+        }
+    }
+    return true;
+}
+
+void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
+    if (drawable == nullptr || !QueueOpen) return;
+    if (dynamic_cast<::ISpriteDrawable2D*>(drawable) != nullptr ||
+        dynamic_cast<::IRoundedRectDrawable2D*>(drawable) != nullptr ||
+        dynamic_cast<::ITextDrawable2D*>(drawable) != nullptr) {
+        drawable->Draw();
+        return;
+    }
+    Reject("PS1_UI_DRAWABLE_UNSUPPORTED");
+}
 
 ::RuntimeTexture* Ps1RenderManager2D::BuildTextureFromCooked(HeCppString cookedAssetPath, ::IContentStreamSource* contentStreamSource) {
     if (contentStreamSource == nullptr) {
@@ -170,16 +327,116 @@ void Ps1RenderManager2D::ReleaseTexture(::RuntimeTexture* texture) {
     delete texture;
 }
 
-void Ps1RenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D*) {
-    he_cpp_custom::Fail("PS1 does not draw 2D shapes yet");
+void Ps1RenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D* shape) {
+    if (shape == nullptr || shape->get_Parent() == nullptr || !QueueOpen) return;
+    ++VisitedShapes;
+    Ps1UiPoint position{};
+    Ps1UiPoint scale{};
+    float rotation = 0.0f;
+    if (!TryScreenTransform(shape->get_Parent(), position, scale, rotation)) {
+        Reject("PS1_UI_SHAPE_TRANSFORM_REJECTED");
+        return;
+    }
+    const ::int2 size = shape->get_Size();
+    const std::uint8_t corners = MapCoreRoundedCorners(static_cast<std::uint8_t>(shape->get_Corners()));
+    Ps1UiTriangle triangles[MaximumRoundedTriangles]{};
+    std::uint16_t count = 0;
+    std::uint16_t fillCount = 0;
+    if (!TryBuildRoundedRectTriangles(position, {static_cast<float>(size.X), static_cast<float>(size.Y)}, scale,
+                                      rotation + shape->get_Rotation(), shape->get_Radius(),
+                                      shape->get_BorderThickness(), corners, ActiveViewport, triangles,
+                                      MaximumRoundedTriangles, count, fillCount)) {
+        Reject("PS1_UI_SHAPE_GEOMETRY_REJECTED");
+        return;
+    }
+    const ::byte4 fill = shape->get_FillColor();
+    const ::byte4 border = shape->get_BorderColor();
+    psyqo::Color fillColor;
+    psyqo::Color borderColor;
+    TryColor(fill, false, fillColor);
+    TryColor(border, false, borderColor);
+    bool fillSemiTransparent = false;
+    bool borderSemiTransparent = false;
+    TryMapAlphaToBlend(fill.W, fillSemiTransparent);
+    TryMapAlphaToBlend(border.W, borderSemiTransparent);
+    std::uint16_t bucket = 0;
+    if (!TryMapRenderOrder(shape->get_RenderOrder2D(), bucket)) {
+        Reject("PS1_UI_SHAPE_ORDER_REJECTED");
+        return;
+    }
+    for (std::uint16_t i = 0; i < count; ++i) {
+        const bool isFill = i < fillCount;
+        const std::uint8_t alpha = isFill ? fill.W : border.W;
+        if (alpha == 0) continue;
+        PendingUiDrawable pending{};
+        pending.Vertices[0] = triangles[i].a;
+        pending.Vertices[1] = triangles[i].b;
+        pending.Vertices[2] = triangles[i].c;
+        pending.Color = isFill ? fillColor : borderColor;
+        pending.Bucket = bucket;
+        pending.SemiTransparent = isFill ? fillSemiTransparent : borderSemiTransparent;
+        if (!AppendPending(pending)) return;
+    }
 }
 
-void Ps1RenderManager2D::DrawSprite(::ISpriteDrawable2D*) {
-    he_cpp_custom::Fail("PS1 does not draw sprites yet");
+void Ps1RenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
+    if (sprite == nullptr || sprite->get_Parent() == nullptr || !QueueOpen) return;
+    ++VisitedSprites;
+    auto* texture = dynamic_cast<Ps1RuntimeTexture*>(sprite->get_Texture());
+    if (texture == nullptr) {
+        Reject("PS1_UI_SPRITE_TEXTURE_UNSUPPORTED");
+        return;
+    }
+    const std::uint16_t width = static_cast<std::uint16_t>(texture->get_Width());
+    const std::uint16_t height = static_cast<std::uint16_t>(texture->get_Height());
+    ::int2 size = sprite->get_Size();
+    if (size.X <= 0 || size.Y <= 0) size = ::int2(width, height);
+    Ps1UiPoint position{};
+    Ps1UiPoint scale{};
+    float rotation = 0.0f;
+    if (!TryScreenTransform(sprite->get_Parent(), position, scale, rotation)) {
+        Reject("PS1_UI_SPRITE_TRANSFORM_REJECTED");
+        return;
+    }
+    const ::float4 source = sprite->get_SourceRect();
+    Ps1UiVertex vertices[4]{};
+    if (!TryBuildSpriteQuad(position, {static_cast<float>(size.X), static_cast<float>(size.Y)}, scale, rotation,
+                            {source.X, source.Y, source.Z, source.W}, {static_cast<float>(width), static_cast<float>(height)},
+                            ActiveViewport, vertices)) {
+        Reject("PS1_UI_SPRITE_GEOMETRY_REJECTED");
+        return;
+    }
+    const std::uint16_t pageOffsetU = static_cast<std::uint16_t>((texture->VramX % 64u) * texture->PixelsPerWord());
+    const std::uint16_t pageOffsetV = static_cast<std::uint16_t>(texture->VramY % 256u);
+    if (pageOffsetU + width > 256u || pageOffsetV + height > 256u) {
+        Reject("PS1_UI_TEXTURE_CROSSES_PAGE");
+        return;
+    }
+    for (Ps1UiVertex& vertex : vertices) {
+        vertex.u = static_cast<std::uint8_t>(pageOffsetU + vertex.u);
+        vertex.v = static_cast<std::uint8_t>(pageOffsetV + vertex.v);
+    }
+    const ::byte4 tint = sprite->get_Color();
+    if (tint.W == 0) return;
+    psyqo::Color modulation;
+    TryColor(tint, true, modulation);
+    std::uint16_t bucket = 0;
+    if (!TryMapRenderOrder(sprite->get_RenderOrder2D(), bucket)) {
+        Reject("PS1_UI_SPRITE_ORDER_REJECTED");
+        return;
+    }
+    PendingUiDrawable pending{};
+    for (unsigned i = 0; i < 4; ++i) pending.Vertices[i] = vertices[i];
+    pending.Texture = texture;
+    pending.Color = modulation;
+    pending.Bucket = bucket;
+    TryMapAlphaToBlend(tint.W, pending.SemiTransparent);
+    pending.IsSprite = true;
+    AppendPending(pending);
 }
 
 void Ps1RenderManager2D::DrawText(::ITextDrawable2D*) {
-    he_cpp_custom::Fail("PS1 does not draw text yet");
+    if (QueueOpen) ++SkippedTexts;
 }
 
 void Ps1RenderManager2D::UpdateTextureRegionCore(::RuntimeTexture*, int32_t, int32_t, int32_t, int32_t, Array<uint8_t>*, int32_t) {

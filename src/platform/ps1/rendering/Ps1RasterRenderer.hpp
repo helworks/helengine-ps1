@@ -2,6 +2,7 @@
 
 #include "platform/ps1/rendering/Ps1AuthoredLighting.hpp"
 #include "platform/ps1/rendering/Ps1AuthoredProjection.hpp"
+#include "platform/ps1/rendering/Ps1AuthoredUiGeometry.hpp"
 #include "platform/ps1/rendering/Ps1CubeMesh.hpp"
 #include "platform/ps1/rendering/Ps1FrameContext.hpp"
 #include "psyqo/gpu.hh"
@@ -34,6 +35,8 @@ struct Ps1RenderStats {
     std::uint16_t degenerate = 0;
     std::uint16_t invalid = 0;
     std::uint16_t capacityFailures = 0;
+    std::uint16_t uiSprites = 0;
+    std::uint16_t uiTriangles = 0;
     std::uint16_t ownershipFailures = 0;
     std::uint16_t guardFailures = 0;
     std::uint32_t projectionFlags = 0;
@@ -74,6 +77,11 @@ class Ps1RasterRenderer final {
     bool QueueAuthoredMesh(const Ps1GtePose& pose, const std::int16_t* vertices, std::uint32_t vertexCount,
                            const std::uint16_t* indices, std::uint32_t indexCount, psyqo::Color color, bool doubleSided,
                            const std::int16_t* normals = nullptr, const Ps1GteLighting* lighting = nullptr);
+    bool QueueAuthoredUiTriangle(const Ps1UiTriangle& triangle, psyqo::Color color, bool semiTransparent,
+                                 std::uint16_t bucket);
+    bool QueueAuthoredUiSprite(const Ps1UiVertex (&vertices)[4], std::uint16_t vramX, std::uint16_t vramY,
+                               std::uint16_t clutX, std::uint16_t clutY, std::uint16_t pixelsPerWord,
+                               bool fourBit, psyqo::Color modulation, bool semiTransparent, std::uint16_t bucket);
     bool SubmitAuthoredFrame(psyqo::GPU& gpu, psyqo::Color clearColor);
     void CancelAuthoredFrame();
 

@@ -15,6 +15,9 @@ int main() {
     assert(quad[2].x == 20 && quad[2].y == 57);
     assert(quad[0].u == 0 && quad[0].v == 0);
     assert(quad[1].u == 25 && quad[2].v == 26);
+    assert(TryBuildSpriteQuad({0.0f, 0.0f}, {26.0f, 27.0f}, {1.0f, 1.0f}, 0.0f,
+                              {0.25f, 0.25f, 0.5f, 0.5f}, {26.0f, 27.0f}, full, quad));
+    assert(quad[0].u == 6 && quad[0].v == 7 && quad[1].u == 19 && quad[2].v == 20);
 
     const Ps1ScreenRect offset{160, 120, 160, 120};
     assert(TryBuildSpriteQuad({1.0f, 2.0f}, {2.0f, 2.0f}, {1.0f, 1.0f}, 0.0f,
@@ -29,21 +32,39 @@ int main() {
 
     Ps1UiTriangle triangles[64]{};
     std::uint16_t count = 0;
+    std::uint16_t fillCount = 0;
     assert(TryBuildRoundedRectTriangles({10.0f, 10.0f}, {20.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 0.0f, 0.0f, 0x0f,
-                                        full, triangles, 64, count));
+                                        full, triangles, 64, count, fillCount));
     assert(count == 2);
+    assert(fillCount == count);
     assert(triangles[0].a.x == 10 && triangles[0].a.y == 10);
     assert(TryBuildRoundedRectTriangles({10.0f, 10.0f}, {20.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 100.0f, 0.0f, 0x0f,
-                                        full, triangles, 64, count));
+                                        full, triangles, 64, count, fillCount));
     assert(count > 2);
     assert(TryBuildRoundedRectTriangles({10.0f, 10.0f}, {20.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 4.0f, 0.0f, 0x01,
-                                        full, triangles, 64, count));
+                                        full, triangles, 64, count, fillCount));
     assert(count > 2);
+    assert(TryBuildRoundedRectTriangles({10.0f, 10.0f}, {20.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 6.0f, 2.0f, 0x0f,
+                                        full, triangles, 64, count, fillCount));
+    assert(count == 46 && fillCount == 14);
+    assert(TryBuildRoundedRectTriangles({10.0f, 10.0f}, {20.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 6.0f, 0.0f, 0x0f,
+                                        full, triangles, 64, count, fillCount));
+    assert(count == 14 && triangles[0].a.x == 10 && triangles[0].a.y == 16);
+    assert(triangles[0].b.x == 11 && triangles[0].b.y == 13);
+    assert(triangles[0].c.x == 13 && triangles[0].c.y == 11);
+    assert(!TryBuildRoundedRectTriangles({10.0f, 10.0f}, {0.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 0.0f, 0.0f, 0x0f,
+                                         full, triangles, 64, count, fillCount));
 
     std::uint16_t first = 0;
     std::uint16_t second = 0;
     assert(TryMapRenderOrder(1, first));
     assert(TryMapRenderOrder(2, second));
     assert(first > second);
+    bool semiTransparent = true;
+    assert(TryMapAlphaToBlend(0, semiTransparent) && !semiTransparent);
+    assert(TryMapAlphaToBlend(1, semiTransparent) && semiTransparent);
+    assert(TryMapAlphaToBlend(128, semiTransparent) && semiTransparent);
+    assert(TryMapAlphaToBlend(254, semiTransparent) && semiTransparent);
+    assert(TryMapAlphaToBlend(255, semiTransparent) && !semiTransparent);
     return 0;
 }

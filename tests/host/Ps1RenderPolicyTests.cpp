@@ -26,8 +26,8 @@ void TestPacketBudget() {
     assert(Limits::GouraudTriangles == 64);
     assert(Limits::UiTriangles == 96);
     assert(Limits::TexturedTriangles == 48);
-    assert(Limits::FixedBytes == 5520);
-    assert(Limits::SceneTriangles == 133);
+    assert(Limits::FixedBytes == 5264);
+    assert(Limits::SceneTriangles == 146);
     assert(Limits::FixedBytes + Limits::SceneTriangles * Limits::TriangleFragmentBytes <= Limits::PacketBudgetBytes);
     assert(Limits::FixedBytes + (Limits::SceneTriangles + 1) * Limits::TriangleFragmentBytes > Limits::PacketBudgetBytes);
     helengine::ps1::Ps1PacketBudget ui(Limits::UiTriangles);
@@ -39,6 +39,9 @@ void TestPacketBudget() {
 
 void TestDepthBuckets() {
     std::uint16_t bucket = 999;
+    assert(helengine::ps1::Ps1DepthBucket::ToCombinedSceneBucket(0) == 256);
+    assert(helengine::ps1::Ps1DepthBucket::ToCombinedSceneBucket(255) == 511);
+    assert(helengine::ps1::Ps1DepthBucket::CombinedBucketCount == 512);
     assert(helengine::ps1::Ps1DepthBucket::TryMap(160, 160, 160, bucket) && bucket == 0);
     assert(helengine::ps1::Ps1DepthBucket::TryMap(1183, 1183, 1183, bucket) && bucket == 255);
     assert(!helengine::ps1::Ps1DepthBucket::TryMap(159, 512, 512, bucket));

@@ -35,12 +35,12 @@ class Ps1FrameContext final {
 
 #ifndef PS1_PC_PORT
     static_assert(sizeof(TriangleFragment) == 20);
-    static_assert(sizeof(psyqo::OrderingTable<256>) == 1028);
+    static_assert(sizeof(psyqo::OrderingTable<512>) == 2052);
     static_assert(sizeof(TexturedTriangleFragment) == 32);
     static_assert(sizeof(GouraudFragment) == Ps1FramePacketLimits::GouraudFragmentBytes);
     static_assert(sizeof(UiTriangleFragment) == Ps1FramePacketLimits::UiFragmentBytes);
     static_assert(sizeof(ClearFragment) == Ps1FramePacketLimits::ClearFragmentBytes);
-    static_assert(TriangleCapacity == 133);
+    static_assert(TriangleCapacity == 146);
 #endif
 
     /** Clear color used by the diagnostic scenes; authored scenes pass the camera's clear color. */
@@ -52,7 +52,7 @@ class Ps1FrameContext final {
     GouraudFragment* TryReserveGouraud();
     bool Insert(GouraudFragment& fragment, std::uint16_t bucket);
     UiTriangleFragment* TryReserveUiTriangle();
-    bool Insert(UiTriangleFragment& fragment, std::uint16_t bucket);
+    bool InsertUiTriangle(UiTriangleFragment& fragment, std::uint16_t bucket);
     TexturedTriangleFragment* TryReserveTexturedTriangle();
     bool Insert(TexturedTriangleFragment& fragment, std::uint16_t bucket);
     bool Submit(psyqo::GPU& gpu, psyqo::Color clearColor = DefaultClearColor);
@@ -92,7 +92,7 @@ class Ps1FrameContext final {
     std::uint32_t m_budgetCapacity = TriangleCapacity;
     Ps1PacketBudget m_budget{TriangleCapacity};
     ClearFragment m_clear;
-    psyqo::OrderingTable<256> m_table;
+    psyqo::OrderingTable<512> m_table;
     std::uint32_t m_packetGuardBefore = PacketGuardValue;
     TriangleFragment m_triangles[TriangleCapacity];
     std::uint32_t m_packetGuardAfter = PacketGuardValue;

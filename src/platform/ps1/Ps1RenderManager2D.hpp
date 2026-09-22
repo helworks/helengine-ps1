@@ -2,14 +2,20 @@
 
 #include <cstdint>
 
+#include "IRenderVisitor2D.hpp"
 #include "RenderManager2D.hpp"
-#include "platform/ps1/rendering/Ps1RuntimeTexture.hpp"
+#include "platform/ps1/rendering/Ps1AuthoredUiGeometry.hpp"
+#include "platform/ps1/rendering/Ps1RasterRenderer.hpp"
 #include "platform/ps1/rendering/Ps1VramAllocator.hpp"
 #include "psyqo/gpu.hh"
 
 class TextureAsset;
+class ICamera;
+class IDrawable2D;
 
 namespace helengine::ps1 {
+
+class Ps1RuntimeTexture;
 
 /// <summary>
 /// 2D render manager backing Core's scene lifecycle on PS1. It uploads cooked paletted textures into
@@ -17,11 +23,14 @@ namespace helengine::ps1 {
 /// 2D content is not implemented yet, so sprite, text and shape requests still fail explicitly
 /// rather than quietly drawing nothing.
 /// </summary>
-class Ps1RenderManager2D final : public ::RenderManager2D {
+class Ps1RenderManager2D final : public ::RenderManager2D, public ::IRenderVisitor2D {
 public:
     /// <summary>Binds the PSYQo GPU that owns VRAM.</summary>
     /// <param name="gpu">GPU used for the VRAM uploads.</param>
-    explicit Ps1RenderManager2D(psyqo::GPU& gpu);
+    Ps1RenderManager2D(psyqo::GPU& gpu, Ps1RasterRenderer& renderer);
+
+    bool DrawQueue(::ICamera* camera);
+    void Visit(::IDrawable2D* drawable) override;
 
     ::RuntimeTexture* BuildTextureFromCooked(HeCppString cookedAssetPath, ::IContentStreamSource* contentStreamSource) override;
     ::RuntimeTexture* BuildTextureFromRaw(::TextureAsset* data) override;
@@ -35,20 +44,52 @@ public:
 
     /// <summary>VRAM words handed out to textures and palettes.</summary>
     std::uint32_t UsedVramWords() const { return VramAllocator.UsedWords(); }
+    std::uint16_t LastVisitedSprites() const { return VisitedSprites; }
+    std::uint16_t LastVisitedShapes() const { return VisitedShapes; }
+    std::uint16_t LastSkippedTexts() const { return SkippedTexts; }
+    const char* LastFailureMarker() const { return FailureMarker; }
 
 protected:
     void UpdateTextureRegionCore(::RuntimeTexture* texture, int32_t x, int32_t y, int32_t width, int32_t height,
                                  Array<uint8_t>* rgba8, int32_t sourceRowPitch) override;
 
 private:
+    struct PendingUiDrawable {
+        Ps1UiVertex Vertices[4]{};
+        const Ps1RuntimeTexture* Texture = nullptr;
+        psyqo::Color Color{};
+        std::uint16_t Bucket = 0;
+        bool SemiTransparent = false;
+        bool IsSprite = false;
+    };
+
+    static constexpr std::uint16_t PendingUiCapacity = Ps1FramePacketLimits::UiTriangles +
+                                                        Ps1FramePacketLimits::TexturedTriangles / 2u;
+
     /// <summary>Uploads one decoded paletted texture asset into VRAM.</summary>
     /// <param name="asset">Cooked texture asset carrying indexed pixels and a palette.</param>
     /// <returns>Runtime texture naming the VRAM page and palette.</returns>
     ::RuntimeTexture* UploadPalettedTexture(::TextureAsset* asset);
 
+    bool ResolveViewport(::ICamera* camera, Ps1ScreenRect& viewport) const;
+    void Reject(const char* marker);
+    bool AppendPending(const PendingUiDrawable& drawable);
+    bool FlushPendingInVisitOrder();
+
     psyqo::GPU& Gpu;
+    Ps1RasterRenderer& Renderer;
     Ps1VramAllocator VramAllocator;
     std::uint32_t UploadedTextures = 0;
+    Ps1ScreenRect ActiveViewport{};
+    std::uint16_t VisitedSprites = 0;
+    std::uint16_t VisitedShapes = 0;
+    std::uint16_t SkippedTexts = 0;
+    std::uint16_t PendingCount = 0;
+    std::uint16_t PendingShapes = 0;
+    std::uint16_t PendingSprites = 0;
+    PendingUiDrawable Pending[PendingUiCapacity]{};
+    bool QueueOpen = false;
+    const char* FailureMarker = nullptr;
 };
 
 }  // namespace helengine::ps1

@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cmath>
 #include <cstdint>
+#include "platform/ps1/Ps1Math.hpp"
 
 namespace helengine::ps1 {
 
@@ -44,14 +44,30 @@ struct Ps1UiTriangle {
 
 namespace ui_geometry_detail {
 
-inline bool Finite(float value) { return std::isfinite(value); }
+inline bool Finite(float value) {
+    return value == value && value <= 3.402823466e+38F && value >= -3.402823466e+38F;
+}
+
+inline long Round(float value) { return static_cast<long>(value >= 0.0f ? value + 0.5f : value - 0.5f); }
+
+inline float Sin(float value) {
+    return static_cast<float>(::sin(static_cast<double>(value)));
+}
+
+inline float Cos(float value) {
+    return static_cast<float>(::cos(static_cast<double>(value)));
+}
+
+inline float Atan2(float y, float x) {
+    return static_cast<float>(::atan2(static_cast<double>(y), static_cast<double>(x)));
+}
 
 inline bool ToScreen(float x, float y, const Ps1ScreenRect& viewport, std::int16_t& outX, std::int16_t& outY) {
     x += static_cast<float>(viewport.x);
     y += static_cast<float>(viewport.y);
     if (!Finite(x) || !Finite(y) || x < -32768.0f || x > 32767.0f || y < -32768.0f || y > 32767.0f) return false;
-    outX = static_cast<std::int16_t>(std::lround(x));
-    outY = static_cast<std::int16_t>(std::lround(y));
+    outX = static_cast<std::int16_t>(Round(x));
+    outY = static_cast<std::int16_t>(Round(y));
     return true;
 }
 
@@ -78,8 +94,8 @@ inline bool TryBuildSpriteQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint s
     const float height = size.height * scale.y;
     const float centerX = position.x + width * 0.5f;
     const float centerY = position.y + height * 0.5f;
-    const float cosine = std::cos(rotationRadians);
-    const float sine = std::sin(rotationRadians);
+    const float cosine = Cos(rotationRadians);
+    const float sine = Sin(rotationRadians);
     const float localX[4] = {0.0f, width, 0.0f, width};
     const float localY[4] = {0.0f, 0.0f, height, height};
     const float sourceU[4] = {sourceRect.x, sourceRect.x + sourceRect.width, sourceRect.x,
@@ -96,8 +112,8 @@ inline bool TryBuildSpriteQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint s
         const float u = sourceU[i] * (textureSize.width - 1.0f);
         const float v = sourceV[i] * (textureSize.height - 1.0f);
         if (u < 0.0f || u > 255.0f || v < 0.0f || v > 255.0f) return false;
-        result[i].u = static_cast<std::uint8_t>(std::lround(u));
-        result[i].v = static_cast<std::uint8_t>(std::lround(v));
+        result[i].u = static_cast<std::uint8_t>(Round(u));
+        result[i].v = static_cast<std::uint8_t>(Round(v));
     }
     for (unsigned i = 0; i < 4; ++i) vertices[i] = result[i];
     return true;
@@ -107,9 +123,11 @@ inline bool TryBuildSpriteQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint s
 inline bool TryBuildRoundedRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint scale,
                                          float rotationRadians, float radius, float borderThickness,
                                          std::uint8_t roundedCorners, Ps1ScreenRect viewport,
-                                         Ps1UiTriangle* triangles, std::uint16_t capacity, std::uint16_t& count) {
+                                         Ps1UiTriangle* triangles, std::uint16_t capacity, std::uint16_t& count,
+                                         std::uint16_t& fillCount) {
     using namespace ui_geometry_detail;
     count = 0;
+    fillCount = 0;
     if (!ValidViewport(viewport) || triangles == nullptr || !Finite(position.x) || !Finite(position.y) ||
         !Finite(size.width) || !Finite(size.height) || !Finite(scale.x) || !Finite(scale.y) ||
         !Finite(rotationRadians) || !Finite(radius) || !Finite(borderThickness) || size.width <= 0.0f ||
@@ -119,11 +137,27 @@ inline bool TryBuildRoundedRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps
     const float border = borderThickness;
     if (!Finite(width) || !Finite(height) || border * 2.0f >= width || border * 2.0f >= height) return false;
     const float clampedRadius = radius < (width < height ? width : height) * 0.5f ? radius : (width < height ? width : height) * 0.5f;
-    constexpr unsigned SegmentsPerCorner = 4;
+    // Three chords per quarter-circle retain the rounded silhouette at 320x240 and keep the
+    // scene's two bordered panels inside the fixed UI packet reservation.
+    constexpr unsigned SegmentsPerCorner = 3;
+    constexpr float QuarterCosine[SegmentsPerCorner + 1] = {1.0f, 0.86602540378f, 0.5f, 0.0f};
+    constexpr float QuarterSine[SegmentsPerCorner + 1] = {0.0f, 0.5f, 0.86602540378f, 1.0f};
+    const auto arcPoint = [&](unsigned corner, unsigned segment, float centerX, float centerY, float cornerRadius) {
+        const float cosine = QuarterCosine[segment];
+        const float sine = QuarterSine[segment];
+        float x = 0.0f;
+        float y = 0.0f;
+        switch (corner) {
+            case 0: x = -cosine; y = -sine; break;  // top-left: 180..270 degrees
+            case 1: x = sine; y = -cosine; break;   // top-right: 270..360 degrees
+            case 2: x = cosine; y = sine; break;     // bottom-right: 0..90 degrees
+            default: x = -sine; y = cosine; break;   // bottom-left: 90..180 degrees
+        }
+        return Ps1UiPoint{centerX + cornerRadius * x, centerY + cornerRadius * y};
+    };
     Ps1UiPoint outer[20]{};
     Ps1UiPoint inner[20]{};
     unsigned vertexCount = 0;
-    const float starts[4] = {180.0f, 270.0f, 0.0f, 90.0f};
     for (unsigned corner = 0; corner < 4; ++corner) {
         const bool rounded = (roundedCorners & (1u << corner)) != 0 && clampedRadius > 0.0f;
         const float r = rounded ? clampedRadius : 0.0f;
@@ -133,9 +167,7 @@ inline bool TryBuildRoundedRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps
                              position.y + height - r, position.y + height - r};
         if (rounded) {
             for (unsigned segment = 0; segment <= SegmentsPerCorner; ++segment) {
-                const float angle = (starts[corner] + 90.0f * static_cast<float>(segment) / SegmentsPerCorner) *
-                                    0.01745329251994329577f;
-                outer[vertexCount++] = {cx[corner] + r * std::cos(angle), cy[corner] + r * std::sin(angle)};
+                outer[vertexCount++] = arcPoint(corner, segment, cx[corner], cy[corner], r);
             }
         } else {
             const Ps1UiPoint corners[4] = {{position.x, position.y}, {position.x + width, position.y},
@@ -156,9 +188,7 @@ inline bool TryBuildRoundedRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps
                              position.y + border + innerHeight - r, position.y + border + innerHeight - r};
         if (rounded) {
             for (unsigned segment = 0; segment <= SegmentsPerCorner; ++segment) {
-                const float angle = (starts[corner] + 90.0f * static_cast<float>(segment) / SegmentsPerCorner) *
-                                    0.01745329251994329577f;
-                inner[innerCount++] = {cx[corner] + r * std::cos(angle), cy[corner] + r * std::sin(angle)};
+                inner[innerCount++] = arcPoint(corner, segment, cx[corner], cy[corner], r);
             }
         } else {
             const Ps1UiPoint corners[4] = {{position.x + border, position.y + border},
@@ -171,8 +201,8 @@ inline bool TryBuildRoundedRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps
     if (innerCount != vertexCount) return false;
     const unsigned needed = border > 0.0f ? vertexCount * 2u + (vertexCount - 2u) : vertexCount - 2u;
     if (needed > capacity || needed > 65535u) return false;
-    const float cosine = std::cos(rotationRadians);
-    const float sine = std::sin(rotationRadians);
+    const float cosine = Cos(rotationRadians);
+    const float sine = Sin(rotationRadians);
     const float centerX = position.x + width * 0.5f;
     const float centerY = position.y + height * 0.5f;
     auto vertex = [&](Ps1UiPoint point, Ps1UiVertex& output) {
@@ -181,25 +211,26 @@ inline bool TryBuildRoundedRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps
         return ToScreen(centerX + dx * cosine - dy * sine, centerY + dx * sine + dy * cosine,
                         viewport, output.x, output.y);
     };
-    Ps1UiTriangle staged[58]{};
+    Ps1UiTriangle staged[46]{};
     unsigned stagedCount = 0;
     Ps1UiVertex transformedOuter[20]{};
     Ps1UiVertex transformedInner[20]{};
     for (unsigned i = 0; i < vertexCount; ++i) {
         if (!vertex(outer[i], transformedOuter[i]) || !vertex(inner[i], transformedInner[i])) return false;
     }
+    for (unsigned i = 1; i + 1 < vertexCount; ++i) {
+        const Ps1UiVertex& a = border > 0.0f ? transformedInner[0] : transformedOuter[0];
+        const Ps1UiVertex& b = border > 0.0f ? transformedInner[i] : transformedOuter[i];
+        const Ps1UiVertex& c = border > 0.0f ? transformedInner[i + 1] : transformedOuter[i + 1];
+        staged[stagedCount++] = {a, b, c};
+    }
+    fillCount = static_cast<std::uint16_t>(stagedCount);
     if (border > 0.0f) {
         for (unsigned i = 0; i < vertexCount; ++i) {
             const unsigned next = (i + 1u) % vertexCount;
             staged[stagedCount++] = {transformedOuter[i], transformedOuter[next], transformedInner[next]};
             staged[stagedCount++] = {transformedOuter[i], transformedInner[next], transformedInner[i]};
         }
-    }
-    for (unsigned i = 1; i + 1 < vertexCount; ++i) {
-        const Ps1UiVertex& a = border > 0.0f ? transformedInner[0] : transformedOuter[0];
-        const Ps1UiVertex& b = border > 0.0f ? transformedInner[i] : transformedOuter[i];
-        const Ps1UiVertex& c = border > 0.0f ? transformedInner[i + 1] : transformedOuter[i + 1];
-        staged[stagedCount++] = {a, b, c};
     }
     for (unsigned i = 0; i < stagedCount; ++i) triangles[i] = staged[i];
     count = static_cast<std::uint16_t>(stagedCount);
@@ -209,6 +240,12 @@ inline bool TryBuildRoundedRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps
 /** The PS1 OT is traversed from high to low Z; UI orders increase toward the front-most bucket. */
 inline bool TryMapRenderOrder(std::uint8_t renderOrder, std::uint16_t& bucket) {
     bucket = static_cast<std::uint16_t>(255u - renderOrder);
+    return true;
+}
+
+/** The PS1 GPU provides binary coverage and a fixed half-back/half-front blend mode. */
+inline bool TryMapAlphaToBlend(std::uint8_t alpha, bool& semiTransparent) {
+    semiTransparent = alpha != 0 && alpha != 255;
     return true;
 }
 

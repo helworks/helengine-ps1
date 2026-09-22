@@ -11,6 +11,7 @@ namespace helengine::ps1 {
 
 class Ps1RuntimeMaterial;
 class Ps1RuntimeModel;
+class Ps1RenderManager2D;
 
 /// <summary>
 /// 3D render manager backing Core's authored scene on PS1. It builds runtime models and materials
@@ -21,7 +22,7 @@ class Ps1RuntimeModel;
 class Ps1RenderManager3D final : public ::RenderManager3D, public ::IRenderVisitor3D {
 public:
     /// <summary>Binds the PSYQo GPU and the frame renderer owned by the root scene.</summary>
-    Ps1RenderManager3D(psyqo::GPU& gpu, Ps1RasterRenderer& renderer);
+    Ps1RenderManager3D(psyqo::GPU& gpu, Ps1RasterRenderer& renderer, Ps1RenderManager2D& render2D);
 
     ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset) override;
     ::RuntimeMaterial* BuildMaterialFromCooked(HeCppString cookedAssetPath, ::IContentStreamSource* contentStreamSource) override;
@@ -67,6 +68,7 @@ private:
 
     psyqo::GPU& Gpu;
     Ps1RasterRenderer& Renderer;
+    Ps1RenderManager2D& Render2D;
     Ps1AuthoredTransform CameraTransform{};
     /// <summary>Vertical field of view in radians read from the loaded camera during Draw.</summary>
     float CameraFieldOfViewRadians = 0.0f;

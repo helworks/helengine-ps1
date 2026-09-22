@@ -1,4 +1,5 @@
 #include "platform/ps1/rendering/Ps1FrameContext.hpp"
+#include "platform/ps1/rendering/Ps1DepthBucket.hpp"
 
 #include "psyqo/kernel.hh"
 
@@ -69,7 +70,7 @@ bool Ps1FrameContext::Insert(TriangleFragment& fragment, std::uint16_t bucket) {
     const unsigned index = static_cast<unsigned>((address - first) / sizeof(TriangleFragment));
     if (index >= m_reservedCount || m_inserted[index] != 0) return false;
 
-    m_table.insert(fragment, bucket);
+    m_table.insert(fragment, Ps1DepthBucket::ToCombinedSceneBucket(bucket));
     m_inserted[index] = 1;
     ++m_insertedCount;
     return true;
@@ -98,7 +99,7 @@ bool Ps1FrameContext::Insert(GouraudFragment& fragment, std::uint16_t bucket) {
     const unsigned index = static_cast<unsigned>((address - first) / sizeof(GouraudFragment));
     if (index >= m_gouraudReservedCount || m_gouraudInserted[index] != 0) return false;
 
-    m_table.insert(fragment, bucket);
+    m_table.insert(fragment, Ps1DepthBucket::ToCombinedSceneBucket(bucket));
     m_gouraudInserted[index] = 1;
     ++m_gouraudInsertedCount;
     return true;
@@ -113,7 +114,7 @@ Ps1FrameContext::UiTriangleFragment* Ps1FrameContext::TryReserveUiTriangle() {
     return &m_uiTriangles[m_uiReservedCount++];
 }
 
-bool Ps1FrameContext::Insert(UiTriangleFragment& fragment, std::uint16_t bucket) {
+bool Ps1FrameContext::InsertUiTriangle(UiTriangleFragment& fragment, std::uint16_t bucket) {
     if (m_state != State::Building) {
         AssertState(false, "PS1_UI_TRIANGLE_INSERT_WRONG_STATE");
         return false;

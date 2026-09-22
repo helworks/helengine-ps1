@@ -33,7 +33,7 @@ Controller-backed `InteractableComponent` behavior is a later input milestone. `
 - Map 2D drawables through the active camera's layer mask and render queue ordering.
 - Preserve 2D-over-3D composition by submitting the combined command list once per frame.
 - Bound sprite and shape packet use before submission; maintain frame guards and the existing double-buffer completion ownership.
-- Preserve binary alpha from indexed palettes. Unsupported alpha blending, texture depth, camera target, or primitive counts must produce a specific diagnostic.
+- Preserve binary transparency from indexed palettes. For fractional UI alpha, use the PS1 GPU's fixed half-back/half-front blend mode; this approximates each non-binary alpha value as 50%. Unsupported texture depth, camera target, or primitive counts must produce a specific diagnostic.
 - Add low-frequency counters for visited sprites/shapes, submitted primitives, and rejection reason so emulator evidence can verify what reached the GPU.
 
 ## Verification

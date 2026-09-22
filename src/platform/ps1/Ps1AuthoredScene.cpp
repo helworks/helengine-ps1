@@ -67,8 +67,8 @@ void Ps1AuthoredScene::InitializeCore() {
     m_options->set_RenderList3DInitialCapacity(16);
     m_options->set_CommitPendingSceneOperationsDuringDraw(false);
     m_options->set_DefaultUpdateDeltaSeconds(1.0 / 60.0);
-    m_render3D = new Ps1RenderManager3D(gpu(), m_renderer);
-    m_render2D = new Ps1RenderManager2D(gpu());
+    m_render2D = new Ps1RenderManager2D(gpu(), m_renderer);
+    m_render3D = new Ps1RenderManager3D(gpu(), m_renderer, *m_render2D);
     m_input = new Ps1InputBackend();
     m_platform = new ::PlatformInfo("ps1", "authored-cube-test");
     m_core = new ::Core(m_options);
@@ -164,6 +164,12 @@ void Ps1AuthoredScene::frame() {
             static_cast<unsigned>(stats.backfaceRejected), static_cast<unsigned>(stats.degenerate), static_cast<unsigned>(stats.invalid),
             static_cast<unsigned>(stats.projectionFlags), static_cast<unsigned>(stats.packetCount),
             static_cast<unsigned>(stats.highWaterBytes), stats.guardsIntact ? 1u : 0u, static_cast<unsigned>(stats.failure));
+        ramsyscall_printf("PS1_AUTHORED_UI sprites=%u shapes=%u skipped_text=%u submitted_sprites=%u submitted_triangles=%u failure=%s\n",
+                          static_cast<unsigned>(m_render2D->LastVisitedSprites()),
+                          static_cast<unsigned>(m_render2D->LastVisitedShapes()),
+                          static_cast<unsigned>(m_render2D->LastSkippedTexts()), static_cast<unsigned>(stats.uiSprites),
+                          static_cast<unsigned>(stats.uiTriangles),
+                          m_render2D->LastFailureMarker() == nullptr ? "none" : m_render2D->LastFailureMarker());
         // The pose proves the GTE inputs come from the loaded camera and cube transforms; the VBlank
         // frame count against the scene sequence shows cadence; the heap end shows steady-state allocation.
         const Ps1GtePose& pose = m_render3D->LastPose();

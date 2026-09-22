@@ -20,6 +20,7 @@
 #include "float3.hpp"
 #include "float4.hpp"
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
+#include "platform/ps1/Ps1RenderManager2D.hpp"
 #include "platform/ps1/rendering/Ps1AuthoredLighting.hpp"
 #include "platform/ps1/rendering/Ps1AuthoredProjection.hpp"
 #include "platform/ps1/rendering/Ps1RuntimeMaterial.hpp"
@@ -73,8 +74,8 @@ std::uint8_t Channel(float value) {
 
 }  // namespace
 
-Ps1RenderManager3D::Ps1RenderManager3D(psyqo::GPU& gpu, Ps1RasterRenderer& renderer)
-    : Gpu(gpu), Renderer(renderer) {}
+Ps1RenderManager3D::Ps1RenderManager3D(psyqo::GPU& gpu, Ps1RasterRenderer& renderer, Ps1RenderManager2D& render2D)
+    : Gpu(gpu), Renderer(renderer), Render2D(render2D) {}
 
 ::RuntimeMaterial* Ps1RenderManager3D::BuildMaterialAsset(::PlatformMaterialAsset* materialAsset) {
     if (materialAsset == nullptr) {
@@ -199,6 +200,10 @@ void Ps1RenderManager3D::Draw() {
         Reject("PS1_RENDER_CAMERA_INCOMPLETE");
         return;
     }
+    if (camera->get_RenderTarget() != nullptr) {
+        Reject("PS1_RENDER_TARGET_UNSUPPORTED");
+        return;
+    }
     CameraTransform = TransformOf(camera->get_Parent());
     // The field of view belongs to the authored camera, so one scene frames the same way on every
     // platform. TryBuildPose rejects values outside the range it can project.
@@ -218,6 +223,12 @@ void Ps1RenderManager3D::Draw() {
     FrameOpen = true;
     camera->get_RenderQueue3D()->VisitOrdered(this);
     if (!FrameOpen) {
+        return;
+    }
+    if (!Render2D.DrawQueue(camera)) {
+        Reject(Render2D.LastFailureMarker() == nullptr ? "PS1_UI_QUEUE_REJECTED" : Render2D.LastFailureMarker());
+        Renderer.CancelAuthoredFrame();
+        FrameOpen = false;
         return;
     }
     FrameOpen = false;
