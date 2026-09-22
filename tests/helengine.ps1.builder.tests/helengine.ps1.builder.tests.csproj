@@ -5,7 +5,7 @@
     <IsPackable>false</IsPackable>
     <Nullable>disable</Nullable>
     <HelengineRoot Condition="'$(HelengineRoot)' == '' and '$(HELENGINE_ROOT)' != ''">$(HELENGINE_ROOT)</HelengineRoot>
-    <HelengineRoot Condition="'$(HelengineRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..\helengine</HelengineRoot>
+    <HelengineRoot Condition="'$(HelengineRoot)' == ''">$(MSBuildThisFileDirectory)..\..\dependencies\helengine</HelengineRoot>
     <EngineBinaryRoot Condition="'$(EngineBinaryRoot)' == '' and '$(HELENGINE_BINARY_ROOT)' != ''">$(HELENGINE_BINARY_ROOT)</EngineBinaryRoot>
     <EngineBinaryRoot Condition="'$(EngineBinaryRoot)' == ''">$(HelengineRoot)\helengine.ui\helengine.editor.app\bin\vs\Debug\net9.0-windows</EngineBinaryRoot>
   </PropertyGroup>

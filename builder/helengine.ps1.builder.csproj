@@ -6,7 +6,7 @@
     <OutputType>Exe</OutputType>
     <UseAppHost>false</UseAppHost>
     <HelengineRoot Condition="'$(HelengineRoot)' == '' and '$(HELENGINE_ROOT)' != ''">$(HELENGINE_ROOT)</HelengineRoot>
-    <HelengineRoot Condition="'$(HelengineRoot)' == ''">$(MSBuildThisFileDirectory)..\..\helengine-ps1-core</HelengineRoot>
+    <HelengineRoot Condition="'$(HelengineRoot)' == ''">$(MSBuildThisFileDirectory)..\dependencies\helengine</HelengineRoot>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.baseplatform\helengine.baseplatform.csproj" />
