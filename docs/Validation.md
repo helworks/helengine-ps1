@@ -487,28 +487,16 @@ embedded archive, so text has no glyph pages even once text rendering exists.
 And the manifest now reports one cooked artifact where it previously reported
 36, which is not yet explained.
 
-## Workspace consolidation (2026-09-22)
+## Workspace correction (2026-09-22)
 
-The sibling `C:\dev\helworks\helengine-ps1-core` linked worktree was replaced
-with a standalone checkout at `dependencies/helengine` inside the PS1 repo.
-The old directory and its worktree registration were removed after verifying
-the copy. The PS1 platform repository remains on `main`.
+PS1 uses the existing `C:\dev\helworks\helengine` checkout. The earlier
+migration to a nested `dependencies/helengine` clone misunderstood the requested
+layout and was reversed. Both the old sibling PS1 worktree and the unnecessary
+nested clone have been removed; no PS1-specific engine checkout remains.
 
-| Check | Before | After |
-|---|---|---|
-| PS1 engine linked worktrees | 1 | 0 |
-| Engine HEAD | `c1caf35e3e63fd964b4afbf634d2f0fee65f3f46` | unchanged |
-| Bepu HEAD | `3defc91d97e39517c7255b0cfb9b4c8d4065775a` | unchanged |
-| Files compared, excluding Git metadata | 9,089 | 9,089 identical SHA-256 hashes |
-| Bytes compared | 1,305,506,226 | unchanged |
-
-Verification report: `out/layout-migration-verification.json`. Both independent
-repositories passed `git fsck --connectivity-only --no-dangling` and have clean
-working trees. MSBuild property evaluation confirms the builder, sample exporter
-and exporter test project all default to the new engine path. No PS1 build or
-emulator run was performed for this filesystem/configuration migration.
-
-The handoff described `eeaa7a1e`, but the actual checkout was already at
-`c1caf35e` before migration. It also lacks `engine/vendor/csharpcodegen`, so the
-authored wrapper's default codegen prerequisite needs resolving before the
-diagnostic rebuild. The compact-exception flag remains unchanged.
+The builder, sample exporter and exporter test project defaults were verified
+with MSBuild property evaluation to resolve to the shared engine checkout.
+Its observed HEAD was `72a4fcbfd6b2fa6cc2c59a618c09eb4a49bf9637`; this is an
+observation, not a pin. The shared checkout was not switched or modified.
+No PS1 build or emulator run was performed for this layout correction, and
+the compact-exception flag remains unchanged.

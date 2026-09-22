@@ -3,25 +3,12 @@
 ## Workspace layout
 
 Work directly on `main` in `C:\dev\helworks\helengine-ps1`; do not create
-PS1 branches or worktrees. The engine source lives inside this repository at
-`dependencies\helengine` as an ignored, standalone Git checkout with its own
-object database. The builder, sample exporter and exporter tests default to
-that path. Pass it as `-EngineSourceRoot` to the authored build wrapper.
-
-The 2026-09-22 migration preserved the actual engine HEAD
-`c1caf35e3e63fd964b4afbf634d2f0fee65f3f46` and Bepu submodule HEAD
-`3defc91d97e39517c7255b0cfb9b4c8d4065775a`. The old handoff's `eeaa7a1e`
-was already superseded before migration; no engine revision was changed here.
-The checkout retains its existing `ps1-core-boot` branch. Its upstream is
-`git@github.com:distrohelena/helengine.git`; updates are deliberate, never an
-implicit pull from the shared engine checkout.
-
-This preserved revision does **not** contain `engine/vendor/csharpcodegen`.
-The authored wrapper's default generator prerequisite is therefore currently
-unmet. Resolve the generator input explicitly before the next full rebuild;
-the historical commands below do not establish compatibility with this revision.
-Existing local files were preserved, but copied build intermediates may contain
-old absolute paths. Use fresh build output directories for the next rebuild.
+PS1 branches, worktrees or separate engine checkouts. PS1 uses the existing
+engine checkout at `C:\dev\helworks\helengine`. The builder, sample exporter
+and exporter tests default to that sibling path. Pass that same path as
+`-EngineSourceRoot` to the authored build wrapper and build the editor from it.
+Record the actual engine revision used for each build. Do not change the shared
+engine checkout's branch or revision as part of PS1 setup.
 
 ## Authored cube-test subset checkpoint
 
@@ -33,7 +20,7 @@ for the runtime prerequisite discovered during implementation.
 Build current editor dependencies into the external build directory first:
 
 ```powershell
-dotnet build C:\dev\helworks\helengine-ps1\dependencies\helengine\engine\helengine.editor\helengine.editor.csproj `
+dotnet build C:\dev\helworks\helengine\engine\helengine.editor\helengine.editor.csproj `
   --artifacts-path C:\dev\helworks\builds\helengine-ps1\current-editor-dependencies `
   -p:UseCommonOutputDirectory=false -p:RunAnalyzers=false
 
@@ -137,7 +124,7 @@ subset written by `scripts/generate-authored-fixture.ps1` with its
 .\scripts\build-authored.ps1 `
   -ProjectRoot C:\dev\helprojs\demodisc `
   -SubsetScenePath C:\dev\helworks\builds\helengine-ps1\cube-test-subset-fov\subset.helen `
-  -EngineSourceRoot C:\dev\helworks\helengine-ps1\dependencies\helengine `
+  -EngineSourceRoot C:\dev\helworks\helengine `
   -EditorAppPath <editor-app-build>\bin\helengine.editor.app\debug\helengine.editor.app.dll `
   -OutputRoot C:\dev\helworks\builds\helengine-ps1\<fresh-directory>
 ```
@@ -329,7 +316,7 @@ Export the scene unchanged with `helengine.ps1.samplegen --full <scene>
 .\scripts\build-authored.ps1 `
   -ProjectRoot C:\dev\helprojs\demodisc `
   -SubsetScenePath <export-root>\scene.helen `
-  -EngineSourceRoot C:\dev\helworks\helengine-ps1\dependencies\helengine `
+  -EngineSourceRoot C:\dev\helworks\helengine `
   -EditorAppPath <editor-app-build>\bin\helengine.editor.app\debug\helengine.editor.app.dll `
   -OutputRoot C:\dev\helworks\builds\helengine-ps1\<fresh-directory> `
   -RetainAllRuntimeScripts `
