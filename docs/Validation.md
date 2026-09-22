@@ -512,5 +512,23 @@ Makefile stopped adding SDK math entry points already emitted by the current
 engine-pinned codegen. The resulting PS-X EXE was 438,272 bytes.
 
 The temporary compact-exception diagnostic setting was restored after the
-build. No emulator was launched, so the first unsupported scene component is
-still pending runtime capture.
+build. No emulator was launched for that compact build, so the first
+unsupported scene component was still pending runtime capture.
+
+## Whole-scene diagnostic boot (2026-09-22)
+
+After the raw `Rgba32` source-marker conversion was added, a fresh authored
+build against the same shared engine checkout was launched with the temporary
+verbose native-exception setting. The embedded archive measured 213,344 bytes
+with 42 declared assets; the PS-X EXE measured 675,840 bytes. DuckStation
+`0.1-11894-gc66b2694d` using the verified portable OpenBIOS booted the artifact
+and logged `PS1_AUTHORED_SCENE_READY` with one camera, one 3D drawable and nine
+updateables, followed by `PS1_AUTHORED_FIRST_FRAME` and the sequence-1200
+checkpoint. The log contains no `PS1_CORE_FATAL` or exception.
+
+The exported scene retained Sprite, Text, Viewport, RoundedRect, FPS,
+BlueprintInstance, DirectionalLight and the DemoDisc runtime components, so no
+component throws first in this layout. The earlier wall was the generated
+`dpad.png` texture work item carrying raw `Rgba32`, not scene-component
+construction. Evidence: `20260922-diagnostic-runtime-3/editor-output/manifest.json`
+and the adjacent `duckstation-20260922-155115-567.log`.
