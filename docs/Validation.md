@@ -596,3 +596,28 @@ Evidence: build manifest
 `C:\dev\helworks\builds\helengine-ps1\20260922-193546-150-Release-9be13469f6b542dda60b2832a928722c\manifest.json`
 and DuckStation log
 `C:\dev\helworks\emus\ps1\duckstation-windows-x64-release\duckstation.log`.
+
+## Authored sprite page-local UV correction (2026-09-22)
+
+The UI packet builder already adds each texture's VRAM page-local origin to its
+UVs. `Ps1RenderManager2D::DrawSprite` also added that origin, so the GPU sampled
+the wrong part of the page for textures not placed at its top-left. The
+page-aligned light swatch had U offset 0 and rendered; the two other 8-bit
+textures had U offsets 28 and 24 texels, which were applied twice as 56 and 48.
+The manager now leaves UVs texture-relative and the packet builder applies the
+offset once.
+
+The fresh PS1 build used the unchanged `cube_test` export (source SHA-256
+`ca237b8a84abe3db34ad6ee10574ab9e2da1d48819b9083f561c458ff54a58d2`) and
+shared `helengine` revision `72a4fcbfd6b2fa6cc2c59a618c09eb4a49bf9637`.
+The linked PS-X EXE is 468,992 bytes, with a 498,464-byte static footprint and
+1,467,616 bytes of heap. The host test suite completed with all required exit
+codes at zero. The emulator has not been launched after this correction, so
+post-fix framebuffer appearance remains unverified.
+
+Evidence: build manifest
+`C:\dev\helworks\builds\helengine-ps1\20260922-ui-fix-Release\editor-output\manifest.json`,
+authored build record
+`C:\dev\helworks\builds\helengine-ps1\20260922-ui-fix-Release\authored-build.json`,
+and host summary
+`C:\dev\helworks\builds\helengine-ps1\host-tests-20260922-201017-283-3976aad036b04557b6cf882f4b4c0e36\summary.json`.

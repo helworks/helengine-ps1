@@ -412,10 +412,9 @@ void Ps1RenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
         Reject("PS1_UI_TEXTURE_CROSSES_PAGE");
         return;
     }
-    for (Ps1UiVertex& vertex : vertices) {
-        vertex.u = static_cast<std::uint8_t>(pageOffsetU + vertex.u);
-        vertex.v = static_cast<std::uint8_t>(pageOffsetV + vertex.v);
-    }
+    // Keep UVs relative to the texture. QueueAuthoredUiSprite applies the page-local VRAM
+    // offset when it builds the GPU packet; adding it here too makes non-aligned textures
+    // sample a second, unrelated offset within the same texture page.
     const ::byte4 tint = sprite->get_Color();
     if (tint.W == 0) return;
     psyqo::Color modulation;
