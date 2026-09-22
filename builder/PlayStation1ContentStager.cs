@@ -56,6 +56,7 @@ public sealed class PlayStation1ContentStager {
 
         foreach (PlatformCookWorkItem workItem in cookWorkItems) {
             cancellationToken.ThrowIfCancellationRequested();
+            if (!ShouldStageCookWorkItem(workItem)) continue;
             string relativePath = NormalizeRelativePath(workItem.OutputRelativePath);
             // A cook work item that also appears as a manifest artifact is already staged; staging it
             // twice would be a path collision rather than a duplicate copy.
@@ -72,6 +73,25 @@ public sealed class PlayStation1ContentStager {
 
         staged.Sort((left, right) => string.CompareOrdinal(left.RelativePath, right.RelativePath));
         return staged;
+    }
+
+    /// <summary>
+    /// Keeps platform-specific generated control textures scoped to the target PS1 build. The
+    /// authored blueprint contains every console's icon override, so the editor build graph can
+    /// emit every variant's cook work item even though the packaged PS1 scene resolves only PS1.
+    /// </summary>
+    static bool ShouldStageCookWorkItem(PlatformCookWorkItem workItem) {
+        if (workItem == null) throw new ArgumentNullException(nameof(workItem));
+        if (!string.Equals(workItem.SourceAssetKind, "texture", StringComparison.OrdinalIgnoreCase)) return true;
+
+        string sourcePath = (workItem.SourceAssetPath ?? string.Empty).Replace('\\', '/');
+        const string marker = "textures/instructions/controls/generated/";
+        int markerIndex = sourcePath.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0) return true;
+        string platformAndRest = sourcePath[(markerIndex + marker.Length)..];
+        int separatorIndex = platformAndRest.IndexOf('/');
+        if (separatorIndex <= 0) return true;
+        return string.Equals(platformAndRest[..separatorIndex], "ps1", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Writes the packer's declared-file JSON: a "files" array of relativePath/sourcePath objects.</summary>

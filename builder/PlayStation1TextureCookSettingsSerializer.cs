@@ -60,7 +60,9 @@ public static class PlayStation1TextureCookSettingsSerializer {
         // PS1 owns the final cook, so convert that source marker to the platform's ordinary indexed default.
         if (colorFormat == TextureAssetColorFormat.Rgba32) {
             return new TextureAssetProcessorSettings {
-                MaxResolution = 64,
+                // Preserve the authored platform override (PS1 control icons carry their
+                // measured 26/27-pixel size) while converting only the unsupported source format.
+                MaxResolution = maxResolution,
                 ColorFormat = TextureAssetColorFormat.Indexed8,
                 AlphaPrecision = TextureAssetAlphaPrecision.Binary
             };

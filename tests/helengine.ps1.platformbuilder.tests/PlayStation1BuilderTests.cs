@@ -197,8 +197,34 @@ public sealed class PlayStation1BuilderTests : IDisposable {
     /// <summary>Builds one cook work item whose only interesting field here is its output path.</summary>
     /// <param name="outputRelativePath">Path the cook wrote under the package source root.</param>
     /// <returns>Cook work item for staging tests.</returns>
-    static PlatformCookWorkItem CookWorkItem(string outputRelativePath) =>
-        new("work-1", "source.png", "texture", "ps1", "runtime-texture", outputRelativePath, "artifact-1", "sha256:aa", "sha256:bb", "{}", []);
+    static PlatformCookWorkItem CookWorkItem(string outputRelativePath, string sourceAssetPath = "source.png") =>
+        new("work-" + outputRelativePath, sourceAssetPath, "texture", "ps1", "runtime-texture", outputRelativePath, "artifact-1", "sha256:aa", "sha256:bb", "{}", []);
+
+    [Fact]
+    public void ContentStager_StagesOnlyPs1GeneratedControlTextures() {
+        string packageSource = Path.Combine(Root, "package-source");
+        WriteFile(Path.Combine(packageSource, "cooked", "scenes", "cube_test.hasset"), "HELE");
+        WriteFile(Path.Combine(packageSource, "cooked", "materials", "cube_test_solid.hasset"), "MAT");
+        WriteFile(Path.Combine(packageSource, "cooked", "engine", "models", "cube.hasset"), "MDL");
+        WriteFile(Path.Combine(packageSource, "cooked", "imported", "ps1.hetex"), "PS1");
+        WriteFile(Path.Combine(packageSource, "cooked", "imported", "n64.hetex"), "N64");
+        WriteFile(Path.Combine(packageSource, "cooked", "imported", "shared.hetex"), "SHARED");
+
+        IReadOnlyList<PlayStation1StagedAsset> staged = new PlayStation1ContentStager().Stage(
+            CubeManifest().CookedArtifacts,
+            [
+                CookWorkItem("cooked/imported/ps1.hetex", "textures/instructions/controls/generated/ps1/dpad.png"),
+                CookWorkItem("cooked/imported/n64.hetex", "textures/instructions/controls/generated/n64/dpad.png"),
+                CookWorkItem("cooked/imported/shared.hetex", "textures/ui/shared.png")
+            ],
+            packageSource,
+            Path.Combine(Root, "staging"),
+            CancellationToken.None);
+
+        Assert.Contains(staged, asset => asset.RelativePath == "cooked/imported/ps1.hetex");
+        Assert.Contains(staged, asset => asset.RelativePath == "cooked/imported/shared.hetex");
+        Assert.DoesNotContain(staged, asset => asset.RelativePath == "cooked/imported/n64.hetex");
+    }
 
     [Fact]
     public void ContentStager_RejectsEscapingCollidingAndMissingPaths() {
@@ -266,7 +292,17 @@ public sealed class PlayStation1BuilderTests : IDisposable {
         TextureAssetProcessorSettings settings = PlayStation1TextureCookSettingsSerializer.Deserialize(
             "{\"maxResolution\":512,\"colorFormat\":\"Rgba32\",\"alphaPrecision\":\"Full\"}");
 
-        Assert.Equal(64, settings.MaxResolution);
+        Assert.Equal(512, settings.MaxResolution);
+        Assert.Equal(TextureAssetColorFormat.Indexed8, settings.ColorFormat);
+        Assert.Equal(TextureAssetAlphaPrecision.Binary, settings.AlphaPrecision);
+    }
+
+    [Fact]
+    public void TextureSettings_PreservesAuthoredPs1IconResolutionWhenConvertingRawRgba() {
+        TextureAssetProcessorSettings settings = PlayStation1TextureCookSettingsSerializer.Deserialize(
+            "{\"maxResolution\":27,\"colorFormat\":\"Rgba32\",\"alphaPrecision\":\"Full\"}");
+
+        Assert.Equal(27, settings.MaxResolution);
         Assert.Equal(TextureAssetColorFormat.Indexed8, settings.ColorFormat);
         Assert.Equal(TextureAssetAlphaPrecision.Binary, settings.AlphaPrecision);
     }
