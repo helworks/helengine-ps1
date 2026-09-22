@@ -114,6 +114,7 @@ Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1RuntimeClockTests.c
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1EmbeddedArchiveTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1EmbeddedArchiveTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1AuthoredProjectionTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1AuthoredProjectionTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1AuthoredLightingTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1AuthoredLightingTests.cpp')
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1AuthoredUiGeometryTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1AuthoredUiGeometryTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1EmbeddedAssetStreamTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1EmbeddedAssetStreamTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\stream-config') -Destination (Join-Path $runRoot 'tests\host\stream-config') -Recurse
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\test_embed_authored_assets.py') -Destination (Join-Path $runRoot 'tests\host\test_embed_authored_assets.py')
@@ -131,6 +132,8 @@ $compileLog = Join-Path $runRoot 'host-cpp-compile.log'
 $runLog = Join-Path $runRoot 'host-cpp-run.log'
 $policyCompileLog = Join-Path $runRoot 'policy-cpp-compile.log'
 $policyRunLog = Join-Path $runRoot 'policy-cpp-run.log'
+$uiGeometryCompileLog = Join-Path $runRoot 'ui-geometry-cpp-compile.log'
+$uiGeometryRunLog = Join-Path $runRoot 'ui-geometry-cpp-run.log'
 $sharedPtrCompileLog = Join-Path $runRoot 'shared-ptr-cpp-compile.log'
 $sharedPtrRunLog = Join-Path $runRoot 'shared-ptr-cpp-run.log'
 $ps1HashCompileLog = Join-Path $runRoot 'ps1-hash-cpp-compile.log'
@@ -155,6 +158,10 @@ $policyCompileStdout = Join-Path $runRoot 'policy-cpp-compile.stdout.log'
 $policyCompileStderr = Join-Path $runRoot 'policy-cpp-compile.stderr.log'
 $policyRunStdout = Join-Path $runRoot 'policy-cpp-run.stdout.log'
 $policyRunStderr = Join-Path $runRoot 'policy-cpp-run.stderr.log'
+$uiGeometryCompileStdout = Join-Path $runRoot 'ui-geometry-cpp-compile.stdout.log'
+$uiGeometryCompileStderr = Join-Path $runRoot 'ui-geometry-cpp-compile.stderr.log'
+$uiGeometryRunStdout = Join-Path $runRoot 'ui-geometry-cpp-run.stdout.log'
+$uiGeometryRunStderr = Join-Path $runRoot 'ui-geometry-cpp-run.stderr.log'
 $sharedPtrCompileStdout = Join-Path $runRoot 'shared-ptr-cpp-compile.stdout.log'
 $sharedPtrCompileStderr = Join-Path $runRoot 'shared-ptr-cpp-compile.stderr.log'
 $sharedPtrRunStdout = Join-Path $runRoot 'shared-ptr-cpp-run.stdout.log'
@@ -211,6 +218,30 @@ $runResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $runArg
 Merge-ProcessLogs -StdoutPath $runResult.StdoutPath -StderrPath $runResult.StderrPath -CombinedPath $runLog
 Add-ExitMarker -LogPath $runLog -Name 'HOST_CPP_RUN' -ExitCode $runResult.ExitCode
 if ($runResult.ExitCode -ne 0) { throw ("Host C++ executable failed with exit code {0}{1}{2}" -f $runResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $runResult.StdoutPath -StderrPath $runResult.StderrPath)) }
+
+$uiGeometryCompileArgs = @(
+    'run', '--rm',
+    '--mount', "type=bind,source=$runRoot,target=/work",
+    '--workdir', '/work',
+    $dockerImage,
+    'g++', '-std=c++20', '-Wall', '-Wextra', '-Isrc',
+    '/work/tests/host/Ps1AuthoredUiGeometryTests.cpp', '-o', '/work/ps1_ui_geometry_tests'
+)
+$uiGeometryCompileResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $uiGeometryCompileArgs -WorkingDirectory $runRoot -StdoutPath $uiGeometryCompileStdout -StderrPath $uiGeometryCompileStderr
+Merge-ProcessLogs -StdoutPath $uiGeometryCompileResult.StdoutPath -StderrPath $uiGeometryCompileResult.StderrPath -CombinedPath $uiGeometryCompileLog
+Add-ExitMarker -LogPath $uiGeometryCompileLog -Name 'UI_GEOMETRY_CPP_COMPILE' -ExitCode $uiGeometryCompileResult.ExitCode
+if ($uiGeometryCompileResult.ExitCode -ne 0) { throw ("PS1 UI geometry compile failed with exit code {0}{1}{2}" -f $uiGeometryCompileResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $uiGeometryCompileStdout -StderrPath $uiGeometryCompileStderr)) }
+$uiGeometryRunArgs = @(
+    'run', '--rm',
+    '--mount', "type=bind,source=$runRoot,target=/work",
+    '--workdir', '/work',
+    $dockerImage,
+    '/work/ps1_ui_geometry_tests'
+)
+$uiGeometryRunResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $uiGeometryRunArgs -WorkingDirectory $runRoot -StdoutPath $uiGeometryRunStdout -StderrPath $uiGeometryRunStderr
+Merge-ProcessLogs -StdoutPath $uiGeometryRunResult.StdoutPath -StderrPath $uiGeometryRunResult.StderrPath -CombinedPath $uiGeometryRunLog
+Add-ExitMarker -LogPath $uiGeometryRunLog -Name 'UI_GEOMETRY_CPP_RUN' -ExitCode $uiGeometryRunResult.ExitCode
+if ($uiGeometryRunResult.ExitCode -ne 0) { throw ("PS1 UI geometry tests failed with exit code {0}{1}{2}" -f $uiGeometryRunResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $uiGeometryRunStdout -StderrPath $uiGeometryRunStderr)) }
 
 $policyCompileArgs = @(
     'run', '--rm',
