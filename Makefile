@@ -34,8 +34,7 @@ DEFINES += PS1_CORE_BOOT=1
 CPPFLAGS += -Igenerated-core -Isrc/platform/ps1
 CPPFLAGS_$(BUILD) += -msoft-float
 SRCS += generated-core/helengine_core_unity.cpp \
-        src/platform/ps1/Ps1RuntimeProvider.cpp \
-        src/platform/ps1/Ps1Math.cpp
+        src/platform/ps1/Ps1RuntimeProvider.cpp
 ifeq ($(AUTHORED),1)
 ifeq ($(wildcard generated-core/ps1_runtime_scene_catalog.cpp),)
 $(error Authored mode requires generated-core/ps1_runtime_scene_catalog.cpp from the PS1 platform builder)
@@ -57,9 +56,8 @@ SRCS += src/platform/ps1/Ps1CoreBoot.cpp
 CORE_RTTI_OBJS = src/platform/ps1/Ps1CoreBoot.o
 endif
 FDLIBM_ROOT = third_party/nugget/third_party/uC-sdk/libm/src
-FDLIBM_NAMES = s_sin s_cos s_tan s_atan s_ceil s_floor s_fabs s_scalbn s_finite s_copysign \
+FDLIBM_NAMES = s_atan s_scalbn s_copysign \
                e_acos e_asin e_atan2 e_sqrt e_log e_fmod e_rem_pio2 \
-               w_acos w_asin w_atan2 w_sqrt w_log w_fmod \
                k_rem_pio2 k_sin k_cos k_tan
 FDLIBM_SRCS = $(addprefix $(FDLIBM_ROOT)/,$(addsuffix .c,$(FDLIBM_NAMES)))
 SRCS += $(FDLIBM_SRCS)
@@ -87,5 +85,3 @@ generated-core/helengine_core_unity.o $(CORE_RTTI_OBJS): CXXFLAGS += -frtti
 # link against this freestanding SDK.
 LIBRARIES := $(LIBRARIES) $(shell $(CXX) -msoft-float -print-file-name=libsupc++.a) $(shell $(CC) -msoft-float -print-libgcc-file-name)
 endif
-
-

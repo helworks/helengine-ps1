@@ -334,10 +334,13 @@ comma-joined string and the script rejects it.
 
 As of csharpcodegen `46b6371` (engine pin `881f9bf0`) the generator's
 freestanding math runtime defines `sin`, `cos`, `sqrt` and friends as global
-symbols, which collide at link time with `src/platform/ps1/Ps1Math.hpp`, and
-its float ABI flags disagree with psyqo. Until that is reconciled, build PS1
-with `-CodegenRoot` pointing at a checkout of csharpcodegen `9432bfe`; the
-build records `codegen_is_engine_pinned: false`. Build
-`authored-groups-10` (engine `dd43413f`) is the reference: 620 KB `ps-exe`,
-scene entity names in the ELF confirm one `CubeTestSun`, one `CubeTestCube`,
-one `CubeTestCamera` and no DS screen cameras.
+symbols. The PS1 Makefile leaves those global wrappers to generated Core and
+does not also link the duplicate SDK wrappers or the old `Ps1Math.cpp`
+shim; the remaining fdlibm internals are still linked for the generated
+implementation. This keeps the build on the engine-pinned codegen checkout,
+so no `-CodegenRoot` override or engine pin bump is required. The native link
+still reports the existing soft/hard-float ABI warnings from psyqo and the
+authored archive; they do not prevent the PS-X EXE from linking. Build
+`authored-groups-10` (engine `dd43413f`) is the earlier reference: 620 KB
+`ps-exe`, scene entity names in the ELF confirm one `CubeTestSun`, one
+`CubeTestCube`, one `CubeTestCamera` and no DS screen cameras.

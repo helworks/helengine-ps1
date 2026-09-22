@@ -500,3 +500,16 @@ Its observed HEAD was `72a4fcbfd6b2fa6cc2c59a618c09eb4a49bf9637`; this is an
 observation, not a pin. The shared checkout was not switched or modified.
 No PS1 build or emulator run was performed for this layout correction, and
 the compact-exception flag remains unchanged.
+
+## Whole-scene PS1 rebuild (2026-09-22)
+
+The rebuild used the shared engine checkout at `C:\dev\helworks\helengine`
+(observed HEAD `72a4fcbfd6b2fa6cc2c59a618c09eb4a49bf9637`) and the unchanged
+`cube_test` export. The authored package source contained six cooked assets;
+the embedded archive was 18,428 bytes. Generated Core linked after the PS1
+Makefile stopped adding SDK math entry points already emitted by the current
+engine-pinned codegen. The resulting PS-X EXE was 438,272 bytes.
+
+The temporary compact-exception diagnostic setting was restored after the
+build. No emulator was launched, so the first unsupported scene component is
+still pending runtime capture.
