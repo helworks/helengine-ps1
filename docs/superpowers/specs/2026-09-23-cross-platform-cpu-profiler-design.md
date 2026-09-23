@@ -1,6 +1,6 @@
 # CPU profiling for native platforms
 
-**Status:** In-chat design approved by Helena on 2026-09-23. This written specification awaits review; no profiler implementation has started.
+**Status:** Design approved by Helena on 2026-09-23. Implementation is planned; no profiler implementation has started.
 
 **Goal:** Report native frame CPU time in milliseconds by Core phase, updateable component, and platform render phase. Integrate PS1 first; let N64 and later hosts use the same Core probes.
 
