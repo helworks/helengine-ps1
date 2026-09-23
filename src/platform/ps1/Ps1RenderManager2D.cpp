@@ -3,6 +3,9 @@
 #include "Asset.hpp"
 #include "AssetSerializer.hpp"
 #include "Entity.hpp"
+#include "FontAsset.hpp"
+#include "FontChar.hpp"
+#include "FontInfo.hpp"
 #include "ICamera.hpp"
 #include "IDrawable2D.hpp"
 #include "IContentStreamSource.hpp"
@@ -13,6 +16,7 @@
 #include "RoundedRectCorners.hpp"
 #include "TextureAsset.hpp"
 #include "TextureAssetColorFormat.hpp"
+#include "TextLayoutUtils.hpp"
 #include "byte4.hpp"
 #include "common/syscalls/syscalls.h"
 #include "float3.hpp"
@@ -20,6 +24,7 @@
 #include "int2.hpp"
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
 #include "platform/ps1/rendering/Ps1RuntimeTexture.hpp"
+#include "platform/ps1/rendering/Ps1TextLayout.hpp"
 #include "runtime/array.hpp"
 #include "runtime/native_cast.hpp"
 #include "system/io/stream.hpp"
@@ -125,6 +130,8 @@ bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
     VisitedSprites = 0;
     VisitedShapes = 0;
     SkippedTexts = 0;
+    VisitedTexts = 0;
+    QueuedGlyphQuads = 0;
     PendingCount = 0;
     PendingShapes = 0;
     PendingSprites = 0;
@@ -434,8 +441,100 @@ void Ps1RenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
     AppendPending(pending);
 }
 
-void Ps1RenderManager2D::DrawText(::ITextDrawable2D*) {
-    if (QueueOpen) ++SkippedTexts;
+void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
+    if (text == nullptr || text->get_Parent() == nullptr || !QueueOpen) return;
+    ++VisitedTexts;
+    ::FontAsset* font = text->get_Font();
+    auto* texture = font == nullptr ? nullptr : dynamic_cast<Ps1RuntimeTexture*>(font->get_Texture());
+    if (texture == nullptr || font->get_Characters() == nullptr || font->get_AtlasWidth() <= 0 ||
+        font->get_AtlasHeight() <= 0) {
+        Reject("PS1_UI_FONT_TEXTURE_UNSUPPORTED");
+        return;
+    }
+    const std::uint16_t width = static_cast<std::uint16_t>(texture->get_Width());
+    const std::uint16_t height = static_cast<std::uint16_t>(texture->get_Height());
+    const std::uint16_t pageOffsetU = static_cast<std::uint16_t>((texture->VramX % 64u) * texture->PixelsPerWord());
+    const std::uint16_t pageOffsetV = static_cast<std::uint16_t>(texture->VramY % 256u);
+    if (pageOffsetU + width > 256u || pageOffsetV + height > 256u) {
+        Reject("PS1_UI_FONT_CROSSES_PAGE");
+        return;
+    }
+    Ps1UiPoint position{};
+    Ps1UiPoint parentScale{};
+    float rotation = 0.0f;
+    if (!TryScreenTransform(text->get_Parent(), position, parentScale, rotation)) {
+        Reject("PS1_UI_TEXT_TRANSFORM_REJECTED");
+        return;
+    }
+    const float fontScale = text->get_FontScale() > 0.0001f ? text->get_FontScale() : 0.0001f;
+    const ::int2 size = text->get_Size();
+    HeCppString content = text->get_Text();
+    if (text->get_WrapText()) {
+        const int32_t wrapWidth = static_cast<int32_t>(ui_geometry_detail::Round(static_cast<float>(size.X) / fontScale));
+        content = ::TextLayoutUtils::WrapText(content, font, wrapWidth > 0 ? wrapWidth : 1);
+    }
+    const float lineHeight = font->get_LineHeight() * fontScale > 1.0f ? font->get_LineHeight() * fontScale : 1.0f;
+    const float spaceWidth = font->get_FontInfo() != nullptr && font->get_FontInfo()->get_SpaceWidth() * fontScale > 1.0f
+        ? font->get_FontInfo()->get_SpaceWidth()
+        : (font->get_LineHeight() * 0.25f * fontScale > 1.0f ? font->get_LineHeight() * 0.25f : 1.0f / fontScale);
+    std::uint16_t bucket = 0;
+    if (!TryMapRenderOrder(text->get_RenderOrder2D(), bucket)) {
+        Reject("PS1_UI_TEXT_ORDER_REJECTED");
+        return;
+    }
+    const ::float2 shadow = text->get_ShadowOffset();
+    struct GlyphPass { float x; float y; ::byte4 color; } passes[6]{};
+    unsigned passCount = 0;
+    if (shadow.X != 0.0f || shadow.Y != 0.0f) passes[passCount++] = {shadow.X, shadow.Y, text->get_ShadowColor()};
+    const float outline = text->get_OutlineScale();
+    if (outline > 0.0f) {
+        const ::byte4 color = text->get_OutlineColor();
+        passes[passCount++] = {-outline, 0.0f, color};
+        passes[passCount++] = {outline, 0.0f, color};
+        passes[passCount++] = {0.0f, -outline, color};
+        passes[passCount++] = {0.0f, outline, color};
+    }
+    passes[passCount++] = {0.0f, 0.0f, text->get_Color()};
+    Ps1TextAlignment alignment = Ps1TextAlignment::Left;
+    if (text->get_Alignment() == ::TextAlignment::Center) alignment = Ps1TextAlignment::Center;
+    if (text->get_Alignment() == ::TextAlignment::Right) alignment = Ps1TextAlignment::Right;
+    const auto lookup = [&](char character, Ps1TextGlyph& out) {
+        ::FontChar glyph{};
+        if (!font->get_Characters()->TryGetValue(character, glyph)) return false;
+        out = {glyph.SourceRect.Z * font->get_AtlasWidth(), glyph.SourceRect.W * font->get_AtlasHeight(),
+               glyph.OffsetY, glyph.AdvanceWidth};
+        return true;
+    };
+    const auto emit = [&](char character, const Ps1TextGlyph& glyph, float x, float y) {
+        ::FontChar fontGlyph{};
+        if (!font->get_Characters()->TryGetValue(character, fontGlyph)) return false;
+        const ::float4 source = fontGlyph.SourceRect;
+        for (unsigned passIndex = 0; passIndex < passCount; ++passIndex) {
+            const GlyphPass& pass = passes[passIndex];
+            if (pass.color.W == 0) continue;
+            PendingUiDrawable pending{};
+            if (!TryBuildSpriteQuad({x + pass.x, y + pass.y}, {glyph.width * fontScale, glyph.height * fontScale},
+                                    {1.0f, 1.0f}, 0.0f, {source.X, source.Y, source.Z, source.W},
+                                    {static_cast<float>(width), static_cast<float>(height)}, ActiveViewport,
+                                    pending.Vertices)) {
+                Reject("PS1_UI_GLYPH_GEOMETRY_REJECTED");
+                return false;
+            }
+            pending.Texture = texture;
+            TryColor(pass.color, true, pending.Color);
+            pending.Bucket = bucket;
+            TryMapAlphaToBlend(pass.color.W, pending.SemiTransparent);
+            pending.IsSprite = true;
+            if (!AppendPending(pending)) return false;
+            ++QueuedGlyphQuads;
+        }
+        return true;
+    };
+    if (!LayoutPs1Text(content.data(), content.size(), static_cast<float>(ui_geometry_detail::Round(position.x)),
+                       static_cast<float>(ui_geometry_detail::Round(position.y)), lineHeight, spaceWidth,
+                       fontScale, static_cast<float>(size.X), alignment, lookup, emit) && FailureMarker == nullptr) {
+        Reject("PS1_UI_TEXT_LAYOUT_REJECTED");
+    }
 }
 
 void Ps1RenderManager2D::UpdateTextureRegionCore(::RuntimeTexture*, int32_t, int32_t, int32_t, int32_t, Array<uint8_t>*, int32_t) {

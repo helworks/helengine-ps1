@@ -2,6 +2,7 @@
 #include "platform/ps1/rendering/Ps1DepthBucket.hpp"
 #include "platform/ps1/rendering/Ps1PacketBudget.hpp"
 #include "platform/ps1/rendering/Ps1RotationClock.hpp"
+#include "platform/ps1/rendering/Ps1TextLayout.hpp"
 
 #include <cassert>
 #include <cstdint>
@@ -22,12 +23,12 @@ void TestPacketBudget() {
     assert(!zero.TryReserve(slot));
 
     using Limits = helengine::ps1::Ps1FramePacketLimits;
-    assert(Limits::PacketBudgetBytes == 8192);
+    assert(Limits::PacketBudgetBytes == 16384);
     assert(Limits::GouraudTriangles == 64);
     assert(Limits::UiTriangles == 96);
-    assert(Limits::TexturedTriangles == 48);
-    assert(Limits::FixedBytes == 5264);
-    assert(Limits::SceneTriangles == 146);
+    assert(Limits::TexturedTriangles == 256);
+    assert(Limits::FixedBytes == 11920);
+    assert(Limits::SceneTriangles == 223);
     assert(Limits::FixedBytes + Limits::SceneTriangles * Limits::TriangleFragmentBytes <= Limits::PacketBudgetBytes);
     assert(Limits::FixedBytes + (Limits::SceneTriangles + 1) * Limits::TriangleFragmentBytes > Limits::PacketBudgetBytes);
     helengine::ps1::Ps1PacketBudget ui(Limits::UiTriangles);
@@ -35,6 +36,28 @@ void TestPacketBudget() {
     assert(!ui.TryReserve(slot) && ui.Used() == Limits::UiTriangles);
     ui.Reset(Limits::UiTriangles);
     assert(ui.TryReserve(slot) && slot == 0);
+}
+
+void TestTextLayout() {
+    using namespace helengine::ps1;
+    struct Emitted { char letter; float x; float y; } glyphs[8]{};
+    unsigned count = 0;
+    auto lookup = [](char ch, Ps1TextGlyph& glyph) {
+        if (ch < 'A' || ch > 'Z') return false;
+        glyph = {4.0f, 6.0f, 1.0f, 5.0f};
+        return true;
+    };
+    auto emit = [&](char ch, const Ps1TextGlyph&, float x, float y) {
+        glyphs[count++] = {ch, x, y};
+        return true;
+    };
+    assert(LayoutPs1Text("AB C\nD", 6, 10.0f, 20.0f, 16.0f, 2.0f, 2.0f, 40.0f,
+                         Ps1TextAlignment::Right, lookup, emit));
+    assert(count == 4);
+    assert(glyphs[0].x == 18.0f && glyphs[0].y == 22.0f);
+    assert(glyphs[1].x == 28.0f && glyphs[1].y == 22.0f);
+    assert(glyphs[2].x == 42.0f && glyphs[2].y == 22.0f);
+    assert(glyphs[3].x == 42.0f && glyphs[3].y == 38.0f);
 }
 
 void TestDepthBuckets() {
@@ -110,6 +133,7 @@ void TestRotationClock() {
 
 int main() {
     TestPacketBudget();
+    TestTextLayout();
     TestDepthBuckets();
     TestCubeMesh();
     TestRotationClock();

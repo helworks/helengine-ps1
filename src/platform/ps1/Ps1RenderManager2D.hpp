@@ -19,9 +19,8 @@ class Ps1RuntimeTexture;
 
 /// <summary>
 /// 2D render manager backing Core's scene lifecycle on PS1. It uploads cooked paletted textures into
-/// the VRAM the display buffers leave free and hands back their page and palette locations. Drawing
-/// 2D content is not implemented yet, so sprite, text and shape requests still fail explicitly
-/// rather than quietly drawing nothing.
+/// the VRAM the display buffers leave free and hands back their page and palette locations. Drawables
+/// are staged in Core queue order and submitted in reverse to preserve that order in the PS1 OT.
 /// </summary>
 class Ps1RenderManager2D final : public ::RenderManager2D, public ::IRenderVisitor2D {
 public:
@@ -47,6 +46,8 @@ public:
     std::uint16_t LastVisitedSprites() const { return VisitedSprites; }
     std::uint16_t LastVisitedShapes() const { return VisitedShapes; }
     std::uint16_t LastSkippedTexts() const { return SkippedTexts; }
+    std::uint16_t LastVisitedTexts() const { return VisitedTexts; }
+    std::uint16_t LastQueuedGlyphQuads() const { return QueuedGlyphQuads; }
     const char* LastFailureMarker() const { return FailureMarker; }
 
 protected:
@@ -84,6 +85,8 @@ private:
     std::uint16_t VisitedSprites = 0;
     std::uint16_t VisitedShapes = 0;
     std::uint16_t SkippedTexts = 0;
+    std::uint16_t VisitedTexts = 0;
+    std::uint16_t QueuedGlyphQuads = 0;
     std::uint16_t PendingCount = 0;
     std::uint16_t PendingShapes = 0;
     std::uint16_t PendingSprites = 0;

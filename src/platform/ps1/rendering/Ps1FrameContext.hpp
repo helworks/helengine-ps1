@@ -40,7 +40,7 @@ class Ps1FrameContext final {
     static_assert(sizeof(GouraudFragment) == Ps1FramePacketLimits::GouraudFragmentBytes);
     static_assert(sizeof(UiTriangleFragment) == Ps1FramePacketLimits::UiFragmentBytes);
     static_assert(sizeof(ClearFragment) == Ps1FramePacketLimits::ClearFragmentBytes);
-    static_assert(TriangleCapacity == 146);
+    static_assert(TriangleCapacity == 223);
 #endif
 
     /** Clear color used by the diagnostic scenes; authored scenes pass the camera's clear color. */

@@ -167,9 +167,11 @@ void Ps1AuthoredScene::frame() {
             static_cast<unsigned>(stats.backfaceRejected), static_cast<unsigned>(stats.degenerate), static_cast<unsigned>(stats.invalid),
             static_cast<unsigned>(stats.projectionFlags), static_cast<unsigned>(stats.packetCount),
             static_cast<unsigned>(stats.highWaterBytes), stats.guardsIntact ? 1u : 0u, static_cast<unsigned>(stats.failure));
-        ramsyscall_printf("PS1_AUTHORED_UI sprites=%u shapes=%u skipped_text=%u submitted_sprites=%u submitted_triangles=%u failure=%s\n",
+        ramsyscall_printf("PS1_AUTHORED_UI sprites=%u shapes=%u texts=%u glyph_quads=%u skipped_text=%u submitted_sprites=%u submitted_triangles=%u failure=%s\n",
                           static_cast<unsigned>(m_render2D->LastVisitedSprites()),
                           static_cast<unsigned>(m_render2D->LastVisitedShapes()),
+                          static_cast<unsigned>(m_render2D->LastVisitedTexts()),
+                          static_cast<unsigned>(m_render2D->LastQueuedGlyphQuads()),
                           static_cast<unsigned>(m_render2D->LastSkippedTexts()), static_cast<unsigned>(stats.uiSprites),
                           static_cast<unsigned>(stats.uiTriangles),
                           m_render2D->LastFailureMarker() == nullptr ? "none" : m_render2D->LastFailureMarker());
