@@ -79,6 +79,14 @@ endif
 
 ifeq ($(CORE_BOOT),1)
 generated-core/helengine_core_unity.o $(CORE_RTTI_OBJS): CXXFLAGS += -frtti
+ifeq ($(AUTHORED),1)
+ifeq ($(BUILD),Release)
+# The authored frame path needs throughput rather than the SDK default size optimization.
+generated-core/helengine_core_unity.o: CPPFLAGS += -O2
+src/platform/ps1/Ps1RenderManager2D.o src/platform/ps1/Ps1RenderManager3D.o: CPPFLAGS += -O2
+src/platform/ps1/rendering/Ps1RasterRenderer.o src/platform/ps1/rendering/Ps1FrameContext.o: CPPFLAGS += -O2
+endif
+endif
 # libsupc++ must follow libpsyqo so operator new/delete resolve to the PSYQo allocator.
 # If libsupc++ came first, its throwing operator new would drag in the exception
 # allocator, terminate handlers, personality routine and unwinder, none of which
