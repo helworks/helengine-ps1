@@ -962,3 +962,26 @@ Evidence: build manifest
 guest log `C:\dev\helworks\helengine-ps1\out\validated-ui-queue-guest.log`,
 and host summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-191714-027-a91a2111e13c468e8f410cd2360d112d\summary.json`.
+## Update phase profile (2026-09-23)
+
+Temporary timing probes in the generated Core, rebuilt in an isolated native
+object cache, measured the second 600-frame interval at Update 2.984 ms.
+`ObjectManager::Update` accounted for 2.792 ms and pointer interaction for
+0.116 ms; early input, FPS frame counting, audio, physics, and late input each
+rounded to 0–1 us in this scene. The probes add about 0.06 ms versus the
+unmodified Update baseline of 2.924 ms, so individual figures are approximate.
+
+Per-updateable probes found 0.768 ms for the orbit camera (entity 8), 0.704 ms
+for cube spin (entity 27), 0.448 ms for the debug scene label and 0.270 ms for
+return-to-menu (both entity 17). The remaining five updateables together used
+about 0.25 ms. The entity/component mapping comes from the scoped PS1 scene
+package and its serialized component order. A separate diagnostic experiment
+reduced Update from 2.926 to 2.540 ms by skipping per-component diagnostic
+owner/type lookups; it was restored after measurement, since changing generated
+Core without changing its source would leave the build hard to reproduce.
+
+Evidence: phase-profile guest log
+`C:\dev\helworks\helengine-ps1\out\update-phase-profile-guest.log`, per-updateable
+guest log `C:\dev\helworks\helengine-ps1\out\updateable-profile-guest.log`, and
+per-updateable build manifest
+`C:\dev\helworks\builds\helengine-ps1\20260923-194036-265-Release-2753610ec5374688a704b1bb271f92f2\manifest.json`.
