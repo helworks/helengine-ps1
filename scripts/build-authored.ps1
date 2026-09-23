@@ -219,7 +219,7 @@ $publishedCodegen = Join-Path (Split-Path -Parent $editorApp) 'codegen'
 # commit's bundled .net.cpp headers. That mix compiles a Core whose calls the headers do not declare.
 if (Test-Path -LiteralPath $publishedCodegen) { Remove-Item -LiteralPath $publishedCodegen -Recurse -Force }
 $codegenPublishLog = Join-Path $logsRoot 'codegen-publish.log'
-& dotnet publish $codegenProject -c Release -o $publishedCodegen -v:q --nologo *> $codegenPublishLog
+& dotnet publish $codegenProject -c Release -o $publishedCodegen --artifacts-path (Join-Path $output 'codegen-artifacts') -v:q --nologo *> $codegenPublishLog
 if ($LASTEXITCODE -ne 0) { Get-Content $codegenPublishLog -Tail 20; throw "Publishing codegen beside the editor failed with exit code $LASTEXITCODE." }
 $codegenTool = Join-Path $publishedCodegen 'codegen.exe'
 if (-not (Test-Path -LiteralPath $codegenTool -PathType Leaf)) { throw "codegen publish did not produce the tool: $codegenTool" }
