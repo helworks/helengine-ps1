@@ -910,6 +910,7 @@ preserved guest log
 `C:\dev\helworks\builds\helengine-ps1\20260923-175104-398-Release-3074997bf2f8488bb7d8d14e09868223\guest-steady-600.log`,
 and host summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-174952-451-3275b2f3dcc84a83b529b2796f9bad11\summary.json`.
+
 ## Authored UI textured quads (2026-09-23)
 
 The unchanged `cube_test` UI previously emitted two textured triangle packets
@@ -962,6 +963,7 @@ Evidence: build manifest
 guest log `C:\dev\helworks\helengine-ps1\out\validated-ui-queue-guest.log`,
 and host summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-191714-027-a91a2111e13c468e8f410cd2360d112d\summary.json`.
+
 ## Update phase profile (2026-09-23)
 
 Temporary timing probes in the generated Core, rebuilt in an isolated native
@@ -985,3 +987,32 @@ Evidence: phase-profile guest log
 guest log `C:\dev\helworks\helengine-ps1\out\updateable-profile-guest.log`, and
 per-updateable build manifest
 `C:\dev\helworks\builds\helengine-ps1\20260923-194036-265-Release-2753610ec5374688a704b1bb271f92f2\manifest.json`.
+
+## Frame-context reuse of cached text quads (2026-09-23)
+
+Text layout already retains glyph quads, but each frame still converted every
+quad to a PS1 GPU packet. The two frame contexts now remember the cached quad
+address and its revision at each textured packet slot. When the same quad
+occupies that slot again, the renderer reuses the GPU primitive; changed glyph
+UVs, a rebuilt text cache, a different quad order, and dynamic sprites rebuild
+it. The ordering-table insertion and frame statistics still run every frame.
+
+On the unchanged `cube_test` scene, the second 600-frame average changed from
+Update 2.924 ms, boundary 0.187 ms, Draw 8.382 ms to Update 2.924 ms,
+boundary 0.187 ms, Draw 7.867 ms. Combined Update + Draw fell from 11.306
+to 10.791 ms. The clean 1800-to-2400 interval used 600 VBlanks for 600 game
+frames. First-frame packet count remained 180, with 3 sprites, 2 shapes,
+5 texts, 82 glyph quads and no failure. The user confirmed that UI placement
+and glyphs remained correct and the FPS/Update/Render numbers kept changing.
+
+The PS-X EXE grew from 790,528 to 792,576 bytes and static RAM from 839,104
+to 843,200 bytes. Heap capacity decreased from 1,126,976 to 1,122,880
+bytes. The full host suite passed, including the expected negative stream
+fixture exit 73. Generated Core was restored to the unprofiled baseline and
+rebuilt with a fresh native object cache.
+
+Evidence: build manifest
+`C:\dev\helworks\builds\helengine-ps1\20260923-195221-925-Release-cc45522dd83946cbbe74dc371c76431e\manifest.json`,
+guest log `C:\dev\helworks\helengine-ps1\out\frame-context-quad-reuse-guest.log`,
+and host summary
+`C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-195119-527-a4df173789354133b9a5928d25f7bcd5\summary.json`.

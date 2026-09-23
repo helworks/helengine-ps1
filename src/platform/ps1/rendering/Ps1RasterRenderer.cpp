@@ -600,7 +600,8 @@ bool Ps1RasterRenderer::QueueAuthoredUiTriangle(const Ps1UiTriangle& triangle, p
 bool Ps1RasterRenderer::QueueAuthoredUiSprite(const Ps1UiVertex (&vertices)[4], std::uint16_t vramX,
                                               std::uint16_t vramY, std::uint16_t clutX, std::uint16_t clutY,
                                               std::uint16_t pixelsPerWord, bool fourBit,
-                                              psyqo::Color modulation, bool semiTransparent, std::uint16_t bucket) {
+                                              psyqo::Color modulation, bool semiTransparent, std::uint16_t bucket,
+                                              const void* cacheSource, std::uint32_t cacheRevision) {
     Ps1FrameContext* context = m_authoredContext;
     if (context == nullptr) {
         ++m_stats.ownershipFailures;
@@ -613,38 +614,41 @@ bool Ps1RasterRenderer::QueueAuthoredUiSprite(const Ps1UiVertex (&vertices)[4], 
         m_stats.failure = Ps1RenderFailure::Capacity;
         return false;
     }
-    const std::uint16_t baseU = static_cast<std::uint16_t>((vramX % 64u) * pixelsPerWord);
-    const std::uint16_t baseV = static_cast<std::uint16_t>(vramY % 256u);
-    const auto point = [](const Ps1UiVertex& input) {
-        return psyqo::Vertex{{.x = input.x, .y = input.y}};
-    };
-    const auto uv = [baseU, baseV](const Ps1UiVertex& input) {
-        return psyqo::PrimPieces::UVCoords{static_cast<std::uint8_t>(baseU + input.u),
-                                            static_cast<std::uint8_t>(baseV + input.v)};
-    };
-    const auto paddedUv = [baseU, baseV](const Ps1UiVertex& input) {
-        return psyqo::PrimPieces::UVCoordsPadded{static_cast<std::uint8_t>(baseU + input.u),
-                                                  static_cast<std::uint8_t>(baseV + input.v), 0};
-    };
-    psyqo::PrimPieces::TPageAttr page;
-    page.setPageX(static_cast<std::uint8_t>(vramX / 64u));
-    page.setPageY(static_cast<std::uint8_t>(vramY / 256u));
-    page.set(fourBit ? psyqo::Prim::TPageAttr::Tex4Bits : psyqo::Prim::TPageAttr::Tex8Bits);
-    if (semiTransparent) page.set(psyqo::Prim::TPageAttr::HalfBackAndHalfFront);
-    const psyqo::PrimPieces::ClutIndex clut(static_cast<std::uint16_t>(clutX / 16u), clutY);
-    fragment->primitive = psyqo::Prim::TexturedQuad(modulation);
-    if (semiTransparent) fragment->primitive.setSemiTrans();
-    else fragment->primitive.setOpaque();
-    fragment->primitive.pointA = point(vertices[0]);
-    fragment->primitive.uvA = uv(vertices[0]);
-    fragment->primitive.clutIndex = clut;
-    fragment->primitive.pointB = point(vertices[1]);
-    fragment->primitive.uvB = uv(vertices[1]);
-    fragment->primitive.tpage = page;
-    fragment->primitive.pointC = point(vertices[2]);
-    fragment->primitive.uvC = paddedUv(vertices[2]);
-    fragment->primitive.pointD = point(vertices[3]);
-    fragment->primitive.uvD = paddedUv(vertices[3]);
+    if (!context->ReuseTexturedQuad(*fragment, cacheSource, cacheRevision)) {
+        const std::uint16_t baseU = static_cast<std::uint16_t>((vramX % 64u) * pixelsPerWord);
+        const std::uint16_t baseV = static_cast<std::uint16_t>(vramY % 256u);
+        const auto point = [](const Ps1UiVertex& input) {
+            return psyqo::Vertex{{.x = input.x, .y = input.y}};
+        };
+        const auto uv = [baseU, baseV](const Ps1UiVertex& input) {
+            return psyqo::PrimPieces::UVCoords{static_cast<std::uint8_t>(baseU + input.u),
+                                                static_cast<std::uint8_t>(baseV + input.v)};
+        };
+        const auto paddedUv = [baseU, baseV](const Ps1UiVertex& input) {
+            return psyqo::PrimPieces::UVCoordsPadded{static_cast<std::uint8_t>(baseU + input.u),
+                                                      static_cast<std::uint8_t>(baseV + input.v), 0};
+        };
+        psyqo::PrimPieces::TPageAttr page;
+        page.setPageX(static_cast<std::uint8_t>(vramX / 64u));
+        page.setPageY(static_cast<std::uint8_t>(vramY / 256u));
+        page.set(fourBit ? psyqo::Prim::TPageAttr::Tex4Bits : psyqo::Prim::TPageAttr::Tex8Bits);
+        if (semiTransparent) page.set(psyqo::Prim::TPageAttr::HalfBackAndHalfFront);
+        const psyqo::PrimPieces::ClutIndex clut(static_cast<std::uint16_t>(clutX / 16u), clutY);
+        fragment->primitive = psyqo::Prim::TexturedQuad(modulation);
+        if (semiTransparent) fragment->primitive.setSemiTrans();
+        else fragment->primitive.setOpaque();
+        fragment->primitive.pointA = point(vertices[0]);
+        fragment->primitive.uvA = uv(vertices[0]);
+        fragment->primitive.clutIndex = clut;
+        fragment->primitive.pointB = point(vertices[1]);
+        fragment->primitive.uvB = uv(vertices[1]);
+        fragment->primitive.tpage = page;
+        fragment->primitive.pointC = point(vertices[2]);
+        fragment->primitive.uvC = paddedUv(vertices[2]);
+        fragment->primitive.pointD = point(vertices[3]);
+        fragment->primitive.uvD = paddedUv(vertices[3]);
+        context->RememberTexturedQuad(*fragment, cacheSource, cacheRevision);
+    }
     if (!context->Insert(*fragment, bucket)) {
         ++m_stats.ownershipFailures;
         m_stats.failure = Ps1RenderFailure::Ownership;

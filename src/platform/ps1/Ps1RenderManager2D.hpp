@@ -64,6 +64,7 @@ private:
         std::uint16_t Bucket = 0;
         bool SemiTransparent = false;
         bool IsSprite = false;
+        std::uint32_t PacketRevision = 0;
     };
 
     struct CachedText {
@@ -90,6 +91,7 @@ private:
     void Reject(const char* marker);
     bool AppendPending(const PendingUiDrawable& drawable);
     bool FlushPendingInVisitOrder();
+    std::uint32_t AllocatePacketRevision();
 
     psyqo::GPU& Gpu;
     Ps1RasterRenderer& Renderer;
@@ -108,6 +110,7 @@ private:
     const PendingUiDrawable* PendingOrder[PendingUiCapacity]{};
     CachedText TextCache[TextCacheCapacity]{};
     std::uint8_t NextTextCache = 0;
+    std::uint32_t NextPacketRevision = 0;
     Ps1TextGlyphCache GlyphCache;
     Ps1RoundedRectGeometryCache RoundedRectCache;
     bool QueueOpen = false;

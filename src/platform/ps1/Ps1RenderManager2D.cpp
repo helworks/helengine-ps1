@@ -185,6 +185,11 @@ bool Ps1RenderManager2D::AppendPending(const PendingUiDrawable& drawable) {
     return true;
 }
 
+std::uint32_t Ps1RenderManager2D::AllocatePacketRevision() {
+    if (++NextPacketRevision == 0) ++NextPacketRevision;
+    return NextPacketRevision;
+}
+
 bool Ps1RenderManager2D::FlushPendingInVisitOrder() {
     for (std::uint16_t i = PendingCount; i > 0; --i) {
         const PendingUiDrawable& pending = *PendingOrder[i - 1u];
@@ -194,7 +199,9 @@ bool Ps1RenderManager2D::FlushPendingInVisitOrder() {
             queued = Renderer.QueueAuthoredUiSprite(pending.Vertices, texture.VramX, texture.VramY, texture.ClutX,
                                                      texture.ClutY, texture.PixelsPerWord(),
                                                      texture.PixelDepth == Ps1RuntimeTexture::Depth::FourBit,
-                                                     pending.Color, pending.SemiTransparent, pending.Bucket);
+                                                     pending.Color, pending.SemiTransparent, pending.Bucket,
+                                                     pending.PacketRevision == 0 ? nullptr : &pending,
+                                                     pending.PacketRevision);
         } else {
             const Ps1UiTriangle triangle{pending.Vertices[0], pending.Vertices[1], pending.Vertices[2]};
             queued = Renderer.QueueAuthoredUiTriangle(triangle, pending.Color, pending.SemiTransparent, pending.Bucket);
@@ -621,8 +628,10 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
                                                                       glyph.sourceX + glyph.sourceWidth : 255);
                     const std::uint8_t v1 = static_cast<std::uint8_t>(glyph.sourceY + glyph.sourceHeight < 256 ?
                                                                       glyph.sourceY + glyph.sourceHeight : 255);
+                    const std::uint32_t revision = AllocatePacketRevision();
                     for (unsigned pass = 0; pass < visiblePasses; ++pass) {
                         Ps1UiVertex* vertices = cached->Quads[quad + pass].Vertices;
+                        cached->Quads[quad + pass].PacketRevision = revision;
                         vertices[0].u = vertices[2].u = u0;
                         vertices[1].u = vertices[3].u = u1;
                         vertices[0].v = vertices[1].v = v0;
@@ -685,7 +694,11 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
         __builtin_memcpy(cached->Key, key, sizeof(key));
         cached->Content = content;
         cached->Count = static_cast<std::uint16_t>(PendingCount - pendingStart);
-        for (std::uint16_t i = 0; i < cached->Count; ++i) cached->Quads[i] = Pending[pendingStart + i];
+        const std::uint32_t revision = AllocatePacketRevision();
+        for (std::uint16_t i = 0; i < cached->Count; ++i) {
+            cached->Quads[i] = Pending[pendingStart + i];
+            cached->Quads[i].PacketRevision = revision;
+        }
         cached->InFrame = true;
     }
     if (!laidOut && FailureMarker == nullptr) {

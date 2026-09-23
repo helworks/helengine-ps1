@@ -81,7 +81,8 @@ class Ps1RasterRenderer final {
                                  std::uint16_t bucket);
     bool QueueAuthoredUiSprite(const Ps1UiVertex (&vertices)[4], std::uint16_t vramX, std::uint16_t vramY,
                                std::uint16_t clutX, std::uint16_t clutY, std::uint16_t pixelsPerWord,
-                               bool fourBit, psyqo::Color modulation, bool semiTransparent, std::uint16_t bucket);
+                               bool fourBit, psyqo::Color modulation, bool semiTransparent, std::uint16_t bucket,
+                               const void* cacheSource = nullptr, std::uint32_t cacheRevision = 0);
     bool SubmitAuthoredFrame(psyqo::GPU& gpu, psyqo::Color clearColor);
     void CancelAuthoredFrame();
 

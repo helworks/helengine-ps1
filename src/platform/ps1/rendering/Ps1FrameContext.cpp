@@ -141,6 +141,29 @@ Ps1FrameContext::TexturedQuadFragment* Ps1FrameContext::TryReserveTexturedQuad()
     return &m_texturedQuads[m_texturedReservedCount++];
 }
 
+bool Ps1FrameContext::ReuseTexturedQuad(const TexturedQuadFragment& fragment, const void* source,
+                                        std::uint32_t revision) const {
+    if (source == nullptr || revision == 0 || m_state != State::Building || m_texturedReservedCount == 0) return false;
+    const unsigned index = m_texturedReservedCount - 1u;
+    return &m_texturedQuads[index] == &fragment && m_texturedCacheSources[index] == source &&
+           m_texturedCacheRevisions[index] == revision;
+}
+
+void Ps1FrameContext::RememberTexturedQuad(const TexturedQuadFragment& fragment, const void* source,
+                                           std::uint32_t revision) {
+    if (m_state != State::Building || m_texturedReservedCount == 0) {
+        AssertState(false, "PS1_TEXTURED_QUAD_CACHE_WRONG_STATE");
+        return;
+    }
+    const unsigned index = m_texturedReservedCount - 1u;
+    if (&m_texturedQuads[index] != &fragment) {
+        AssertState(false, "PS1_TEXTURED_QUAD_CACHE_NOT_LAST_RESERVED");
+        return;
+    }
+    m_texturedCacheSources[index] = source;
+    m_texturedCacheRevisions[index] = source == nullptr ? 0u : revision;
+}
+
 bool Ps1FrameContext::Insert(TexturedQuadFragment& fragment, std::uint16_t bucket) {
     if (m_state != State::Building) {
         AssertState(false, "PS1_TEXTURED_TRIANGLE_INSERT_WRONG_STATE");

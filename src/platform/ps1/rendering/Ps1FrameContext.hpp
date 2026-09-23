@@ -55,6 +55,8 @@ class Ps1FrameContext final {
     UiTriangleFragment* TryReserveUiTriangle();
     bool InsertUiTriangle(UiTriangleFragment& fragment, std::uint16_t bucket);
     TexturedQuadFragment* TryReserveTexturedQuad();
+    bool ReuseTexturedQuad(const TexturedQuadFragment& fragment, const void* source, std::uint32_t revision) const;
+    void RememberTexturedQuad(const TexturedQuadFragment& fragment, const void* source, std::uint32_t revision);
     bool Insert(TexturedQuadFragment& fragment, std::uint16_t bucket);
     bool Submit(psyqo::GPU& gpu, psyqo::Color clearColor = DefaultClearColor);
     void Cancel();
@@ -115,6 +117,8 @@ class Ps1FrameContext final {
     std::uint8_t m_gouraudInserted[GouraudCapacity]{};
     std::uint8_t m_uiInserted[UiTriangleCapacity]{};
     std::uint8_t m_texturedInserted[TexturedQuadCapacity]{};
+    const void* m_texturedCacheSources[TexturedQuadCapacity]{};
+    std::uint32_t m_texturedCacheRevisions[TexturedQuadCapacity]{};
 };
 
 }  // namespace helengine::ps1
