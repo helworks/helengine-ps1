@@ -910,3 +910,27 @@ preserved guest log
 `C:\dev\helworks\builds\helengine-ps1\20260923-175104-398-Release-3074997bf2f8488bb7d8d14e09868223\guest-steady-600.log`,
 and host summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-174952-451-3275b2f3dcc84a83b529b2796f9bad11\summary.json`.
+## Authored UI textured quads (2026-09-23)
+
+The unchanged `cube_test` UI previously emitted two textured triangle packets
+per sprite or glyph. A PS1 textured quad now carries the same four vertices in
+one packet. The first-frame draw packet count fell from 265 to 180, while
+the UI report still counted 3 sprites, 2 shapes, 5 texts, and 82 glyph quads
+with no failure. The second 600-frame average changed from Update 2.984 ms,
+frame boundary 0.192 ms, and Draw 9.874 ms to Update 2.926 ms, boundary
+0.188 ms, and Draw 9.337 ms. The clean 1800–2400 interval still used exactly
+600 VBlanks for 600 frames. The user confirmed the fonts, sprites, and panels
+look the same and read Render near 9.3 ms on screen.
+
+The quad fragment is 40 bytes versus 64 bytes for two triangle fragments.
+With capacity for 128 textured quads, the fixed packet allocation decreased
+from 11,920 to 8,848 bytes, leaving room for 376 scene triangles instead of
+223 under the same 16 KB packet budget. The PS-X EXE remained 790,528 bytes;
+static RAM was 839,104 bytes and heap capacity 1,126,976 bytes. The full host
+suite passed.
+
+Evidence: build manifest
+`C:\dev\helworks\builds\helengine-ps1\20260923-185010-355-Release-280eb3481e9b498cbfcdffee3d033c38\manifest.json`,
+guest log `C:\dev\helworks\helengine-ps1\out\quad-trial-guest.log`, and host
+summary
+`C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-184924-654-0f59df19cbe346c19f42ab15b37e20d1\summary.json`.

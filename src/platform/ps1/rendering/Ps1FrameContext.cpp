@@ -39,7 +39,7 @@ bool Ps1FrameContext::Begin(std::uint32_t sceneSequence, std::uint32_t triangleC
     for (unsigned i = 0; i < UiTriangleCapacity; ++i) m_uiInserted[i] = 0;
     m_texturedReservedCount = 0;
     m_texturedInsertedCount = 0;
-    for (unsigned i = 0; i < TexturedTriangleCapacity; ++i) m_texturedInserted[i] = 0;
+    for (unsigned i = 0; i < TexturedQuadCapacity; ++i) m_texturedInserted[i] = 0;
     m_buildSequence = sceneSequence;
     m_state = State::Building;
     return true;
@@ -132,26 +132,26 @@ bool Ps1FrameContext::InsertUiTriangle(UiTriangleFragment& fragment, std::uint16
     return true;
 }
 
-Ps1FrameContext::TexturedTriangleFragment* Ps1FrameContext::TryReserveTexturedTriangle() {
+Ps1FrameContext::TexturedQuadFragment* Ps1FrameContext::TryReserveTexturedQuad() {
     if (m_state != State::Building) {
         AssertState(false, "PS1_TEXTURED_TRIANGLE_RESERVE_WRONG_STATE");
         return nullptr;
     }
-    if (m_texturedReservedCount >= TexturedTriangleCapacity) return nullptr;
-    return &m_texturedTriangles[m_texturedReservedCount++];
+    if (m_texturedReservedCount >= TexturedQuadCapacity) return nullptr;
+    return &m_texturedQuads[m_texturedReservedCount++];
 }
 
-bool Ps1FrameContext::Insert(TexturedTriangleFragment& fragment, std::uint16_t bucket) {
+bool Ps1FrameContext::Insert(TexturedQuadFragment& fragment, std::uint16_t bucket) {
     if (m_state != State::Building) {
         AssertState(false, "PS1_TEXTURED_TRIANGLE_INSERT_WRONG_STATE");
         return false;
     }
     if (bucket >= 256u) return false;
-    const auto first = reinterpret_cast<std::uintptr_t>(&m_texturedTriangles[0]);
-    const auto last = reinterpret_cast<std::uintptr_t>(&m_texturedTriangles[TexturedTriangleCapacity]);
+    const auto first = reinterpret_cast<std::uintptr_t>(&m_texturedQuads[0]);
+    const auto last = reinterpret_cast<std::uintptr_t>(&m_texturedQuads[TexturedQuadCapacity]);
     const auto address = reinterpret_cast<std::uintptr_t>(&fragment);
-    if (address < first || address >= last || ((address - first) % sizeof(TexturedTriangleFragment)) != 0) return false;
-    const unsigned index = static_cast<unsigned>((address - first) / sizeof(TexturedTriangleFragment));
+    if (address < first || address >= last || ((address - first) % sizeof(TexturedQuadFragment)) != 0) return false;
+    const unsigned index = static_cast<unsigned>((address - first) / sizeof(TexturedQuadFragment));
     if (index >= m_texturedReservedCount || m_texturedInserted[index] != 0) return false;
     m_table.insert(fragment, bucket);
     m_texturedInserted[index] = 1;

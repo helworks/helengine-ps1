@@ -607,9 +607,8 @@ bool Ps1RasterRenderer::QueueAuthoredUiSprite(const Ps1UiVertex (&vertices)[4], 
         m_stats.failure = Ps1RenderFailure::Ownership;
         return false;
     }
-    Ps1FrameContext::TexturedTriangleFragment* first = context->TryReserveTexturedTriangle();
-    Ps1FrameContext::TexturedTriangleFragment* second = context->TryReserveTexturedTriangle();
-    if (first == nullptr || second == nullptr) {
+    Ps1FrameContext::TexturedQuadFragment* fragment = context->TryReserveTexturedQuad();
+    if (fragment == nullptr) {
         ++m_stats.capacityFailures;
         m_stats.failure = Ps1RenderFailure::Capacity;
         return false;
@@ -623,33 +622,30 @@ bool Ps1RasterRenderer::QueueAuthoredUiSprite(const Ps1UiVertex (&vertices)[4], 
         return psyqo::PrimPieces::UVCoords{static_cast<std::uint8_t>(baseU + input.u),
                                             static_cast<std::uint8_t>(baseV + input.v)};
     };
+    const auto paddedUv = [baseU, baseV](const Ps1UiVertex& input) {
+        return psyqo::PrimPieces::UVCoordsPadded{static_cast<std::uint8_t>(baseU + input.u),
+                                                  static_cast<std::uint8_t>(baseV + input.v), 0};
+    };
     psyqo::PrimPieces::TPageAttr page;
     page.setPageX(static_cast<std::uint8_t>(vramX / 64u));
     page.setPageY(static_cast<std::uint8_t>(vramY / 256u));
     page.set(fourBit ? psyqo::Prim::TPageAttr::Tex4Bits : psyqo::Prim::TPageAttr::Tex8Bits);
     if (semiTransparent) page.set(psyqo::Prim::TPageAttr::HalfBackAndHalfFront);
-    // CLUT X is encoded in 16-word units; the texture loader reserves palettes on that boundary.
     const psyqo::PrimPieces::ClutIndex clut(static_cast<std::uint16_t>(clutX / 16u), clutY);
-    auto initialize = [&](Ps1FrameContext::TexturedTriangleFragment& fragment, const Ps1UiVertex& a,
-                          const Ps1UiVertex& b, const Ps1UiVertex& c) {
-        fragment.primitive = psyqo::Prim::TexturedTriangle(modulation);
-        if (semiTransparent) fragment.primitive.setSemiTrans();
-        else fragment.primitive.setOpaque();
-        fragment.primitive.pointA = point(a);
-        fragment.primitive.uvA = uv(a);
-        fragment.primitive.clutIndex = clut;
-        fragment.primitive.pointB = point(b);
-        fragment.primitive.uvB = uv(b);
-        fragment.primitive.tpage = page;
-        fragment.primitive.pointC = point(c);
-        fragment.primitive.uvC = psyqo::PrimPieces::UVCoordsPadded{static_cast<std::uint8_t>(baseU + c.u),
-                                                                   static_cast<std::uint8_t>(baseV + c.v), 0};
-    };
-    initialize(*first, vertices[0], vertices[1], vertices[2]);
-    initialize(*second, vertices[1], vertices[3], vertices[2]);
-    // OrderingTable inserts at the head. Insert the second half first so GPU traversal emits the
-    // quad's top-left triangle before its bottom-right triangle.
-    if (!context->Insert(*second, bucket) || !context->Insert(*first, bucket)) {
+    fragment->primitive = psyqo::Prim::TexturedQuad(modulation);
+    if (semiTransparent) fragment->primitive.setSemiTrans();
+    else fragment->primitive.setOpaque();
+    fragment->primitive.pointA = point(vertices[0]);
+    fragment->primitive.uvA = uv(vertices[0]);
+    fragment->primitive.clutIndex = clut;
+    fragment->primitive.pointB = point(vertices[1]);
+    fragment->primitive.uvB = uv(vertices[1]);
+    fragment->primitive.tpage = page;
+    fragment->primitive.pointC = point(vertices[2]);
+    fragment->primitive.uvC = paddedUv(vertices[2]);
+    fragment->primitive.pointD = point(vertices[3]);
+    fragment->primitive.uvD = paddedUv(vertices[3]);
+    if (!context->Insert(*fragment, bucket)) {
         ++m_stats.ownershipFailures;
         m_stats.failure = Ps1RenderFailure::Ownership;
         return false;

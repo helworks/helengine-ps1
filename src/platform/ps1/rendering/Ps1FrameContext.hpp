@@ -6,6 +6,7 @@
 #include "psyqo/ordering-table.hh"
 #include "psyqo/primitives/misc.hh"
 #include "psyqo/primitives/triangles.hh"
+#include "psyqo/primitives/quads.hh"
 
 #include <cstdint>
 
@@ -23,12 +24,12 @@ class Ps1FrameContext final {
     /** Per-vertex lit triangles used only by the authored scene path. */
     using GouraudFragment = psyqo::Fragments::SimpleFragment<psyqo::Prim::GouraudTriangle>;
     using UiTriangleFragment = TriangleFragment;
-    using TexturedTriangleFragment = psyqo::Fragments::SimpleFragment<psyqo::Prim::TexturedTriangle>;
+    using TexturedQuadFragment = psyqo::Fragments::SimpleFragment<psyqo::Prim::TexturedQuad>;
 
     /** Authored scenes submit far fewer triangles than the diagnostic stress modes. */
     static constexpr unsigned GouraudCapacity = Ps1FramePacketLimits::GouraudTriangles;
     static constexpr unsigned UiTriangleCapacity = Ps1FramePacketLimits::UiTriangles;
-    static constexpr unsigned TexturedTriangleCapacity = Ps1FramePacketLimits::TexturedTriangles;
+    static constexpr unsigned TexturedQuadCapacity = Ps1FramePacketLimits::TexturedQuads;
 
     static constexpr std::uint32_t PacketBudgetBytes = Ps1FramePacketLimits::PacketBudgetBytes;
     static constexpr unsigned TriangleCapacity = Ps1FramePacketLimits::SceneTriangles;
@@ -36,11 +37,11 @@ class Ps1FrameContext final {
 #ifndef PS1_PC_PORT
     static_assert(sizeof(TriangleFragment) == 20);
     static_assert(sizeof(psyqo::OrderingTable<512>) == 2052);
-    static_assert(sizeof(TexturedTriangleFragment) == 32);
+    static_assert(sizeof(TexturedQuadFragment) == Ps1FramePacketLimits::TexturedFragmentBytes);
     static_assert(sizeof(GouraudFragment) == Ps1FramePacketLimits::GouraudFragmentBytes);
     static_assert(sizeof(UiTriangleFragment) == Ps1FramePacketLimits::UiFragmentBytes);
     static_assert(sizeof(ClearFragment) == Ps1FramePacketLimits::ClearFragmentBytes);
-    static_assert(TriangleCapacity == 223);
+    static_assert(TriangleCapacity == 376);
 #endif
 
     /** Clear color used by the diagnostic scenes; authored scenes pass the camera's clear color. */
@@ -53,8 +54,8 @@ class Ps1FrameContext final {
     bool Insert(GouraudFragment& fragment, std::uint16_t bucket);
     UiTriangleFragment* TryReserveUiTriangle();
     bool InsertUiTriangle(UiTriangleFragment& fragment, std::uint16_t bucket);
-    TexturedTriangleFragment* TryReserveTexturedTriangle();
-    bool Insert(TexturedTriangleFragment& fragment, std::uint16_t bucket);
+    TexturedQuadFragment* TryReserveTexturedQuad();
+    bool Insert(TexturedQuadFragment& fragment, std::uint16_t bucket);
     bool Submit(psyqo::GPU& gpu, psyqo::Color clearColor = DefaultClearColor);
     void Cancel();
 
@@ -65,7 +66,7 @@ class Ps1FrameContext final {
         return static_cast<std::uint32_t>(sizeof(ClearFragment) + m_reservedCount * sizeof(TriangleFragment) +
                                           m_gouraudReservedCount * sizeof(GouraudFragment) +
                                           m_uiReservedCount * sizeof(UiTriangleFragment) +
-                                          m_texturedReservedCount * sizeof(TexturedTriangleFragment));
+                                          m_texturedReservedCount * sizeof(TexturedQuadFragment));
     }
     std::uint32_t LastSubmissionSequence() const { return m_lastSubmissionSequence; }
     std::uint32_t Capacity() const { return m_budgetCapacity; }
@@ -106,14 +107,14 @@ class Ps1FrameContext final {
     std::uint16_t m_uiReservedCount = 0;
     std::uint16_t m_uiInsertedCount = 0;
     std::uint32_t m_texturedGuardBefore = PacketGuardValue;
-    TexturedTriangleFragment m_texturedTriangles[TexturedTriangleCapacity];
+    TexturedQuadFragment m_texturedQuads[TexturedQuadCapacity];
     std::uint32_t m_texturedGuardAfter = PacketGuardValue;
     std::uint16_t m_texturedReservedCount = 0;
     std::uint16_t m_texturedInsertedCount = 0;
     std::uint8_t m_inserted[TriangleCapacity]{};
     std::uint8_t m_gouraudInserted[GouraudCapacity]{};
     std::uint8_t m_uiInserted[UiTriangleCapacity]{};
-    std::uint8_t m_texturedInserted[TexturedTriangleCapacity]{};
+    std::uint8_t m_texturedInserted[TexturedQuadCapacity]{};
 };
 
 }  // namespace helengine::ps1

@@ -9,14 +9,15 @@ struct Ps1FramePacketLimits final {
     static constexpr std::uint32_t GouraudTriangles = 64;
     static constexpr std::uint32_t UiTriangles = 96;
     static constexpr std::uint32_t TexturedTriangles = 256;
+    static constexpr std::uint32_t TexturedQuads = TexturedTriangles / 2u;
     static constexpr std::uint32_t ClearFragmentBytes = 16;
     static constexpr std::uint32_t TriangleFragmentBytes = 20;
     static constexpr std::uint32_t GouraudFragmentBytes = 28;
     static constexpr std::uint32_t UiFragmentBytes = 20;
-    static constexpr std::uint32_t TexturedFragmentBytes = 32;
+    static constexpr std::uint32_t TexturedFragmentBytes = 40;
     static constexpr std::uint32_t FixedBytes = ClearFragmentBytes + GouraudTriangles * GouraudFragmentBytes +
                                                 UiTriangles * UiFragmentBytes +
-                                                TexturedTriangles * TexturedFragmentBytes;
+                                                TexturedQuads * TexturedFragmentBytes;
     static constexpr std::uint32_t SceneTriangles = (PacketBudgetBytes - FixedBytes) / TriangleFragmentBytes;
     static_assert(FixedBytes < PacketBudgetBytes);
 };

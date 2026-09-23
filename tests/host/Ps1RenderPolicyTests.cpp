@@ -29,8 +29,9 @@ void TestPacketBudget() {
     assert(Limits::GouraudTriangles == 64);
     assert(Limits::UiTriangles == 96);
     assert(Limits::TexturedTriangles == 256);
-    assert(Limits::FixedBytes == 11920);
-    assert(Limits::SceneTriangles == 223);
+    assert(Limits::TexturedQuads == 128);
+    assert(Limits::FixedBytes == 8848);
+    assert(Limits::SceneTriangles == 376);
     assert(Limits::FixedBytes + Limits::SceneTriangles * Limits::TriangleFragmentBytes <= Limits::PacketBudgetBytes);
     assert(Limits::FixedBytes + (Limits::SceneTriangles + 1) * Limits::TriangleFragmentBytes > Limits::PacketBudgetBytes);
     helengine::ps1::Ps1PacketBudget ui(Limits::UiTriangles);
