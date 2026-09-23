@@ -135,7 +135,6 @@ bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
     PendingShapes = 0;
     PendingSprites = 0;
     FailureMarker = nullptr;
-    GlyphCache.BeginFrame();
     if (!ResolveViewport(camera, ActiveViewport)) {
         Reject("PS1_UI_VIEWPORT_UNSUPPORTED");
         return false;
@@ -330,6 +329,7 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
 
 void Ps1RenderManager2D::ReleaseTexture(::RuntimeTexture* texture) {
     if (texture == nullptr) { return; }
+    GlyphCache.Invalidate();
     texture->Dispose();
     delete texture;
 }
@@ -484,7 +484,7 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
         return;
     }
     const ::float2 shadow = text->get_ShadowOffset();
-    struct GlyphPass { float x; float y; ::byte4 color; } passes[6]{};
+    struct GlyphPass { float x; float y; ::byte4 color; psyqo::Color gpuColor; bool semiTransparent; } passes[6]{};
     unsigned passCount = 0;
     if (shadow.X != 0.0f || shadow.Y != 0.0f) passes[passCount++] = {shadow.X, shadow.Y, text->get_ShadowColor()};
     const float outline = text->get_OutlineScale();
@@ -496,6 +496,10 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
         passes[passCount++] = {0.0f, outline, color};
     }
     passes[passCount++] = {0.0f, 0.0f, text->get_Color()};
+    for (unsigned i = 0; i < passCount; ++i) {
+        TryColor(passes[i].color, true, passes[i].gpuColor);
+        TryMapAlphaToBlend(passes[i].color.W, passes[i].semiTransparent);
+    }
     Ps1TextAlignment alignment = Ps1TextAlignment::Left;
     if (text->get_Alignment() == ::TextAlignment::Center) alignment = Ps1TextAlignment::Center;
     if (text->get_Alignment() == ::TextAlignment::Right) alignment = Ps1TextAlignment::Right;
@@ -526,9 +530,9 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
                 return false;
             }
             pending.Texture = texture;
-            TryColor(pass.color, true, pending.Color);
+            pending.Color = pass.gpuColor;
             pending.Bucket = bucket;
-            TryMapAlphaToBlend(pass.color.W, pending.SemiTransparent);
+            pending.SemiTransparent = pass.semiTransparent;
             pending.IsSprite = true;
             if (!AppendPending(pending)) return false;
             ++QueuedGlyphQuads;

@@ -88,13 +88,14 @@ void TestTextGlyphCache() {
         return true;
     };
     Ps1TextGlyph glyph{};
-    cache.BeginFrame();
     assert(cache.Lookup('A', &fontA, glyph, fetch) && glyph.advance == 5.0f);
     assert(cache.Lookup('A', &fontA, glyph, fetch) && fetches == 1);
     assert(!cache.Lookup('?', &fontA, glyph, fetch));
     assert(!cache.Lookup('?', &fontA, glyph, fetch) && fetches == 2);
     assert(cache.Lookup('A', &fontB, glyph, fetch) && fetches == 3);
-    cache.BeginFrame();
+    // Cooked font metrics survive frame boundaries until a texture is released.
+    assert(cache.Lookup('A', &fontB, glyph, fetch) && fetches == 3);
+    cache.Invalidate();
     assert(cache.Lookup('A', &fontA, glyph, fetch) && fetches == 4);
 }
 

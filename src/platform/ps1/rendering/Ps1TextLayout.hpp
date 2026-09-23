@@ -17,10 +17,10 @@ struct Ps1TextGlyph {
     bool sourceValid = false;
 };
 
-/// Reuses immutable font metrics across both layout passes and repeated labels in one frame.
+/// Reuses cooked font metrics across frames until their texture is released.
 class Ps1TextGlyphCache {
 public:
-    void BeginFrame() {
+    void Invalidate() {
         if (++Generation == 0) {
             for (Entry& entry : Entries) entry.generation = 0;
             Generation = 1;
