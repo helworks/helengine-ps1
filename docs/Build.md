@@ -256,8 +256,11 @@ portable directory:
 The launcher verifies every artifact path and SHA-256 from the manifest, then
 requires `portable.txt`, `settings.ini`, `bios\openbios.bin`, and the native
 settings above beside the specified DuckStation executable. It launches with
-the verified PS-X EXE as a positional argument using `-batch -nogui
--earlyconsole`, from the portable directory, and records the executable,
+the verified PS-X EXE as a positional argument from the portable directory.
+Unattended runs use `-batch -nogui -earlyconsole`; add `-ShowWindow` for the
+full DuckStation GUI, which omits `-nogui`. Set `[Display] ShowFPS = true` in
+the portable `settings.ini` to show DuckStation's own FPS and VPS counters.
+The launcher records the executable,
 emulator, settings, BIOS, manifest hashes, arguments, process ID, and stdout
 and stderr log paths in `last-launch.json` beside the manifest. It never
 selects a newest artifact and never falls back to a stale executable.

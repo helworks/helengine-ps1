@@ -130,7 +130,9 @@ $launchStamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
 $launchLog = Join-Path $manifestDirectory ('duckstation-' + $launchStamp + '.log')
 $errorLog = Join-Path $manifestDirectory ('duckstation-' + $launchStamp + '.err.log')
 $quotedExecutablePath = Quote-ProcessArgument -Value $exePath
-$arguments = @('-batch', '-nogui', '-earlyconsole', $quotedExecutablePath)
+$arguments = @('-batch')
+if (-not $ShowWindow) { $arguments += '-nogui' }
+$arguments += @('-earlyconsole', $quotedExecutablePath)
 $windowStyle = if ($ShowWindow) { 'Normal' } else { 'Hidden' }
 $process = Start-Process -FilePath $emulatorPath -ArgumentList $arguments -WorkingDirectory $portableDirectory -WindowStyle $windowStyle -RedirectStandardOutput $launchLog -RedirectStandardError $errorLog -PassThru
 
