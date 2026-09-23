@@ -874,3 +874,37 @@ Update-cost diagnostic log
 `C:\dev\helworks\builds\helengine-ps1\20260923-134453-706-Release-55b68ed8c4bc456f8c3cfa7cb378a1c3\guest-update-cost.log`,
 and host summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-135357-517-4fbbbb5c42364441839074ebca71f36d\summary.json`.
+## Authored scene at one frame per NTSC VBlank (2026-09-23)
+
+With the unchanged `cube_test` authored archive, the prior Release build averaged
+3.673 ms in Update and 25.674 ms in Draw. Its second 600-frame interval used
+1,202 VBlanks, or 29.86 game FPS at DuckStation's measured 59.82 VPS.
+Temporary UI profiling found 12.9 ms per frame in text layout and glyph quad
+construction. Retaining each text component's quads, pointing the ordered UI
+queue at those retained quads, and changing only glyph UVs when new characters
+have identical metrics removed most of that repeated work. A shape-quad cache
+was discarded after it worsened Draw from 15.1 to 16.0 ms.
+
+Release builds of the authored path now compile generated Core and the frame
+renderers with `-O2`; diagnostic and non-authored builds keep their existing
+flags. Measured in the final DuckStation build, the second 600-frame profile
+averaged Update 2.984 ms, boundary 0.192 ms, and Draw 9.874 ms. The clean
+frame-1800-to-2400 interval used exactly 600 VBlanks for 600 game frames,
+equivalent to 59.82 game FPS at 59.82 VPS. The startup interval still includes
+a 54-VBlank first frame, and the 600/1200 diagnostic printouts disturb nearby
+frames; neither is included in the clean interval. The first-frame UI report
+still lists 3 sprites, 2 shapes, 5 texts, 82 glyph quads and no UI failure.
+The user-visible layout has not yet been reconfirmed on this final build.
+
+The throughput flags increased the PS-X EXE from 516,096 to 790,528 bytes and
+static RAM from 562,592 to 839,080 bytes. Heap capacity decreased from
+1,403,488 to 1,127,000 bytes, remaining above 1.1 MB. The full host suite
+passed with every required exit code zero and the negative stream fixture at
+its expected 73.
+
+Evidence: final build manifest
+`C:\dev\helworks\builds\helengine-ps1\20260923-175104-398-Release-3074997bf2f8488bb7d8d14e09868223\manifest.json`,
+preserved guest log
+`C:\dev\helworks\builds\helengine-ps1\20260923-175104-398-Release-3074997bf2f8488bb7d8d14e09868223\guest-steady-600.log`,
+and host summary
+`C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-174952-451-3275b2f3dcc84a83b529b2796f9bad11\summary.json`.
