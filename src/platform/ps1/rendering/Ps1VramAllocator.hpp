@@ -24,6 +24,9 @@ public:
     /// <summary>VRAM height in rows.</summary>
     static constexpr std::uint16_t VramHeight = 512;
 
+    /// <summary>CLUT X coordinates are encoded by the GPU in 16-word units.</summary>
+    static constexpr std::uint16_t ClutXAlignment = 16;
+
     /// <summary>Returns the allocator to its empty state, releasing every placement at once.</summary>
     void Reset() {
         NextColumn = FirstFreeColumn;
@@ -40,21 +43,46 @@ public:
     /// <param name="y">Receives the VRAM row of the placement.</param>
     /// <returns>False when the request does not fit in the remaining region, leaving x and y untouched.</returns>
     bool TryAllocate(std::uint16_t widthInWords, std::uint16_t heightInRows, std::uint16_t& x, std::uint16_t& y) {
-        if (widthInWords == 0 || heightInRows == 0) { return false; }
+        return TryAllocateAligned(widthInWords, heightInRows, 1, x, y);
+    }
+
+    /// <summary>
+    /// Reserves an aligned rectangle, for VRAM structures such as CLUTs whose GPU address has
+    /// fewer horizontal bits than a raw VRAM word coordinate.
+    /// </summary>
+    /// <param name="widthInWords">Width in 16-bit VRAM words.</param>
+    /// <param name="heightInRows">Height in VRAM rows.</param>
+    /// <param name="horizontalAlignment">Required X-coordinate alignment in words.</param>
+    /// <param name="x">Receives the aligned VRAM column.</param>
+    /// <param name="y">Receives the VRAM row of the placement.</param>
+    /// <returns>False when the request does not fit, leaving outputs and allocator state untouched.</returns>
+    bool TryAllocateAligned(std::uint16_t widthInWords, std::uint16_t heightInRows,
+                            std::uint16_t horizontalAlignment, std::uint16_t& x, std::uint16_t& y) {
+        if (widthInWords == 0 || heightInRows == 0 || horizontalAlignment == 0) { return false; }
         if (widthInWords > VramWidth - FirstFreeColumn || heightInRows > VramHeight) { return false; }
 
-        if (NextColumn + widthInWords > VramWidth) {
-            // The shelf is full, so drop to a new one starting below the tallest entry on this one.
-            ShelfTop = static_cast<std::uint16_t>(ShelfTop + ShelfHeight);
-            ShelfHeight = 0;
-            NextColumn = FirstFreeColumn;
+        std::uint32_t shelfTop = ShelfTop;
+        std::uint32_t shelfHeight = ShelfHeight;
+        std::uint32_t nextColumn = NextColumn;
+        const auto alignColumn = [horizontalAlignment](std::uint32_t column) {
+            const std::uint32_t remainder = column % horizontalAlignment;
+            return remainder == 0 ? column : column + horizontalAlignment - remainder;
+        };
+        std::uint32_t alignedColumn = alignColumn(nextColumn);
+        if (alignedColumn + widthInWords > VramWidth) {
+            // The aligned request does not fit this shelf, so try a fresh one below it.
+            shelfTop += shelfHeight;
+            shelfHeight = 0;
+            nextColumn = FirstFreeColumn;
+            alignedColumn = alignColumn(nextColumn);
         }
-        if (ShelfTop + heightInRows > VramHeight) { return false; }
+        if (shelfTop + heightInRows > VramHeight || alignedColumn + widthInWords > VramWidth) return false;
 
-        x = NextColumn;
+        ShelfTop = static_cast<std::uint16_t>(shelfTop);
+        ShelfHeight = static_cast<std::uint16_t>(heightInRows > shelfHeight ? heightInRows : shelfHeight);
+        NextColumn = static_cast<std::uint16_t>(alignedColumn + widthInWords);
+        x = static_cast<std::uint16_t>(alignedColumn);
         y = ShelfTop;
-        NextColumn = static_cast<std::uint16_t>(NextColumn + widthInWords);
-        if (heightInRows > ShelfHeight) { ShelfHeight = heightInRows; }
         return true;
     }
 

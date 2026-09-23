@@ -1,4 +1,5 @@
 #include "platform/ps1/rendering/Ps1AuthoredUiGeometry.hpp"
+#include "platform/ps1/rendering/Ps1VramAllocator.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -6,6 +7,18 @@
 using namespace helengine::ps1;
 
 int main() {
+    Ps1VramAllocator allocator;
+    std::uint16_t textureX = 0;
+    std::uint16_t textureY = 0;
+    std::uint16_t paletteX = 0;
+    std::uint16_t paletteY = 0;
+    assert(allocator.TryAllocate(14, 27, textureX, textureY));
+    assert(textureX == 320 && textureY == 0);
+    assert(allocator.TryAllocateAligned(256, 1, 16, paletteX, paletteY));
+    assert(paletteX == 336 && paletteY == 0);
+    assert(paletteX >= textureX + 14 && paletteX % 16 == 0);
+    assert(paletteX / 16 == 21);
+
     Ps1UiVertex quad[4]{};
     const Ps1ScreenRect full{0, 0, 320, 240};
     assert(TryBuildSpriteQuad({20.0f, 30.0f}, {26.0f, 27.0f}, {1.0f, 1.0f}, 0.0f,

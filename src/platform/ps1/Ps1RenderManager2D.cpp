@@ -287,7 +287,7 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     const std::uint32_t suppliedEntries = static_cast<std::uint32_t>(asset->PaletteColors->Length) / 4u;
     std::uint16_t clutX = 0;
     std::uint16_t clutY = 0;
-    if (!VramAllocator.TryAllocate(paletteEntries, 1, clutX, clutY)) {
+    if (!VramAllocator.TryAllocateAligned(paletteEntries, 1, Ps1VramAllocator::ClutXAlignment, clutX, clutY)) {
         he_cpp_custom::Fail("PS1 ran out of VRAM for a texture palette");
     }
     std::uint16_t palette[EightBitPaletteEntries];

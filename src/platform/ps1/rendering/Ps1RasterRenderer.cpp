@@ -628,7 +628,8 @@ bool Ps1RasterRenderer::QueueAuthoredUiSprite(const Ps1UiVertex (&vertices)[4], 
     page.setPageY(static_cast<std::uint8_t>(vramY / 256u));
     page.set(fourBit ? psyqo::Prim::TPageAttr::Tex4Bits : psyqo::Prim::TPageAttr::Tex8Bits);
     if (semiTransparent) page.set(psyqo::Prim::TPageAttr::HalfBackAndHalfFront);
-    const psyqo::PrimPieces::ClutIndex clut(clutX, clutY);
+    // CLUT X is encoded in 16-word units; the texture loader reserves palettes on that boundary.
+    const psyqo::PrimPieces::ClutIndex clut(static_cast<std::uint16_t>(clutX / 16u), clutY);
     auto initialize = [&](Ps1FrameContext::TexturedTriangleFragment& fragment, const Ps1UiVertex& a,
                           const Ps1UiVertex& b, const Ps1UiVertex& c) {
         fragment.primitive = psyqo::Prim::TexturedTriangle(modulation);
