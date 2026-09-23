@@ -833,3 +833,41 @@ preserved guest log
 `C:\dev\helworks\builds\helengine-ps1\20260923-132245-065-Release-6c694050d7b841c58db38ca76d80f0bc\guest-ui-perf.log`,
 and host summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-132118-037-1d1e53443e5544d5a786be7ca0876e3c\summary.json`.
+
+## NTSC cadence and cross-frame glyph cache (2026-09-23)
+
+DuckStation's FPS counter counts new game frames while VPS counts emulated video
+refreshes. The visible 28.91 FPS / 59.82 VPS therefore meant the emulator was
+running at NTSC video speed while the game missed some two-VBlank deadlines.
+At 59.82 VPS, the two-VBlank target is 29.91 FPS, not 30.00. The prior steady
+600-frame interval used 1,243 VBlanks rather than 1,200.
+
+Temporary diagnostics isolated the recurring miss: 40 of 41 third-VBlank
+frames in the second 600-frame interval followed an Update over 4.5 ms.
+Normal Update averaged 3.583 ms; the 40 slow Updates averaged 4.928 ms.
+The latter plus Draw 28.356 ms and frame boundary 0.193 ms reached 33.477 ms,
+just beyond the two-VBlank budget. The 40 slow Updates in that interval align with the FPS component's
+0.5-second refresh interval. Sending the PS1 overlay text
+rows after Draw did not coincide with those missed frames. These counters were
+temporary and removed after the diagnosis.
+
+Cooked font metrics are immutable, so the PS1 glyph cache now persists across
+frames and is invalidated when a runtime texture is released. The host test
+first failed without the invalidation method, then passed with cross-frame
+reuse and refetch after invalidation. Precomputing each text pass's GPU color
+and blend state avoids repeated conversions per glyph. In the final native
+build, steady Draw averaged 25.674 ms versus 28.358 ms before these changes.
+The second 600-frame interval used 1,202 VBlanks versus 1,243, equivalent to
+29.86 versus 28.88 FPS at the measured 59.82 VPS. Update averaged 3.673 ms
+and frame boundary 0.192 ms. The PS-X EXE remained 516,096 bytes, static RAM
+562,592 bytes, and heap capacity 1,403,488 bytes. The full host suite passed
+all required checks; its negative stream fixture returned the expected 73.
+
+Evidence: final build manifest
+`C:\dev\helworks\builds\helengine-ps1\20260923-135441-237-Release-930e8750263943d2b5867dafa7f98406\manifest.json`,
+final guest log
+`C:\dev\helworks\builds\helengine-ps1\20260923-135441-237-Release-930e8750263943d2b5867dafa7f98406\guest-glyph-cache.log`,
+Update-cost diagnostic log
+`C:\dev\helworks\builds\helengine-ps1\20260923-134453-706-Release-55b68ed8c4bc456f8c3cfa7cb378a1c3\guest-update-cost.log`,
+and host summary
+`C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-135357-517-4fbbbb5c42364441839074ebca71f36d\summary.json`.
