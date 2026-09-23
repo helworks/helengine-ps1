@@ -894,7 +894,9 @@ equivalent to 59.82 game FPS at 59.82 VPS. The startup interval still includes
 a 54-VBlank first frame, and the 600/1200 diagnostic printouts disturb nearby
 frames; neither is included in the clean interval. The first-frame UI report
 still lists 3 sprites, 2 shapes, 5 texts, 82 glyph quads and no UI failure.
-The user-visible layout has not yet been reconfirmed on this final build.
+The user confirmed that the panel, text and shapes remain visually correct on
+the final build, and that both the game and DuckStation FPS/VPS readings
+settle near 59.8.
 
 The throughput flags increased the PS-X EXE from 516,096 to 790,528 bytes and
 static RAM from 562,592 to 839,080 bytes. Heap capacity decreased from
