@@ -696,3 +696,36 @@ host summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260922-215047-874-77de82768eac437c812b928170b99fd8\summary.json`,
 and clean DuckStation guest log
 `C:\dev\helworks\builds\helengine-ps1\20260922-ui-viewport-final-Release\editor-output\guest-first-frame.log`.
+
+## Authored font glyphs on PS1 (2026-09-23)
+
+The prior first frame visited five text drawables but skipped all five. It
+submitted 3 textured sprite quads and 98 UI triangles in 101 packets, using
+2,104 bytes of packet storage. The new font path uses the cooked default font
+atlas and Core glyph metrics, preserving the ordered sprite/shape/text queue.
+It also increases the textured reservation from 24 to 128 quads and the frame
+packet budget from 8,192 to 16,384 bytes.
+
+With the same scene export (SHA-256
+`ca237b8a84abe3db34ad6ee10574ab9e2da1d48819b9083f561c458ff54a58d2`)
+and engine revision `72a4fcbfd6b2fa6cc2c59a618c09eb4a49bf9637`, the first
+frame visited 5 text drawables, staged 82 glyph quads, skipped 0 texts, and
+submitted 85 textured quads and 262 UI triangles in 265 packets. Packet
+high-water rose from 2,104 to 7,352 bytes, with intact guards and no failure
+marker. The PS-X EXE grew from 468,992 to 475,136 bytes; static RAM grew from
+498,464 to 521,568 bytes, leaving 1,444,512 bytes of heap instead of
+1,467,616. The host suite passed all required checks; the stream fixture's
+negative exit code 73 was expected. These measurements show glyph packet
+submission, while visual font appearance remains for a user check.
+
+The first build attempt stopped during staged C# compilation because the
+new menu-only `FooterIdentityMarqueeComponent` uses a viewport constant absent
+from the pinned engine. The successful build excluded that class; `cube_test`
+does not reference it. The shared engine revision was not changed.
+
+Evidence: build manifest
+`C:\dev\helworks\builds\helengine-ps1\20260923-ui-font-menu-excluded-Release\editor-output\manifest.json`,
+guest log
+`C:\dev\helworks\builds\helengine-ps1\20260923-ui-font-menu-excluded-Release\editor-output\guest-first-frame.log`,
+and host summary
+`C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-095853-889-93e82d4554dd45ca95d9926020fd4d46\summary.json`.

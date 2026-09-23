@@ -325,7 +325,7 @@ Export the scene unchanged with `helengine.ps1.samplegen --full <scene>
   -EditorAppPath <editor-app-build>\bin\helengine.editor.app\debug\helengine.editor.app.dll `
   -OutputRoot C:\dev\helworks\builds\helengine-ps1\<fresh-directory> `
   -RetainAllRuntimeScripts `
-  -ExcludeScriptClasses @('SoftwareBvh','SoftwareMaterialKind','SoftwareModelComponent','SoftwarePathTracer','SoftwarePathTracerComponent','SoftwareScatteringMaterial','SoftwareSpecularScattering','SoftwareTraceScene')
+  -ExcludeScriptClasses @('SoftwareBvh','SoftwareMaterialKind','SoftwareModelComponent','SoftwarePathTracer','SoftwarePathTracerComponent','SoftwareScatteringMaterial','SoftwareSpecularScattering','SoftwareTraceScene','FooterIdentityMarqueeComponent')
 ```
 
 `-RetainAllRuntimeScripts` is required because the component pruner keeps
@@ -336,6 +336,10 @@ exception recovery the PS1 runtime profile rejects (`CPP1001`); they form a
 closed family with no other runtime references. Pass the exclusions as a
 PowerShell array through `-Command`; `-File` hands the list over as one
 comma-joined string and the script rejects it.
+The menu-only `FooterIdentityMarqueeComponent` was added after the pinned
+engine revision and uses `ViewportComponent.ReferenceCanvasStretchScalingMode`,
+which that revision lacks. `cube_test` does not reference this component, so
+exclude it from this scene build until an intentional engine pin update.
 
 As of csharpcodegen `46b6371` (engine pin `881f9bf0`) the generator's
 freestanding math runtime defines `sin`, `cos`, `sqrt` and friends as global
