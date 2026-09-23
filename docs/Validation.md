@@ -934,6 +934,7 @@ Evidence: build manifest
 guest log `C:\dev\helworks\helengine-ps1\out\quad-trial-guest.log`, and host
 summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-184924-654-0f59df19cbe346c19f42ab15b37e20d1\summary.json`.
+
 ## Stable 2D queue type validation (2026-09-23)
 
 The `cube_test` render list contains 3 sprites, 2 rounded rectangles and 5
@@ -951,6 +952,10 @@ With the unchanged scene and restored, clean generated Core, the second
 report still lists 3 sprites, 2 shapes, 5 texts, 82 glyph quads and no failure.
 The clean 1800–2400 interval used 600 VBlanks for 600 game frames. The host
 suite passed, including the expected negative stream fixture exit 73.
+A follow-up trial retained each glyph's 36-byte GPU primitive alongside its
+cached quad. It worsened Draw from 8.382 to 8.833 ms and raised the steady
+heap end from `0x800fb920` to `0x80105c20` (41,728 bytes). That trial was
+discarded; the faster queue-validation build remains current.
 
 Evidence: build manifest
 `C:\dev\helworks\builds\helengine-ps1\20260923-191739-649-Release-23ad068bb5c7470d9a170197614d4792\manifest.json`,
