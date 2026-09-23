@@ -654,3 +654,45 @@ host summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260922-210649-463-79d56a4a520741cf8a182aac86f26bcc\summary.json`,
 and DuckStation log
 `C:\dev\helworks\emus\ps1\duckstation-windows-x64-release\duckstation.log`.
+
+## Authored viewport fit on PS1 (2026-09-22)
+
+After the CLUT correction, the user still saw only the light swatch. A
+first-frame guest trace showed the instruction panel at `(24, 528)` and its
+three sprite quads at Y=560–732 on a 320x240 display. Core's screen-bound
+`ViewportComponent` fell back to its authored 1280x720 fixed size because the
+PS1 render manager had not registered its native display. N64 already calls
+`RenderManager3D::AddWindow(0, 320, 240)` before Core initialization; PS1 now
+does the same.
+
+With the same scene export and engine revision, the first-frame guest trace
+showed the panel at `(6, 162)` with its component size changed from 345x150
+to 86x38, and all three sprite quads moved into Y=170–214. The light swatch
+moved from about `(190, 73)` to `(48, 48)`. The panel's authored 1.5 entity
+scale remains in both traces. This establishes that Core fitted the reference
+canvas into the native viewport; no framebuffer capture was made, so pixel
+appearance still needs a direct visual check.
+
+A clean rebuild from commit `695002d` (temporary tracing removed) used
+`helengine` revision `72a4fcbfd6b2fa6cc2c59a618c09eb4a49bf9637` and the unchanged
+scene export SHA-256
+`ca237b8a84abe3db34ad6ee10574ab9e2da1d48819b9083f561c458ff54a58d2`.
+It booted in DuckStation with an 11-asset, 37,028-byte archive, one complete
+first frame, 3 submitted sprites, 98 submitted UI triangles, 101 total
+packets, intact guards, and no fatal marker. Five text drawables are still
+skipped. The PS-X EXE stayed at 468,992 bytes, static footprint at 498,464
+bytes and heap capacity at 1,467,616 bytes. The host suite reported zero for
+every required check; its negative stream fixture returned the expected 73.
+
+Evidence: pre-fix guest log
+`C:\dev\helworks\builds\helengine-ps1\20260922-ui-trace-Release\editor-output\guest-first-frame.log`,
+post-fix guest log
+`C:\dev\helworks\builds\helengine-ps1\20260922-ui-viewport-Release\editor-output\guest-first-frame.log`,
+and clean manifest
+`C:\dev\helworks\builds\helengine-ps1\20260922-ui-viewport-final-Release\editor-output\manifest.json`
+(PS-X EXE SHA-256
+`d94e29b715186828113fe8eeba32ae3cd2b782f0346372a346fe31325a596e14`),
+host summary
+`C:\dev\helworks\builds\helengine-ps1\host-tests-20260922-215047-874-77de82768eac437c812b928170b99fd8\summary.json`,
+and clean DuckStation guest log
+`C:\dev\helworks\builds\helengine-ps1\20260922-ui-viewport-final-Release\editor-output\guest-first-frame.log`.
