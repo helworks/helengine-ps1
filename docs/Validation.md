@@ -729,3 +729,31 @@ guest log
 `C:\dev\helworks\builds\helengine-ps1\20260923-ui-font-menu-excluded-Release\editor-output\guest-first-frame.log`,
 and host summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-095853-889-93e82d4554dd45ca95d9926020fd4d46\summary.json`.
+
+## Native font atlas and glyph bounds (2026-09-23)
+
+The first font build cooked the default 256x128 atlas at 128x64 while retaining
+the original glyph metrics. Its generic sprite UV conversion could also include
+an adjacent texel for a small glyph. The PS1 font cook now retains the 256x128
+atlas, glyph quads use exact source texel bounds, and texture uploads reserve a
+single horizontal GPU page when possible. The page rule placed this atlas at
+VRAM X=896 instead of X=864, where it had crossed a page and rejected all text.
+
+The rebuilt scene uploaded the font at 256x128, staged 82 glyph quads, skipped
+0 of 5 text drawables, and submitted 85 textured quads and 262 UI triangles on
+the first frame, with intact packet guards and no failure marker. The 600-frame
+cadence used 1,851 VBlanks versus 3,048 for the earlier 128x64 build, or about
+19.4 versus 11.8 frames per second at 60 Hz. The PS-X EXE grew from 475,136 to
+512,000 bytes; static RAM grew from 521,568 to 558,432 bytes, leaving
+1,407,648 bytes of heap versus 1,444,512. The host suite and focused font cook
+test passed. No framebuffer capture was made, so the glyph appearance still
+needs a user visual check.
+
+Evidence: rebuilt manifest
+`C:\dev\helworks\builds\helengine-ps1\20260923-105323-722-Release-f5beb5520b7b45d59e4052f31c054408\manifest.json`,
+guest log
+`C:\dev\helworks\builds\helengine-ps1\20260923-105323-722-Release-f5beb5520b7b45d59e4052f31c054408\guest-font-native-atlas.log`,
+earlier cadence log
+`C:\dev\helworks\builds\helengine-ps1\20260923-102551-055-Release-920901ae34e849ac8315d6ef8327d925\guest-timing.log`,
+and host summary
+`C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-105114-210-b5da0b99b4ad433799dfbebfeda44e4f\summary.json`.
