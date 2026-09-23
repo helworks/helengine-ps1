@@ -19,6 +19,16 @@ int main() {
     assert(paletteX >= textureX + 14 && paletteX % 16 == 0);
     assert(paletteX / 16 == 21);
 
+    Ps1VramAllocator pageAllocator;
+    std::uint16_t x = 0, y = 0;
+    assert(pageAllocator.TryAllocate(14, 27, x, y) && x == 320);
+    assert(pageAllocator.TryAllocateAligned(256, 1, 16, x, y) && x == 336);
+    assert(pageAllocator.TryAllocate(14, 27, x, y) && x == 592);
+    assert(pageAllocator.TryAllocateAligned(256, 1, 16, x, y) && x == 608);
+    assert(pageAllocator.TryAllocateWithinHorizontalPage(64, 128, x, y));
+    assert(x == 896 && y == 0 && x % 64 == 0);
+    assert(pageAllocator.TryAllocateAligned(16, 1, 16, x, y) && x == 960);
+
     Ps1UiVertex quad[4]{};
     const Ps1ScreenRect full{0, 0, 320, 240};
     assert(TryBuildSpriteQuad({20.0f, 30.0f}, {26.0f, 27.0f}, {1.0f, 1.0f}, 0.0f,
@@ -42,6 +52,14 @@ int main() {
     assert(TryBuildSpriteQuad({10.0f, 10.0f}, {2.0f, 2.0f}, {1.0f, 1.0f}, 1.57079632679f,
                               {0.0f, 0.0f, 1.0f, 1.0f}, {2.0f, 2.0f}, full, quad));
     assert(std::abs(quad[0].x - 12) <= 1 && std::abs(quad[0].y - 10) <= 1);
+
+    // The font's L occupies exactly texels (41..45, 33..41) in its 256x128 atlas.
+    // Glyph UVs must not sample the following padding or neighboring glyph.
+    assert(TryBuildGlyphQuad({10.0f, 20.0f}, {2.5f, 3.5f},
+                             {41.0f / 256.0f, 33.0f / 128.0f, 5.0f / 256.0f, 9.0f / 128.0f},
+                             {256.0f, 128.0f}, full, quad));
+    assert(quad[0].x == 10 && quad[0].y == 20 && quad[3].x == 13 && quad[3].y == 24);
+    assert(quad[0].u == 41 && quad[0].v == 33 && quad[3].u == 45 && quad[3].v == 41);
 
     Ps1UiTriangle triangles[64]{};
     std::uint16_t count = 0;

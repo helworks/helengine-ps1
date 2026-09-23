@@ -119,6 +119,43 @@ inline bool TryBuildSpriteQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint s
     return true;
 }
 
+/** Builds an unrotated glyph using exact atlas texel bounds and no trigonometry per character. */
+inline bool TryBuildGlyphQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiRectF sourceRect,
+                              Ps1UiSize textureSize, Ps1ScreenRect viewport, Ps1UiVertex (&vertices)[4]) {
+    using namespace ui_geometry_detail;
+    if (!ValidViewport(viewport) || !Finite(position.x) || !Finite(position.y) ||
+        !Finite(size.width) || !Finite(size.height) || size.width <= 0.0f || size.height <= 0.0f ||
+        !Finite(sourceRect.x) || !Finite(sourceRect.y) || !Finite(sourceRect.width) ||
+        !Finite(sourceRect.height) || sourceRect.x < 0.0f || sourceRect.y < 0.0f ||
+        sourceRect.width <= 0.0f || sourceRect.height <= 0.0f ||
+        sourceRect.x + sourceRect.width > 1.00001f || sourceRect.y + sourceRect.height > 1.00001f ||
+        !Finite(textureSize.width) || !Finite(textureSize.height) || textureSize.width <= 0.0f ||
+        textureSize.height <= 0.0f || textureSize.width > 256.0f || textureSize.height > 256.0f) return false;
+
+    const long sourceX = Round(sourceRect.x * textureSize.width);
+    const long sourceY = Round(sourceRect.y * textureSize.height);
+    const long sourceWidth = Round(sourceRect.width * textureSize.width);
+    const long sourceHeight = Round(sourceRect.height * textureSize.height);
+    if (sourceWidth <= 0 || sourceHeight <= 0 || sourceX < 0 || sourceY < 0 ||
+        sourceX + sourceWidth > static_cast<long>(textureSize.width) ||
+        sourceY + sourceHeight > static_cast<long>(textureSize.height)) return false;
+
+    std::int16_t x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    if (!ToScreen(position.x, position.y, viewport, x0, y0) ||
+        !ToScreen(position.x + size.width, position.y + size.height, viewport, x1, y1)) return false;
+    if (x1 <= x0) ++x1;
+    if (y1 <= y0) ++y1;
+    const auto u0 = static_cast<std::uint8_t>(sourceX);
+    const auto v0 = static_cast<std::uint8_t>(sourceY);
+    const auto u1 = static_cast<std::uint8_t>(sourceX + sourceWidth - 1);
+    const auto v1 = static_cast<std::uint8_t>(sourceY + sourceHeight - 1);
+    vertices[0] = {x0, y0, u0, v0};
+    vertices[1] = {x1, y0, u1, v0};
+    vertices[2] = {x0, y1, u0, v1};
+    vertices[3] = {x1, y1, u1, v1};
+    return true;
+}
+
 /** Builds a convex fill fan and optional border ring; 0x01, 0x02, 0x04, 0x08 select TL, TR, BR, BL. */
 inline bool TryBuildRoundedRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint scale,
                                          float rotationRadians, float radius, float borderThickness,

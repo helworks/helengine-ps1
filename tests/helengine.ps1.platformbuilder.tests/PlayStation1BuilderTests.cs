@@ -282,7 +282,7 @@ public sealed class PlayStation1BuilderTests : IDisposable {
         TextureAssetProcessorSettings settings = PlayStation1TextureCookSettingsSerializer.DeserializeFontAtlas(
             "{\"maxResolution\":512,\"colorFormat\":\"Rgba32\",\"alphaPrecision\":\"Full\"}");
 
-        Assert.Equal(128, settings.MaxResolution);
+        Assert.Equal(256, settings.MaxResolution);
         Assert.Equal(TextureAssetColorFormat.Indexed4, settings.ColorFormat);
         Assert.Equal(TextureAssetAlphaPrecision.Binary, settings.AlphaPrecision);
     }

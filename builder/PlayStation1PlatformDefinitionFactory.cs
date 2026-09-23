@@ -33,7 +33,7 @@ public static class PlayStation1PlatformDefinitionFactory {
     /// <returns>Serialized default PS1 font-atlas cook settings.</returns>
     static string CreateDefaultSerializedFontAtlasTextureCookSettings() {
         return PlayStation1TextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
-            MaxResolution = 128,
+            MaxResolution = 256,
             ColorFormat = TextureAssetColorFormat.Indexed4,
             AlphaPrecision = TextureAssetAlphaPrecision.Binary
         });

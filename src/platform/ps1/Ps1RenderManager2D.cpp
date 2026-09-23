@@ -258,7 +258,7 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     const std::uint16_t widthInWords = static_cast<std::uint16_t>((width + pixelsPerWord - 1u) / pixelsPerWord);
     std::uint16_t vramX = 0;
     std::uint16_t vramY = 0;
-    if (!VramAllocator.TryAllocate(widthInWords, height, vramX, vramY)) {
+    if (!VramAllocator.TryAllocateWithinHorizontalPage(widthInWords, height, vramX, vramY)) {
         ramsyscall_printf("PS1_TEXTURE_VRAM_EXHAUSTED words=%u used=%u\n",
                           static_cast<unsigned>(widthInWords) * static_cast<unsigned>(height),
                           static_cast<unsigned>(VramAllocator.UsedWords()));
@@ -513,8 +513,8 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
             const GlyphPass& pass = passes[passIndex];
             if (pass.color.W == 0) continue;
             PendingUiDrawable pending{};
-            if (!TryBuildSpriteQuad({x + pass.x, y + pass.y}, {glyph.width * fontScale, glyph.height * fontScale},
-                                    {1.0f, 1.0f}, 0.0f, {source.X, source.Y, source.Z, source.W},
+            if (!TryBuildGlyphQuad({x + pass.x, y + pass.y}, {glyph.width * fontScale, glyph.height * fontScale},
+                                    {source.X, source.Y, source.Z, source.W},
                                     {static_cast<float>(width), static_cast<float>(height)}, ActiveViewport,
                                     pending.Vertices)) {
                 Reject("PS1_UI_GLYPH_GEOMETRY_REJECTED");

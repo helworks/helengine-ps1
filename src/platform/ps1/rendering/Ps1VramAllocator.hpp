@@ -27,6 +27,9 @@ public:
     /// <summary>CLUT X coordinates are encoded by the GPU in 16-word units.</summary>
     static constexpr std::uint16_t ClutXAlignment = 16;
 
+    /// <summary>A PS1 texture page spans 64 sixteen-bit VRAM words horizontally.</summary>
+    static constexpr std::uint16_t TexturePageWidthWords = 64;
+
     /// <summary>Returns the allocator to its empty state, releasing every placement at once.</summary>
     void Reset() {
         NextColumn = FirstFreeColumn;
@@ -44,6 +47,22 @@ public:
     /// <returns>False when the request does not fit in the remaining region, leaving x and y untouched.</returns>
     bool TryAllocate(std::uint16_t widthInWords, std::uint16_t heightInRows, std::uint16_t& x, std::uint16_t& y) {
         return TryAllocateAligned(widthInWords, heightInRows, 1, x, y);
+    }
+
+    /// <summary>Places a texture without crossing a horizontal GPU texture-page boundary.</summary>
+    bool TryAllocateWithinHorizontalPage(std::uint16_t widthInWords, std::uint16_t heightInRows,
+                                         std::uint16_t& x, std::uint16_t& y) {
+        if (widthInWords == 0 || widthInWords > TexturePageWidthWords) return false;
+        Ps1VramAllocator trial = *this;
+        std::uint16_t trialX = 0, trialY = 0;
+        if (trial.TryAllocate(widthInWords, heightInRows, trialX, trialY) &&
+            trialX % TexturePageWidthWords + widthInWords <= TexturePageWidthWords) {
+            *this = trial;
+            x = trialX;
+            y = trialY;
+            return true;
+        }
+        return TryAllocateAligned(widthInWords, heightInRows, TexturePageWidthWords, x, y);
     }
 
     /// <summary>

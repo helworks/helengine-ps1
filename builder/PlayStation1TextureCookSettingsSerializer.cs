@@ -93,7 +93,7 @@ public static class PlayStation1TextureCookSettingsSerializer {
             if (document.RootElement.TryGetProperty("colorFormat", out JsonElement colorFormatElement)
                 && string.Equals(colorFormatElement.GetString(), "Rgba32", StringComparison.OrdinalIgnoreCase)) {
                 return new TextureAssetProcessorSettings {
-                    MaxResolution = 128,
+                    MaxResolution = 256,
                     ColorFormat = TextureAssetColorFormat.Indexed4,
                     AlphaPrecision = TextureAssetAlphaPrecision.Binary
                 };
