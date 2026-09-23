@@ -45,6 +45,15 @@ class Ps1AuthoredScene final : public psyqo::Scene {
     std::uint32_t m_lastVblankFrame = 0;
     std::uint32_t m_missedVblanks = 0;
     std::uint32_t m_worstVblankDelta = 0;
+    std::uint64_t m_lastFrameEndUs = 0;
+    std::uint64_t m_updateTotalUs = 0;
+    std::uint64_t m_boundaryTotalUs = 0;
+    std::uint64_t m_drawTotalUs = 0;
+    std::uint64_t m_betweenFramesTotalUs = 0;
+    std::uint32_t m_profileFrames = 0;
+    std::uint64_t m_overlayWindowStartUs = 0;
+    std::uint64_t m_overlayUpdateTotalUs = 0;
+    std::uint32_t m_overlayFrames = 0;
     bool m_initialized = false;
 };
 

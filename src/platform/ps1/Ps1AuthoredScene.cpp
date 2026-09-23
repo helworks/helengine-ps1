@@ -18,6 +18,7 @@
 #include "platform/ps1/Ps1RenderManager3D.hpp"
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
 #include "platform/ps1/Ps1SceneBootstrap.hpp"
+#include "platform/ps1/rendering/Ps1FrameOverlayText.hpp"
 #include "psyqo/alloc.h"
 #include "psyqo/kernel.hh"
 #include "runtime/native_list.hpp"
@@ -46,6 +47,7 @@ void Ps1AuthoredScene::start(StartReason) {
     m_renderer.Initialize();
     InitializeCore();
     m_lastTimestamp = gpu().now();
+    m_overlayWindowStartUs = he_cpp_custom::MonotonicMicroseconds();
 }
 
 void Ps1AuthoredScene::InitializeCore() {
@@ -122,6 +124,8 @@ void Ps1AuthoredScene::ReportSceneState(const char* marker) {
 }
 
 void Ps1AuthoredScene::frame() {
+    const std::uint64_t frameStartUs = he_cpp_custom::MonotonicMicroseconds();
+    if (m_frameSequence != 0) m_betweenFramesTotalUs += frameStartUs - m_lastFrameEndUs;
     // Each frame() should follow exactly one VBlank; count every extra VBlank as a missed frame.
     const std::uint32_t vblankFrame = gpu().getFrameCount();
     if (m_frameSequence != 0) {
@@ -137,10 +141,35 @@ void Ps1AuthoredScene::frame() {
         deltaSeconds = kMaxDeltaSeconds;
     }
     m_core->Update(deltaSeconds);
+    const std::uint64_t updateEndUs = he_cpp_custom::MonotonicMicroseconds();
     m_core->CompleteFrameBoundary();
+    const std::uint64_t boundaryEndUs = he_cpp_custom::MonotonicMicroseconds();
     // Core::Draw drives the render manager, which converts the loaded camera and drawable into GTE
     // poses and submits the frame through the shared renderer with the camera's clear color.
     m_core->Draw();
+    m_lastFrameEndUs = he_cpp_custom::MonotonicMicroseconds();
+    m_updateTotalUs += updateEndUs - frameStartUs;
+    m_boundaryTotalUs += boundaryEndUs - updateEndUs;
+    m_drawTotalUs += m_lastFrameEndUs - boundaryEndUs;
+    m_overlayUpdateTotalUs += updateEndUs - frameStartUs;
+    ++m_overlayFrames;
+    m_core->SetHostFrameTimings(static_cast<double>(updateEndUs - frameStartUs) / 1000.0,
+                                static_cast<double>(m_lastFrameEndUs - boundaryEndUs) / 1000.0);
+    if (m_lastFrameEndUs - m_overlayWindowStartUs >= 500000u) {
+        const double drawMilliseconds = m_core->get_LastRenderManager3DDrawMilliseconds();
+        Ps1FrameOverlayText overlay{};
+        const Ps1FrameOverlaySample sample{m_overlayFrames, m_lastFrameEndUs - m_overlayWindowStartUs,
+                                           m_overlayUpdateTotalUs,
+                                           static_cast<std::uint64_t>(drawMilliseconds * 1000.0 + 0.5)};
+        if (TryFormatFrameOverlayText(sample, overlay)) {
+            m_core->SetPerformanceOverlayTextRows(true, HeCppString(overlay.update),
+                                                  HeCppString(overlay.render), HeCppString(), HeCppString());
+        }
+        m_overlayWindowStartUs = m_lastFrameEndUs;
+        m_overlayUpdateTotalUs = 0;
+        m_overlayFrames = 0;
+    }
+    ++m_profileFrames;
     ++m_frameSequence;
 
     const Ps1RenderStats& stats = m_renderer.Stats();
@@ -153,6 +182,14 @@ void Ps1AuthoredScene::frame() {
     const bool periodicReport = m_frameSequence == 1200;
 #endif
     if (m_frameSequence == 600 || m_frameSequence == 1200) {
+        // Report 600-frame averages in microseconds; the between-frame phase includes VBlank/GPU waits.
+        ramsyscall_printf("PS1_AUTHORED_PHASE_AVG seq=%u update_us=%u boundary_us=%u draw_us=%u between_us=%u\n",
+                          static_cast<unsigned>(m_frameSequence), static_cast<unsigned>(m_updateTotalUs / m_profileFrames),
+                          static_cast<unsigned>(m_boundaryTotalUs / m_profileFrames),
+                          static_cast<unsigned>(m_drawTotalUs / m_profileFrames),
+                          static_cast<unsigned>(m_betweenFramesTotalUs / m_profileFrames));
+        m_updateTotalUs = m_boundaryTotalUs = m_drawTotalUs = m_betweenFramesTotalUs = 0;
+        m_profileFrames = 0;
         // One short line per checkpoint keeps the measured interval nearly free of BIOS output.
         ramsyscall_printf("PS1_AUTHORED_CADENCE seq=%u vblank_frame=%u missed_vblanks=%u worst_delta=%u heap_end=%p\n",
                           static_cast<unsigned>(m_frameSequence), static_cast<unsigned>(vblankFrame),

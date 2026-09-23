@@ -3,9 +3,11 @@
 #include "platform/ps1/rendering/Ps1PacketBudget.hpp"
 #include "platform/ps1/rendering/Ps1RotationClock.hpp"
 #include "platform/ps1/rendering/Ps1TextLayout.hpp"
+#include "platform/ps1/rendering/Ps1FrameOverlayText.hpp"
 
 #include <cassert>
 #include <cstdint>
+#include <cstring>
 
 namespace {
 
@@ -58,6 +60,50 @@ void TestTextLayout() {
     assert(glyphs[1].x == 28.0f && glyphs[1].y == 22.0f);
     assert(glyphs[2].x == 42.0f && glyphs[2].y == 22.0f);
     assert(glyphs[3].x == 42.0f && glyphs[3].y == 38.0f);
+
+    count = 0;
+    unsigned lookups = 0;
+    auto countedLookup = [&](char ch, Ps1TextGlyph& glyph) {
+        ++lookups;
+        return lookup(ch, glyph);
+    };
+    assert(LayoutPs1Text("AB C\nD", 6, 10.0f, 20.0f, 16.0f, 2.0f, 2.0f, 40.0f,
+                         Ps1TextAlignment::Left, countedLookup, emit));
+    assert(lookups == 4 && count == 4);
+    assert(glyphs[0].x == 10.0f && glyphs[0].y == 22.0f);
+    assert(glyphs[1].x == 20.0f && glyphs[1].y == 22.0f);
+    assert(glyphs[2].x == 34.0f && glyphs[2].y == 22.0f);
+    assert(glyphs[3].x == 10.0f && glyphs[3].y == 38.0f);
+}
+
+void TestTextGlyphCache() {
+    using namespace helengine::ps1;
+    Ps1TextGlyphCache cache;
+    int fontA = 1, fontB = 2;
+    int fetches = 0;
+    auto fetch = [&](char ch, Ps1TextGlyph& glyph) {
+        ++fetches;
+        if (ch == '?') return false;
+        glyph = {4.0f, 6.0f, 1.0f, 5.0f};
+        return true;
+    };
+    Ps1TextGlyph glyph{};
+    cache.BeginFrame();
+    assert(cache.Lookup('A', &fontA, glyph, fetch) && glyph.advance == 5.0f);
+    assert(cache.Lookup('A', &fontA, glyph, fetch) && fetches == 1);
+    assert(!cache.Lookup('?', &fontA, glyph, fetch));
+    assert(!cache.Lookup('?', &fontA, glyph, fetch) && fetches == 2);
+    assert(cache.Lookup('A', &fontB, glyph, fetch) && fetches == 3);
+    cache.BeginFrame();
+    assert(cache.Lookup('A', &fontA, glyph, fetch) && fetches == 4);
+}
+
+void TestFrameOverlayText() {
+    helengine::ps1::Ps1FrameOverlayText text{};
+    assert(helengine::ps1::TryFormatFrameOverlayText({10, 505050, 37280, 31800}, text));
+    assert(std::strcmp(text.update, "Update FPS: 19.8 (3.7 ms)") == 0);
+    assert(std::strcmp(text.render, "Render FPS: 19.8 (31.8 ms)") == 0);
+    assert(!helengine::ps1::TryFormatFrameOverlayText({0, 0, 0, 0}, text));
 }
 
 void TestDepthBuckets() {
@@ -134,6 +180,8 @@ void TestRotationClock() {
 int main() {
     TestPacketBudget();
     TestTextLayout();
+    TestTextGlyphCache();
+    TestFrameOverlayText();
     TestDepthBuckets();
     TestCubeMesh();
     TestRotationClock();
