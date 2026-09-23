@@ -65,6 +65,18 @@ private:
         bool IsSprite = false;
     };
 
+    struct CachedText {
+        const ::ITextDrawable2D* Drawable = nullptr;
+        const void* Font = nullptr;
+        const Ps1RuntimeTexture* Texture = nullptr;
+        std::uint32_t Key[33]{};
+        HeCppString Content;
+        std::uint16_t Count = 0;
+        // PendingOrder may still point into this entry until the current frame is flushed.
+        bool InFrame = false;
+        PendingUiDrawable Quads[96]{};
+    };
+    static constexpr std::uint8_t TextCacheCapacity = 8;
     static constexpr std::uint16_t PendingUiCapacity = Ps1FramePacketLimits::UiTriangles +
                                                         Ps1FramePacketLimits::TexturedTriangles / 2u;
 
@@ -92,6 +104,9 @@ private:
     std::uint16_t PendingShapes = 0;
     std::uint16_t PendingSprites = 0;
     PendingUiDrawable Pending[PendingUiCapacity]{};
+    const PendingUiDrawable* PendingOrder[PendingUiCapacity]{};
+    CachedText TextCache[TextCacheCapacity]{};
+    std::uint8_t NextTextCache = 0;
     Ps1TextGlyphCache GlyphCache;
     Ps1RoundedRectGeometryCache RoundedRectCache;
     bool QueueOpen = false;

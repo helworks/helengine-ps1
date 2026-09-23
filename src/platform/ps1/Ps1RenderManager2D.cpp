@@ -132,6 +132,7 @@ bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
     VisitedTexts = 0;
     QueuedGlyphQuads = 0;
     PendingCount = 0;
+    for (CachedText& cached : TextCache) cached.InFrame = false;
     PendingShapes = 0;
     PendingSprites = 0;
     FailureMarker = nullptr;
@@ -167,13 +168,15 @@ bool Ps1RenderManager2D::AppendPending(const PendingUiDrawable& drawable) {
         }
         ++PendingShapes;
     }
-    Pending[PendingCount++] = drawable;
+    Pending[PendingCount] = drawable;
+    PendingOrder[PendingCount] = &Pending[PendingCount];
+    ++PendingCount;
     return true;
 }
 
 bool Ps1RenderManager2D::FlushPendingInVisitOrder() {
     for (std::uint16_t i = PendingCount; i > 0; --i) {
-        const PendingUiDrawable& pending = Pending[i - 1u];
+        const PendingUiDrawable& pending = *PendingOrder[i - 1u];
         bool queued = false;
         if (pending.IsSprite && pending.Texture != nullptr) {
             const Ps1RuntimeTexture& texture = *pending.Texture;
@@ -330,6 +333,7 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
 void Ps1RenderManager2D::ReleaseTexture(::RuntimeTexture* texture) {
     if (texture == nullptr) { return; }
     GlyphCache.Invalidate();
+    for (CachedText& cached : TextCache) if (cached.Texture == texture) cached.Drawable = nullptr;
     texture->Dispose();
     delete texture;
 }
@@ -516,6 +520,127 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
             return true;
         });
     };
+    // A text component usually keeps the same string for many frames. Cache the exact quads so
+    // the PS1 does not redo software floating-point layout and glyph geometry on every VBlank.
+    std::uint32_t key[33]{};
+    const auto floatBits = [](float value) {
+        std::uint32_t bits = 0;
+        __builtin_memcpy(&bits, &value, sizeof(bits));
+        return bits;
+    };
+    key[0] = static_cast<std::uint16_t>(ActiveViewport.x);
+    key[1] = static_cast<std::uint16_t>(ActiveViewport.y);
+    key[2] = static_cast<std::uint16_t>(ActiveViewport.width);
+    key[3] = static_cast<std::uint16_t>(ActiveViewport.height);
+    key[4] = static_cast<std::uint32_t>(ui_geometry_detail::Round(position.x));
+    key[5] = static_cast<std::uint32_t>(ui_geometry_detail::Round(position.y));
+    key[6] = floatBits(fontScale);
+    key[7] = static_cast<std::uint32_t>(size.X);
+    key[8] = floatBits(lineHeight);
+    key[9] = floatBits(spaceWidth);
+    key[10] = bucket;
+    key[11] = static_cast<std::uint32_t>(alignment);
+    key[12] = passCount;
+    key[13] = width;
+    key[14] = height;
+    for (unsigned i = 0; i < passCount; ++i) {
+        key[15 + i * 3] = floatBits(passes[i].x);
+        key[16 + i * 3] = floatBits(passes[i].y);
+        const ::byte4 c = passes[i].color;
+        key[17 + i * 3] = static_cast<std::uint32_t>(c.X) | (static_cast<std::uint32_t>(c.Y) << 8u) |
+                             (static_cast<std::uint32_t>(c.Z) << 16u) | (static_cast<std::uint32_t>(c.W) << 24u);
+    }
+    CachedText* cached = nullptr;
+    for (CachedText& entry : TextCache) {
+        if (entry.Drawable == text) { cached = &entry; break; }
+    }
+    if (cached == nullptr) {
+        for (CachedText& entry : TextCache) {
+            if (entry.Drawable == nullptr && !entry.InFrame) { cached = &entry; break; }
+        }
+    }
+    if (cached == nullptr) {
+        for (std::uint8_t i = 0; i < TextCacheCapacity; ++i) {
+            CachedText& entry = TextCache[(NextTextCache + i) % TextCacheCapacity];
+            if (!entry.InFrame) {
+                cached = &entry;
+                NextTextCache = static_cast<std::uint8_t>((NextTextCache + i + 1u) % TextCacheCapacity);
+                break;
+            }
+        }
+    }
+    const bool baseMatches = cached != nullptr && cached->Drawable == text && cached->Font == font && cached->Texture == texture &&
+                             __builtin_memcmp(cached->Key, key, sizeof(key)) == 0;
+    bool contentMatches = baseMatches && cached->Content.size() == content.size() &&
+                          __builtin_memcmp(cached->Content.data(), content.data(), content.size()) == 0;
+    if (baseMatches && !contentMatches && !cached->InFrame && cached->Content.size() == content.size()) {
+        unsigned visiblePasses = 0;
+        for (unsigned pass = 0; pass < passCount; ++pass) if (passes[pass].color.W != 0) ++visiblePasses;
+        std::uint16_t quad = 0;
+        bool compatible = visiblePasses != 0;
+        // Validate every changed glyph before editing the retained quads.
+        for (std::size_t i = 0; compatible && i < content.size(); ++i) {
+            const char oldChar = cached->Content[i];
+            const char newChar = content[i];
+            if (oldChar == ' ' || oldChar == '\n' || newChar == ' ' || newChar == '\n') {
+                if (oldChar != newChar) compatible = false;
+                continue;
+            }
+            Ps1TextGlyph oldGlyph{}, newGlyph{};
+            if (!lookup(oldChar, oldGlyph) || !lookup(newChar, newGlyph)) { compatible = false; break; }
+            if (oldChar != newChar && (oldGlyph.width != newGlyph.width || oldGlyph.height != newGlyph.height ||
+                oldGlyph.offsetY != newGlyph.offsetY || oldGlyph.advance != newGlyph.advance || !newGlyph.sourceValid)) {
+                compatible = false;
+                break;
+            }
+            quad = static_cast<std::uint16_t>(quad + visiblePasses);
+        }
+        if (compatible && quad == cached->Count) {
+            quad = 0;
+            for (std::size_t i = 0; i < content.size(); ++i) {
+                const char oldChar = cached->Content[i];
+                const char newChar = content[i];
+                if (oldChar == ' ' || oldChar == '\n') continue;
+                if (oldChar != newChar) {
+                    Ps1TextGlyph glyph{};
+                    lookup(newChar, glyph);
+                    const std::uint8_t u0 = static_cast<std::uint8_t>(glyph.sourceX);
+                    const std::uint8_t v0 = static_cast<std::uint8_t>(glyph.sourceY);
+                    const std::uint8_t u1 = static_cast<std::uint8_t>(glyph.sourceX + glyph.sourceWidth < 256 ?
+                                                                      glyph.sourceX + glyph.sourceWidth : 255);
+                    const std::uint8_t v1 = static_cast<std::uint8_t>(glyph.sourceY + glyph.sourceHeight < 256 ?
+                                                                      glyph.sourceY + glyph.sourceHeight : 255);
+                    for (unsigned pass = 0; pass < visiblePasses; ++pass) {
+                        Ps1UiVertex* vertices = cached->Quads[quad + pass].Vertices;
+                        vertices[0].u = vertices[2].u = u0;
+                        vertices[1].u = vertices[3].u = u1;
+                        vertices[0].v = vertices[1].v = v0;
+                        vertices[2].v = vertices[3].v = v1;
+                    }
+                }
+                quad = static_cast<std::uint16_t>(quad + visiblePasses);
+            }
+            cached->Content = content;
+            contentMatches = true;
+        }
+    }
+    if (baseMatches && contentMatches) {
+        if (PendingCount + cached->Count > PendingUiCapacity) {
+            Reject("PS1_UI_QUEUE_CAPACITY");
+            return;
+        }
+        if (PendingSprites + cached->Count > Ps1FramePacketLimits::TexturedTriangles / 2u) {
+            Reject("PS1_UI_SPRITE_CAPACITY");
+            return;
+        }
+        for (std::uint16_t i = 0; i < cached->Count; ++i) PendingOrder[PendingCount + i] = &cached->Quads[i];
+        PendingCount = static_cast<std::uint16_t>(PendingCount + cached->Count);
+        PendingSprites = static_cast<std::uint16_t>(PendingSprites + cached->Count);
+        QueuedGlyphQuads = static_cast<std::uint16_t>(QueuedGlyphQuads + cached->Count);
+        cached->InFrame = true;
+        return;
+    }
+    const std::uint16_t pendingStart = PendingCount;
     const auto emit = [&](char, const Ps1TextGlyph& glyph, float x, float y) {
         const Ps1GlyphTexelRect source{glyph.sourceX, glyph.sourceY, glyph.sourceWidth, glyph.sourceHeight};
         for (unsigned passIndex = 0; passIndex < passCount; ++passIndex) {
@@ -542,6 +667,16 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
     const bool laidOut = LayoutPs1Text(content.data(), content.size(), static_cast<float>(ui_geometry_detail::Round(position.x)),
                        static_cast<float>(ui_geometry_detail::Round(position.y)), lineHeight, spaceWidth,
                        fontScale, static_cast<float>(size.X), alignment, lookup, emit);
+    if (cached != nullptr && !cached->InFrame && laidOut && FailureMarker == nullptr && PendingCount - pendingStart <= 96u) {
+        cached->Drawable = text;
+        cached->Font = font;
+        cached->Texture = texture;
+        __builtin_memcpy(cached->Key, key, sizeof(key));
+        cached->Content = content;
+        cached->Count = static_cast<std::uint16_t>(PendingCount - pendingStart);
+        for (std::uint16_t i = 0; i < cached->Count; ++i) cached->Quads[i] = Pending[pendingStart + i];
+        cached->InFrame = true;
+    }
     if (!laidOut && FailureMarker == nullptr) {
         Reject("PS1_UI_TEXT_LAYOUT_REJECTED");
     }
