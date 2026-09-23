@@ -1016,3 +1016,24 @@ Evidence: build manifest
 guest log `C:\dev\helworks\helengine-ps1\out\frame-context-quad-reuse-guest.log`,
 and host summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-195119-527-a4df173789354133b9a5928d25f7bcd5\summary.json`.
+
+## Authored Release `-O3` comparison (2026-09-23)
+
+With unchanged `cube_test` content and the frame-context glyph packet cache,
+raising the generated Core and PS1 frame renderers from `-O2` to `-O3`
+changed the second 600-frame average from Update 2.924 ms, boundary
+0.187 ms, Draw 7.867 ms to Update 2.727 ms, boundary 0.131 ms, Draw
+7.676 ms. Combined Update + Draw fell from 10.791 to 10.403 ms. The clean
+1800-to-2400 interval still used 600 VBlanks for 600 game frames. The UI
+report retained 3 sprites, 2 shapes, 5 texts, 82 glyph quads and no failure.
+The user confirmed the UI, glyphs and cube motion are visually correct.
+
+The PS-X EXE grew from 792,576 to 817,152 bytes and static RAM from
+843,200 to 867,776 bytes. Heap capacity fell from 1,122,880 to 1,098,304
+bytes. The authored native build completed with a fresh object cache.
+The host suite had passed for the same source before this Makefile-only
+change; this flag comparison was checked with the native build and guest run.
+
+Evidence: build manifest
+`C:\dev\helworks\builds\helengine-ps1\20260923-200639-911-Release-610c4096277043008e40f614e3d10e64\manifest.json`
+and guest log `C:\dev\helworks\helengine-ps1\out\o3-trial-guest.log`.
