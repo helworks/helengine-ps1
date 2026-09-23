@@ -846,9 +846,10 @@ Temporary diagnostics isolated the recurring miss: 40 of 41 third-VBlank
 frames in the second 600-frame interval followed an Update over 4.5 ms.
 Normal Update averaged 3.583 ms; the 40 slow Updates averaged 4.928 ms.
 The latter plus Draw 28.356 ms and frame boundary 0.193 ms reached 33.477 ms,
-just beyond the two-VBlank budget. The 40 slow Updates in that interval align with the FPS component's
-0.5-second refresh interval. Sending the PS1 overlay text
-rows after Draw did not coincide with those missed frames. These counters were
+just beyond the two-VBlank budget. The 40 slow Updates align with the FPS
+component's 0.5-second refresh interval. Sending the PS1 overlay text rows
+after Draw did not coincide
+with those missed frames. These counters were
 temporary and removed after the diagnosis.
 
 Cooked font metrics are immutable, so the PS1 glyph cache now persists across
@@ -859,7 +860,9 @@ and blend state avoids repeated conversions per glyph. In the final native
 build, steady Draw averaged 25.674 ms versus 28.358 ms before these changes.
 The second 600-frame interval used 1,202 VBlanks versus 1,243, equivalent to
 29.86 versus 28.88 FPS at the measured 59.82 VPS. Update averaged 3.673 ms
-and frame boundary 0.192 ms. The PS-X EXE remained 516,096 bytes, static RAM
+and frame boundary 0.192 ms. The user saw 29.7 FPS, Update 3.7 ms,
+and Render 25.3 ms in the game, while DuckStation showed 29.91 FPS and
+59.82 VPS. The PS-X EXE remained 516,096 bytes, static RAM
 562,592 bytes, and heap capacity 1,403,488 bytes. The full host suite passed
 all required checks; its negative stream fixture returned the expected 73.
 
