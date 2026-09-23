@@ -69,6 +69,9 @@ void Ps1AuthoredScene::InitializeCore() {
     m_options->set_DefaultUpdateDeltaSeconds(1.0 / 60.0);
     m_render2D = new Ps1RenderManager2D(gpu(), m_renderer);
     m_render3D = new Ps1RenderManager3D(gpu(), m_renderer, *m_render2D);
+    // Core's screen-bound ViewportComponent reads MainWindowSize to fit authored reference
+    // canvases. Register the native display before the scene's first layout update.
+    m_render3D->AddWindow(0, 320, 240);
     m_input = new Ps1InputBackend();
     m_platform = new ::PlatformInfo("ps1", "authored-cube-test");
     m_core = new ::Core(m_options);
