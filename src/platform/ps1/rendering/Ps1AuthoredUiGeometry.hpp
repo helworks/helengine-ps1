@@ -94,8 +94,9 @@ inline bool TryBuildSpriteQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint s
     const float height = size.height * scale.y;
     const float centerX = position.x + width * 0.5f;
     const float centerY = position.y + height * 0.5f;
-    const float cosine = Cos(rotationRadians);
-    const float sine = Sin(rotationRadians);
+    const bool unrotated = rotationRadians == 0.0f;
+    const float cosine = unrotated ? 1.0f : Cos(rotationRadians);
+    const float sine = unrotated ? 0.0f : Sin(rotationRadians);
     const float localX[4] = {0.0f, width, 0.0f, width};
     const float localY[4] = {0.0f, 0.0f, height, height};
     const float sourceU[4] = {sourceRect.x, sourceRect.x + sourceRect.width, sourceRect.x,
@@ -104,10 +105,14 @@ inline bool TryBuildSpriteQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint s
                               sourceRect.y + sourceRect.height};
     Ps1UiVertex result[4]{};
     for (unsigned i = 0; i < 4; ++i) {
-        const float dx = localX[i] - width * 0.5f;
-        const float dy = localY[i] - height * 0.5f;
-        const float x = centerX + dx * cosine - dy * sine;
-        const float y = centerY + dx * sine + dy * cosine;
+        float x = position.x + localX[i];
+        float y = position.y + localY[i];
+        if (!unrotated) {
+            const float dx = localX[i] - width * 0.5f;
+            const float dy = localY[i] - height * 0.5f;
+            x = centerX + dx * cosine - dy * sine;
+            y = centerY + dx * sine + dy * cosine;
+        }
         if (!ToScreen(x, y, viewport, result[i].x, result[i].y)) return false;
         const float u = sourceU[i] * (textureSize.width - 1.0f);
         const float v = sourceV[i] * (textureSize.height - 1.0f);
@@ -119,19 +124,22 @@ inline bool TryBuildSpriteQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint s
     return true;
 }
 
-/** Builds an unrotated glyph using exact atlas texel bounds and no trigonometry per character. */
-inline bool TryBuildGlyphQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiRectF sourceRect,
-                              Ps1UiSize textureSize, Ps1ScreenRect viewport, Ps1UiVertex (&vertices)[4]) {
+struct Ps1GlyphTexelRect {
+    std::int16_t x;
+    std::int16_t y;
+    std::int16_t width;
+    std::int16_t height;
+};
+
+/// Resolves normalized font metrics once so repeated glyphs do not redo the atlas arithmetic.
+inline bool TryResolveGlyphTexels(Ps1UiRectF sourceRect, Ps1UiSize textureSize, Ps1GlyphTexelRect& texels) {
     using namespace ui_geometry_detail;
-    if (!ValidViewport(viewport) || !Finite(position.x) || !Finite(position.y) ||
-        !Finite(size.width) || !Finite(size.height) || size.width <= 0.0f || size.height <= 0.0f ||
-        !Finite(sourceRect.x) || !Finite(sourceRect.y) || !Finite(sourceRect.width) ||
+    if (!Finite(sourceRect.x) || !Finite(sourceRect.y) || !Finite(sourceRect.width) ||
         !Finite(sourceRect.height) || sourceRect.x < 0.0f || sourceRect.y < 0.0f ||
         sourceRect.width <= 0.0f || sourceRect.height <= 0.0f ||
         sourceRect.x + sourceRect.width > 1.00001f || sourceRect.y + sourceRect.height > 1.00001f ||
         !Finite(textureSize.width) || !Finite(textureSize.height) || textureSize.width <= 0.0f ||
         textureSize.height <= 0.0f || textureSize.width > 256.0f || textureSize.height > 256.0f) return false;
-
     const long sourceX = Round(sourceRect.x * textureSize.width);
     const long sourceY = Round(sourceRect.y * textureSize.height);
     const long sourceWidth = Round(sourceRect.width * textureSize.width);
@@ -139,19 +147,31 @@ inline bool TryBuildGlyphQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiRectF so
     if (sourceWidth <= 0 || sourceHeight <= 0 || sourceX < 0 || sourceY < 0 ||
         sourceX + sourceWidth > static_cast<long>(textureSize.width) ||
         sourceY + sourceHeight > static_cast<long>(textureSize.height)) return false;
+    texels = {static_cast<std::int16_t>(sourceX), static_cast<std::int16_t>(sourceY),
+              static_cast<std::int16_t>(sourceWidth), static_cast<std::int16_t>(sourceHeight)};
+    return true;
+}
 
+/// Builds a glyph from already resolved atlas texels, including the exclusive far UV edge.
+inline bool TryBuildGlyphQuadTexels(Ps1UiPoint position, Ps1UiSize size, Ps1GlyphTexelRect source,
+                                     std::uint16_t textureWidth, std::uint16_t textureHeight,
+                                     Ps1ScreenRect viewport, Ps1UiVertex (&vertices)[4]) {
+    using namespace ui_geometry_detail;
+    if (!ValidViewport(viewport) || !Finite(position.x) || !Finite(position.y) ||
+        !Finite(size.width) || !Finite(size.height) || size.width <= 0.0f || size.height <= 0.0f ||
+        textureWidth == 0 || textureHeight == 0 || textureWidth > 256 || textureHeight > 256 ||
+        source.x < 0 || source.y < 0 || source.width <= 0 || source.height <= 0 ||
+        source.x + source.width > textureWidth || source.y + source.height > textureHeight) return false;
     std::int16_t x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     if (!ToScreen(position.x, position.y, viewport, x0, y0) ||
         !ToScreen(position.x + size.width, position.y + size.height, viewport, x1, y1)) return false;
     if (x1 <= x0) ++x1;
     if (y1 <= y0) ++y1;
-    const auto u0 = static_cast<std::uint8_t>(sourceX);
-    const auto v0 = static_cast<std::uint8_t>(sourceY);
-    // Screen vertices mark the far edge of the last destination pixel. The GPU
-    // interpolates UVs with a half-texel bias, so these must be exclusive source
-    // edges or a 1:1 glyph loses its final row and column. UV 256 wraps to zero.
-    const auto u1 = static_cast<std::uint8_t>(sourceX + sourceWidth < 256 ? sourceX + sourceWidth : 255);
-    const auto v1 = static_cast<std::uint8_t>(sourceY + sourceHeight < 256 ? sourceY + sourceHeight : 255);
+    const auto u0 = static_cast<std::uint8_t>(source.x);
+    const auto v0 = static_cast<std::uint8_t>(source.y);
+    // Screen vertices mark the exclusive destination edge. UV 256 wraps to zero.
+    const auto u1 = static_cast<std::uint8_t>(source.x + source.width < 256 ? source.x + source.width : 255);
+    const auto v1 = static_cast<std::uint8_t>(source.y + source.height < 256 ? source.y + source.height : 255);
     vertices[0] = {x0, y0, u0, v0};
     vertices[1] = {x1, y0, u1, v0};
     vertices[2] = {x0, y1, u0, v1};
@@ -159,6 +179,14 @@ inline bool TryBuildGlyphQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiRectF so
     return true;
 }
 
+/** Builds an unrotated glyph using exact atlas texel bounds and no trigonometry per character. */
+inline bool TryBuildGlyphQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiRectF sourceRect,
+                              Ps1UiSize textureSize, Ps1ScreenRect viewport, Ps1UiVertex (&vertices)[4]) {
+    Ps1GlyphTexelRect texels{};
+    return TryResolveGlyphTexels(sourceRect, textureSize, texels) &&
+           TryBuildGlyphQuadTexels(position, size, texels, static_cast<std::uint16_t>(textureSize.width),
+                                   static_cast<std::uint16_t>(textureSize.height), viewport, vertices);
+}
 /** Builds a convex fill fan and optional border ring; 0x01, 0x02, 0x04, 0x08 select TL, TR, BR, BL. */
 inline bool TryBuildRoundedRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint scale,
                                          float rotationRadians, float radius, float borderThickness,
@@ -241,11 +269,13 @@ inline bool TryBuildRoundedRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps
     if (innerCount != vertexCount) return false;
     const unsigned needed = border > 0.0f ? vertexCount * 2u + (vertexCount - 2u) : vertexCount - 2u;
     if (needed > capacity || needed > 65535u) return false;
-    const float cosine = Cos(rotationRadians);
-    const float sine = Sin(rotationRadians);
+    const bool unrotated = rotationRadians == 0.0f;
+    const float cosine = unrotated ? 1.0f : Cos(rotationRadians);
+    const float sine = unrotated ? 0.0f : Sin(rotationRadians);
     const float centerX = position.x + width * 0.5f;
     const float centerY = position.y + height * 0.5f;
     auto vertex = [&](Ps1UiPoint point, Ps1UiVertex& output) {
+        if (unrotated) return ToScreen(point.x, point.y, viewport, output.x, output.y);
         const float dx = point.x - centerX;
         const float dy = point.y - centerY;
         return ToScreen(centerX + dx * cosine - dy * sine, centerY + dx * sine + dy * cosine,
@@ -276,6 +306,68 @@ inline bool TryBuildRoundedRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps
     count = static_cast<std::uint16_t>(stagedCount);
     return true;
 }
+
+/// Keeps immutable rounded-panel geometry until any input affecting its vertices changes.
+class Ps1RoundedRectGeometryCache {
+public:
+    bool TryGet(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint scale, float rotationRadians,
+                float radius, float borderThickness, std::uint8_t roundedCorners, Ps1ScreenRect viewport,
+                const Ps1UiTriangle*& triangles, std::uint16_t& count, std::uint16_t& fillCount, bool& reused) {
+        const Key key{position, size, scale, rotationRadians, radius, borderThickness, roundedCorners, viewport};
+        for (Entry& entry : Entries) {
+            if (entry.valid && Same(entry.key, key)) {
+                triangles = entry.triangles;
+                count = entry.count;
+                fillCount = entry.fillCount;
+                reused = true;
+                return true;
+            }
+        }
+        Entry& entry = Entries[NextReplace];
+        entry.valid = false;
+        if (!TryBuildRoundedRectTriangles(position, size, scale, rotationRadians, radius, borderThickness,
+                                          roundedCorners, viewport, entry.triangles, 46, entry.count,
+                                          entry.fillCount)) return false;
+        entry.key = key;
+        entry.valid = true;
+        NextReplace = (NextReplace + 1u) % 4u;
+        triangles = entry.triangles;
+        count = entry.count;
+        fillCount = entry.fillCount;
+        reused = false;
+        return true;
+    }
+
+private:
+    struct Key {
+        Ps1UiPoint position;
+        Ps1UiSize size;
+        Ps1UiPoint scale;
+        float rotation;
+        float radius;
+        float border;
+        std::uint8_t corners;
+        Ps1ScreenRect viewport;
+    };
+    struct Entry {
+        Key key{};
+        Ps1UiTriangle triangles[46]{};
+        std::uint16_t count = 0;
+        std::uint16_t fillCount = 0;
+        bool valid = false;
+    };
+    static bool Same(const Key& a, const Key& b) {
+        return a.position.x == b.position.x && a.position.y == b.position.y &&
+               a.size.width == b.size.width && a.size.height == b.size.height &&
+               a.scale.x == b.scale.x && a.scale.y == b.scale.y &&
+               a.rotation == b.rotation && a.radius == b.radius && a.border == b.border &&
+               a.corners == b.corners &&
+               a.viewport.x == b.viewport.x && a.viewport.y == b.viewport.y &&
+               a.viewport.width == b.viewport.width && a.viewport.height == b.viewport.height;
+    }
+    Entry Entries[4]{};
+    unsigned NextReplace = 0;
+};
 
 /** The PS1 OT is traversed from high to low Z; UI orders increase toward the front-most bucket. */
 inline bool TryMapRenderOrder(std::uint8_t renderOrder, std::uint16_t& bucket) {

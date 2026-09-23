@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 namespace helengine::ps1 {
 
@@ -9,6 +10,44 @@ struct Ps1TextGlyph {
     float height;
     float offsetY;
     float advance;
+    std::int16_t sourceX = 0;
+    std::int16_t sourceY = 0;
+    std::int16_t sourceWidth = 0;
+    std::int16_t sourceHeight = 0;
+    bool sourceValid = false;
+};
+
+/// Reuses immutable font metrics across both layout passes and repeated labels in one frame.
+class Ps1TextGlyphCache {
+public:
+    void BeginFrame() {
+        if (++Generation == 0) {
+            for (Entry& entry : Entries) entry.generation = 0;
+            Generation = 1;
+        }
+    }
+
+    template <typename Fetch>
+    bool Lookup(char character, const void* font, Ps1TextGlyph& out, Fetch fetch) {
+        Entry& entry = Entries[static_cast<unsigned char>(character)];
+        if (entry.generation != Generation || entry.font != font) {
+            entry.found = fetch(character, entry.glyph);
+            entry.font = font;
+            entry.generation = Generation;
+        }
+        if (entry.found) out = entry.glyph;
+        return entry.found;
+    }
+
+private:
+    struct Entry {
+        const void* font = nullptr;
+        Ps1TextGlyph glyph{};
+        std::uint32_t generation = 0;
+        bool found = false;
+    };
+    Entry Entries[256]{};
+    std::uint32_t Generation = 1;
 };
 
 enum class Ps1TextAlignment { Left, Center, Right };
@@ -27,7 +66,7 @@ bool LayoutPs1Text(const char* content, std::size_t length, float baseX, float b
         while (lineEnd < length && content[lineEnd] != '\n') ++lineEnd;
         float cursor = 0.0f;
         float visibleWidth = 0.0f;
-        for (std::size_t i = lineStart; i < lineEnd; ++i) {
+        for (std::size_t i = lineStart; alignment != Ps1TextAlignment::Left && i < lineEnd; ++i) {
             if (content[i] == ' ') {
                 cursor += spaceWidth * scale;
                 if (cursor > visibleWidth) visibleWidth = cursor;

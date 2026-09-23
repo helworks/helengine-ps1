@@ -5,6 +5,7 @@
 #include "IRenderVisitor2D.hpp"
 #include "RenderManager2D.hpp"
 #include "platform/ps1/rendering/Ps1AuthoredUiGeometry.hpp"
+#include "platform/ps1/rendering/Ps1TextLayout.hpp"
 #include "platform/ps1/rendering/Ps1RasterRenderer.hpp"
 #include "platform/ps1/rendering/Ps1VramAllocator.hpp"
 #include "psyqo/gpu.hh"
@@ -91,6 +92,8 @@ private:
     std::uint16_t PendingShapes = 0;
     std::uint16_t PendingSprites = 0;
     PendingUiDrawable Pending[PendingUiCapacity]{};
+    Ps1TextGlyphCache GlyphCache;
+    Ps1RoundedRectGeometryCache RoundedRectCache;
     bool QueueOpen = false;
     const char* FailureMarker = nullptr;
 };

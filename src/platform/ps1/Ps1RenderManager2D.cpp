@@ -38,7 +38,6 @@ constexpr std::uint16_t FourBitPaletteEntries = 16;
 constexpr std::uint16_t EightBitPaletteEntries = 256;
 constexpr std::int16_t DisplayWidth = 320;
 constexpr std::int16_t DisplayHeight = 240;
-constexpr unsigned MaximumRoundedTriangles = 46;
 
 /// <summary>
 /// Converts one straight RGBA8888 palette entry to the GPU's 16-bit BGR555 with its semi-transparency
@@ -69,7 +68,7 @@ bool TryScreenTransform(::Entity* entity, Ps1UiPoint& position, Ps1UiPoint& scal
     const float rightY = 2.0f * (orientation.X * orientation.Y + orientation.W * orientation.Z);
     position = {worldPosition.X, worldPosition.Y};
     scale = {worldScale.X, worldScale.Y};
-    rotation = ui_geometry_detail::Atan2(rightY, rightX);
+    rotation = rightX == 1.0f && rightY == 0.0f ? 0.0f : ui_geometry_detail::Atan2(rightY, rightX);
     return ui_geometry_detail::Finite(position.x) && ui_geometry_detail::Finite(position.y) &&
            ui_geometry_detail::Finite(scale.x) && ui_geometry_detail::Finite(scale.y) &&
            ui_geometry_detail::Finite(rotation);
@@ -136,6 +135,7 @@ bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
     PendingShapes = 0;
     PendingSprites = 0;
     FailureMarker = nullptr;
+    GlyphCache.BeginFrame();
     if (!ResolveViewport(camera, ActiveViewport)) {
         Reject("PS1_UI_VIEWPORT_UNSUPPORTED");
         return false;
@@ -346,13 +346,14 @@ void Ps1RenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D* shape) {
     }
     const ::int2 size = shape->get_Size();
     const std::uint8_t corners = MapCoreRoundedCorners(static_cast<std::uint8_t>(shape->get_Corners()));
-    Ps1UiTriangle triangles[MaximumRoundedTriangles]{};
+    const Ps1UiTriangle* triangles = nullptr;
     std::uint16_t count = 0;
     std::uint16_t fillCount = 0;
-    if (!TryBuildRoundedRectTriangles(position, {static_cast<float>(size.X), static_cast<float>(size.Y)}, scale,
-                                      rotation + shape->get_Rotation(), shape->get_Radius(),
-                                      shape->get_BorderThickness(), corners, ActiveViewport, triangles,
-                                      MaximumRoundedTriangles, count, fillCount)) {
+    bool reused = false;
+    if (!RoundedRectCache.TryGet(position, {static_cast<float>(size.X), static_cast<float>(size.Y)}, scale,
+                                 rotation + shape->get_Rotation(), shape->get_Radius(),
+                                 shape->get_BorderThickness(), corners, ActiveViewport, triangles,
+                                 count, fillCount, reused)) {
         Reject("PS1_UI_SHAPE_GEOMETRY_REJECTED");
         return;
     }
@@ -499,23 +500,27 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
     if (text->get_Alignment() == ::TextAlignment::Center) alignment = Ps1TextAlignment::Center;
     if (text->get_Alignment() == ::TextAlignment::Right) alignment = Ps1TextAlignment::Right;
     const auto lookup = [&](char character, Ps1TextGlyph& out) {
-        ::FontChar glyph{};
-        if (!font->get_Characters()->TryGetValue(character, glyph)) return false;
-        out = {glyph.SourceRect.Z * font->get_AtlasWidth(), glyph.SourceRect.W * font->get_AtlasHeight(),
-               glyph.OffsetY, glyph.AdvanceWidth};
-        return true;
+        return GlyphCache.Lookup(character, font, out, [&](char key, Ps1TextGlyph& cached) {
+            ::FontChar glyph{};
+            if (!font->get_Characters()->TryGetValue(key, glyph)) return false;
+            const ::float4 source = glyph.SourceRect;
+            Ps1GlyphTexelRect texels{};
+            const bool sourceValid = TryResolveGlyphTexels({source.X, source.Y, source.Z, source.W},
+                                                           {static_cast<float>(width), static_cast<float>(height)}, texels);
+            cached = {source.Z * font->get_AtlasWidth(), source.W * font->get_AtlasHeight(),
+                      glyph.OffsetY, glyph.AdvanceWidth, texels.x, texels.y, texels.width, texels.height, sourceValid};
+            return true;
+        });
     };
-    const auto emit = [&](char character, const Ps1TextGlyph& glyph, float x, float y) {
-        ::FontChar fontGlyph{};
-        if (!font->get_Characters()->TryGetValue(character, fontGlyph)) return false;
-        const ::float4 source = fontGlyph.SourceRect;
+    const auto emit = [&](char, const Ps1TextGlyph& glyph, float x, float y) {
+        const Ps1GlyphTexelRect source{glyph.sourceX, glyph.sourceY, glyph.sourceWidth, glyph.sourceHeight};
         for (unsigned passIndex = 0; passIndex < passCount; ++passIndex) {
             const GlyphPass& pass = passes[passIndex];
             if (pass.color.W == 0) continue;
             PendingUiDrawable pending{};
-            if (!TryBuildGlyphQuad({x + pass.x, y + pass.y}, {glyph.width * fontScale, glyph.height * fontScale},
-                                    {source.X, source.Y, source.Z, source.W},
-                                    {static_cast<float>(width), static_cast<float>(height)}, ActiveViewport,
+            if (!glyph.sourceValid || !TryBuildGlyphQuadTexels({x + pass.x, y + pass.y}, {glyph.width * fontScale, glyph.height * fontScale},
+                                    source,
+                                    width, height, ActiveViewport,
                                     pending.Vertices)) {
                 Reject("PS1_UI_GLYPH_GEOMETRY_REJECTED");
                 return false;
@@ -530,9 +535,10 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
         }
         return true;
     };
-    if (!LayoutPs1Text(content.data(), content.size(), static_cast<float>(ui_geometry_detail::Round(position.x)),
+    const bool laidOut = LayoutPs1Text(content.data(), content.size(), static_cast<float>(ui_geometry_detail::Round(position.x)),
                        static_cast<float>(ui_geometry_detail::Round(position.y)), lineHeight, spaceWidth,
-                       fontScale, static_cast<float>(size.X), alignment, lookup, emit) && FailureMarker == nullptr) {
+                       fontScale, static_cast<float>(size.X), alignment, lookup, emit);
+    if (!laidOut && FailureMarker == nullptr) {
         Reject("PS1_UI_TEXT_LAYOUT_REJECTED");
     }
 }

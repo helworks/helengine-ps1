@@ -71,11 +71,29 @@ int main() {
         assert(sampledV == 33 + pixel);
     }
 
+    // Cached texel bounds must produce the same destination and UV vertices as normalized metrics.
+    Ps1GlyphTexelRect cachedGlyph{};
+    assert(TryResolveGlyphTexels({41.0f / 256.0f, 33.0f / 128.0f, 5.0f / 256.0f, 9.0f / 128.0f},
+                                 {256.0f, 128.0f}, cachedGlyph));
+    Ps1UiVertex cachedQuad[4]{};
+    assert(TryBuildGlyphQuadTexels({10.0f, 20.0f}, {5.0f, 9.0f}, cachedGlyph, 256, 128, full, cachedQuad));
+    for (unsigned i = 0; i < 4; ++i) {
+        assert(cachedQuad[i].x == quad[i].x && cachedQuad[i].y == quad[i].y);
+        assert(cachedQuad[i].u == quad[i].u && cachedQuad[i].v == quad[i].v);
+    }
+
     // UV 256 wraps to zero on the GPU; a one-texel edge glyph must stay on 255.
     assert(TryBuildGlyphQuad({0.0f, 0.0f}, {1.0f, 1.0f},
                              {255.0f / 256.0f, 127.0f / 128.0f, 1.0f / 256.0f, 1.0f / 128.0f},
                              {256.0f, 128.0f}, full, quad));
     assert(quad[0].u == 255 && quad[1].u == 255 && quad[0].v == 127 && quad[2].v == 128);
+    assert(TryResolveGlyphTexels({255.0f / 256.0f, 127.0f / 128.0f, 1.0f / 256.0f, 1.0f / 128.0f},
+                                 {256.0f, 128.0f}, cachedGlyph));
+    assert(TryBuildGlyphQuadTexels({0.0f, 0.0f}, {1.0f, 1.0f}, cachedGlyph, 256, 128, full, cachedQuad));
+    for (unsigned i = 0; i < 4; ++i) {
+        assert(cachedQuad[i].x == quad[i].x && cachedQuad[i].y == quad[i].y);
+        assert(cachedQuad[i].u == quad[i].u && cachedQuad[i].v == quad[i].v);
+    }
     Ps1UiTriangle triangles[64]{};
     std::uint16_t count = 0;
     std::uint16_t fillCount = 0;
@@ -100,6 +118,23 @@ int main() {
     assert(triangles[0].c.x == 13 && triangles[0].c.y == 11);
     assert(!TryBuildRoundedRectTriangles({10.0f, 10.0f}, {0.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 0.0f, 0.0f, 0x0f,
                                          full, triangles, 64, count, fillCount));
+
+    Ps1RoundedRectGeometryCache shapeCache;
+    const Ps1UiTriangle* cachedTriangles = nullptr;
+    bool reused = true;
+    assert(shapeCache.TryGet({10.0f, 10.0f}, {20.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 6.0f, 2.0f,
+                             0x0f, full, cachedTriangles, count, fillCount, reused));
+    assert(!reused && count == 46 && fillCount == 14);
+    const Ps1UiTriangle* firstShape = cachedTriangles;
+    assert(shapeCache.TryGet({10.0f, 10.0f}, {20.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 6.0f, 2.0f,
+                             0x0f, full, cachedTriangles, count, fillCount, reused));
+    assert(reused && cachedTriangles == firstShape);
+    assert(shapeCache.TryGet({12.0f, 10.0f}, {20.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 6.0f, 2.0f,
+                             0x0f, full, cachedTriangles, count, fillCount, reused));
+    assert(!reused && cachedTriangles[0].a.x == firstShape[0].a.x + 2);
+    assert(shapeCache.TryGet({10.0f, 10.0f}, {20.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 6.0f, 2.0f,
+                             0x0f, offset, cachedTriangles, count, fillCount, reused));
+    assert(!reused && cachedTriangles[0].a.x == firstShape[0].a.x + offset.x);
 
     std::uint16_t first = 0;
     std::uint16_t second = 0;
