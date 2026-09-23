@@ -43,6 +43,7 @@ class Ps1AuthoredScene final : public psyqo::Scene {
     std::uint32_t m_lastTimestamp = 0;
     std::uint32_t m_frameSequence = 0;
     std::uint32_t m_lastVblankFrame = 0;
+    std::uint32_t m_steadyStartVblank = 0;
     std::uint32_t m_missedVblanks = 0;
     std::uint32_t m_worstVblankDelta = 0;
     std::uint64_t m_lastFrameEndUs = 0;

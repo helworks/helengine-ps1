@@ -171,6 +171,11 @@ void Ps1AuthoredScene::frame() {
     }
     ++m_profileFrames;
     ++m_frameSequence;
+    if (m_frameSequence == 1800) m_steadyStartVblank = vblankFrame;
+    if (m_frameSequence == 2400) {
+        ramsyscall_printf("PS1_AUTHORED_STEADY_CADENCE frames=600 vblanks=%u\n",
+                          static_cast<unsigned>(vblankFrame - m_steadyStartVblank));
+    }
 
     const Ps1RenderStats& stats = m_renderer.Stats();
     // BIOS text output costs VBlanks, so steady-state reporting is opt-in like the diagnostic
