@@ -147,8 +147,11 @@ inline bool TryBuildGlyphQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiRectF so
     if (y1 <= y0) ++y1;
     const auto u0 = static_cast<std::uint8_t>(sourceX);
     const auto v0 = static_cast<std::uint8_t>(sourceY);
-    const auto u1 = static_cast<std::uint8_t>(sourceX + sourceWidth - 1);
-    const auto v1 = static_cast<std::uint8_t>(sourceY + sourceHeight - 1);
+    // Screen vertices mark the far edge of the last destination pixel. The GPU
+    // interpolates UVs with a half-texel bias, so these must be exclusive source
+    // edges or a 1:1 glyph loses its final row and column. UV 256 wraps to zero.
+    const auto u1 = static_cast<std::uint8_t>(sourceX + sourceWidth < 256 ? sourceX + sourceWidth : 255);
+    const auto v1 = static_cast<std::uint8_t>(sourceY + sourceHeight < 256 ? sourceY + sourceHeight : 255);
     vertices[0] = {x0, y0, u0, v0};
     vertices[1] = {x1, y0, u1, v0};
     vertices[2] = {x0, y1, u0, v1};

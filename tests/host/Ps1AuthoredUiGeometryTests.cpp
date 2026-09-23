@@ -53,14 +53,29 @@ int main() {
                               {0.0f, 0.0f, 1.0f, 1.0f}, {2.0f, 2.0f}, full, quad));
     assert(std::abs(quad[0].x - 12) <= 1 && std::abs(quad[0].y - 10) <= 1);
 
-    // The font's L occupies exactly texels (41..45, 33..41) in its 256x128 atlas.
-    // Glyph UVs must not sample the following padding or neighboring glyph.
-    assert(TryBuildGlyphQuad({10.0f, 20.0f}, {2.5f, 3.5f},
+    // The font's L occupies texels (41..45, 33..41). At 1:1 size, each
+    // destination pixel must sample its matching texel, including the last row
+    // and column. The GPU starts UV interpolation at a half-texel and truncates.
+    assert(TryBuildGlyphQuad({10.0f, 20.0f}, {5.0f, 9.0f},
                              {41.0f / 256.0f, 33.0f / 128.0f, 5.0f / 256.0f, 9.0f / 128.0f},
                              {256.0f, 128.0f}, full, quad));
-    assert(quad[0].x == 10 && quad[0].y == 20 && quad[3].x == 13 && quad[3].y == 24);
-    assert(quad[0].u == 41 && quad[0].v == 33 && quad[3].u == 45 && quad[3].v == 41);
+    assert(quad[0].x == 10 && quad[0].y == 20 && quad[3].x == 15 && quad[3].y == 29);
+    for (int pixel = 0; pixel < 5; ++pixel) {
+        const int sampledU = static_cast<int>(quad[0].u + 0.5f +
+            (quad[1].u - quad[0].u) * static_cast<float>(pixel) / 5.0f);
+        assert(sampledU == 41 + pixel);
+    }
+    for (int pixel = 0; pixel < 9; ++pixel) {
+        const int sampledV = static_cast<int>(quad[0].v + 0.5f +
+            (quad[2].v - quad[0].v) * static_cast<float>(pixel) / 9.0f);
+        assert(sampledV == 33 + pixel);
+    }
 
+    // UV 256 wraps to zero on the GPU; a one-texel edge glyph must stay on 255.
+    assert(TryBuildGlyphQuad({0.0f, 0.0f}, {1.0f, 1.0f},
+                             {255.0f / 256.0f, 127.0f / 128.0f, 1.0f / 256.0f, 1.0f / 128.0f},
+                             {256.0f, 128.0f}, full, quad));
+    assert(quad[0].u == 255 && quad[1].u == 255 && quad[0].v == 127 && quad[2].v == 128);
     Ps1UiTriangle triangles[64]{};
     std::uint16_t count = 0;
     std::uint16_t fillCount = 0;
