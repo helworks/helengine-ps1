@@ -757,3 +757,44 @@ earlier cadence log
 `C:\dev\helworks\builds\helengine-ps1\20260923-102551-055-Release-920901ae34e849ac8315d6ef8327d925\guest-timing.log`,
 and host summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-105114-210-b5da0b99b4ad433799dfbebfeda44e4f\summary.json`.
+
+## Shared MSD FPS scale and PS1 glyph sampling (2026-09-23)
+
+The original cooked `cube_test` FPS component used a `2.0` font scale on PS1.
+Moving the authored override from `platform:n64` to the `sd/msd` group made the
+PS1 cook resolve `1.0`; the 9,147-byte cooked scene changed only the two bytes
+of that float (`00 00 00 40` to `00 00 80 3F`). A first-frame UI trace before
+this change placed the two FPS rows at Y=6 and Y=34 while the Light row began
+at Y=43.5. The user confirmed that the new FPS text matched the other text
+sizes, but all glyphs still lost pixels at their right and bottom edges.
+
+The PS1 glyph quad had mapped its far vertices to `source + size - 1`, although
+its screen vertices mark the exclusive destination edge. The host geometry test
+now models the PS1's half-texel UV start and checks every source column and row
+of a 5x9 glyph at 1:1 size. It failed against the old UVs and passed with the
+exclusive source edge. The user visually confirmed that the resulting glyphs
+look correct. The full host suite passed with required exit codes zero; its
+negative stream fixture returned the expected 73.
+
+The user then reported that `Update FPS` touched the visible top edge. The
+FPS component's common top padding is 6 pixels. A new `sd/msd` override raises
+that padding to 16 pixels and leaves PSP at 6. Regenerating `cube_test` changed
+the authored scene from 50,668 (scale-only) to 50,679 bytes. Comparing the two PS1 cooked
+scenes showed both at 9,147 bytes, with exactly one changed byte in the FPS
+padding (`06` to `10` at offset 2996); the scale remained `1.0`. The final
+PS-X EXE is 512,000 bytes, with a 558,432-byte static footprint and 1,407,648
+bytes of heap, unchanged from the earlier native-atlas build. The user
+confirmed the final DuckStation build gives `Update FPS` a comfortable top margin.
+The user also reports about 19.8 FPS and `0.0 ms` render time in that build;
+the timing source and 2D workload are under investigation.
+
+Evidence: final scene export SHA-256
+`fa2a9b72ae0760d95b9968946f910bbdac69ca0504a6dc88eb0dd6aeb86ee6f6`,
+final build manifest
+`C:\dev\helworks\helengine-ps1\out\msd-padding-build-20260923\editor-output\manifest.json`,
+prior glyph-fix manifest
+`C:\dev\helworks\builds\helengine-ps1\20260923-120325-857-Release-0f6228ba83704669b6fc02784269d21a\manifest.json`,
+host summary
+`C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-120438-614-c791ad64cc58436fb2f6588b65d17e4c\summary.json`,
+and final launch record
+`C:\dev\helworks\helengine-ps1\out\msd-padding-build-20260923\editor-output\last-launch.json`.
