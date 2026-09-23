@@ -934,3 +934,26 @@ Evidence: build manifest
 guest log `C:\dev\helworks\helengine-ps1\out\quad-trial-guest.log`, and host
 summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-184924-654-0f59df19cbe346c19f42ab15b37e20d1\summary.json`.
+## Stable 2D queue type validation (2026-09-23)
+
+The `cube_test` render list contains 3 sprites, 2 rounded rectangles and 5
+text drawables. Profiling the quad build attributed 4.167 ms per frame to
+visiting that list, including roughly 1 ms outside the draw methods. On PS1,
+the visitor had repeated up to three RTTI checks for every drawable each
+frame. The render list already increments a version when its membership
+changes. PS1 now validates concrete drawable types on the first visit for a
+queue version, and reuses that result until the version changes. It rejects a
+version change during traversal.
+
+With the unchanged scene and restored, clean generated Core, the second
+600-frame average changed from Update 2.926 ms and Draw 9.337 ms to Update
+2.924 ms and Draw 8.382 ms. The first-frame packet count stayed 180; the UI
+report still lists 3 sprites, 2 shapes, 5 texts, 82 glyph quads and no failure.
+The clean 1800–2400 interval used 600 VBlanks for 600 game frames. The host
+suite passed, including the expected negative stream fixture exit 73.
+
+Evidence: build manifest
+`C:\dev\helworks\builds\helengine-ps1\20260923-191739-649-Release-23ad068bb5c7470d9a170197614d4792\manifest.json`,
+guest log `C:\dev\helworks\helengine-ps1\out\validated-ui-queue-guest.log`,
+and host summary
+`C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-191714-027-a91a2111e13c468e8f410cd2360d112d\summary.json`.

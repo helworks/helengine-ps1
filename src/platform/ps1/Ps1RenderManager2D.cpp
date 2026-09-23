@@ -140,13 +140,24 @@ bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
         Reject("PS1_UI_VIEWPORT_UNSUPPORTED");
         return false;
     }
-    if (camera->get_RenderQueue2D() == nullptr) {
+    ::IRenderQueue2D* queue = camera->get_RenderQueue2D();
+    if (queue == nullptr) {
         Reject("PS1_UI_QUEUE_MISSING");
         return false;
     }
+    const std::int32_t version = queue->get_Version();
+    UseValidatedQueue = queue == ValidatedQueue && version == ValidatedQueueVersion;
     QueueOpen = true;
-    camera->get_RenderQueue2D()->VisitOrdered(this);
+    queue->VisitOrdered(this);
     QueueOpen = false;
+    if (queue->get_Version() != version) {
+        Reject("PS1_UI_QUEUE_CHANGED_DURING_DRAW");
+    } else if (FailureMarker == nullptr && !UseValidatedQueue) {
+        // RenderList2D advances its version whenever membership changes. A stable list contains
+        // the same concrete drawables, so later frames can skip repeated RTTI checks.
+        ValidatedQueue = queue;
+        ValidatedQueueVersion = version;
+    }
     return FailureMarker == nullptr && FlushPendingInVisitOrder();
 }
 
@@ -199,7 +210,7 @@ bool Ps1RenderManager2D::FlushPendingInVisitOrder() {
 
 void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     if (drawable == nullptr || !QueueOpen) return;
-    if (dynamic_cast<::ISpriteDrawable2D*>(drawable) != nullptr ||
+    if (UseValidatedQueue || dynamic_cast<::ISpriteDrawable2D*>(drawable) != nullptr ||
         dynamic_cast<::IRoundedRectDrawable2D*>(drawable) != nullptr ||
         dynamic_cast<::ITextDrawable2D*>(drawable) != nullptr) {
         drawable->Draw();

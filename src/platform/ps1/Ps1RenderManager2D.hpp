@@ -13,6 +13,7 @@
 class TextureAsset;
 class ICamera;
 class IDrawable2D;
+class IRenderQueue2D;
 
 namespace helengine::ps1 {
 
@@ -110,6 +111,9 @@ private:
     Ps1TextGlyphCache GlyphCache;
     Ps1RoundedRectGeometryCache RoundedRectCache;
     bool QueueOpen = false;
+    ::IRenderQueue2D* ValidatedQueue = nullptr;
+    std::int32_t ValidatedQueueVersion = 0;
+    bool UseValidatedQueue = false;
     const char* FailureMarker = nullptr;
 };
 
