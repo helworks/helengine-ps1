@@ -25,12 +25,12 @@ template<class T> using SharedPtr = helengine::ps1::Ps1SharedPtr<T>;
 
 /// <summary>Stops execution after reporting an unrecoverable managed runtime failure.</summary>
 [[noreturn]] void Fail(const char* message);
-/// <summary>Returns the extended SDK monotonic timer in microseconds.</summary>
+/// <summary>Returns the extended HSync monotonic timer in microseconds.</summary>
 std::uint64_t MonotonicMicroseconds();
 }
 
 namespace helengine::ps1 {
-/// <summary>Binds the initialized GPU clock before constructing generated Core objects.</summary>
+/// <summary>Binds the initialized HSync counter before constructing generated Core objects.</summary>
 void InitializeRuntimeClock(psyqo::GPU& gpu);
 }
 

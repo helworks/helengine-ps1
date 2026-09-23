@@ -3,6 +3,7 @@
 #include "psyqo/gpu.hh"
 #include "psyqo/kernel.hh"
 #include "common/syscalls/syscalls.h"
+#include "common/hardware/counters.h"
 
 namespace {
 psyqo::GPU* RuntimeGpu = nullptr;
@@ -11,14 +12,14 @@ helengine::ps1::Ps1RuntimeClock RuntimeClock;
 
 void helengine::ps1::InitializeRuntimeClock(psyqo::GPU& gpu) {
     RuntimeGpu = &gpu;
-    RuntimeClock.Bind(gpu.now());
+    RuntimeClock.Bind(COUNTERS[1].value);
 }
 
 std::uint64_t he_cpp_custom::MonotonicMicroseconds() {
     // Generated static initializers may sample the clock before the GPU exists. They observe the
-    // epoch, exactly as PSYQo's own microsecond counter reads zero before the first page flip.
+    // epoch until the hardware HSync counter is initialized.
     if (RuntimeGpu == nullptr) { return RuntimeClock.Elapsed(); }
-    return RuntimeClock.Advance(RuntimeGpu->now());
+    return RuntimeClock.Advance(COUNTERS[1].value);
 }
 
 [[noreturn]] void he_cpp_custom::Fail(const char* message) {
