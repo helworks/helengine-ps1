@@ -798,3 +798,38 @@ host summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-120438-614-c791ad64cc58436fb2f6588b65d17e4c\summary.json`,
 and final launch record
 `C:\dev\helworks\helengine-ps1\out\msd-padding-build-20260923\editor-output\last-launch.json`.
+
+## PS1 UI frame timing and layout cost (2026-09-23)
+
+The Core render stopwatch had shown `0.0 ms` because PSYQo's `GPU::now()`
+advances at page-flip callbacks, not while `Core::Draw` runs. The PS1 runtime
+clock now extends the hardware HSync counter at 64 microseconds per tick. The
+user's on-screen Render value changed from `0.0 ms` to a measured `~30 ms`.
+A PS1-only overlay row also shows average Update time; it does not change the
+shared engine checkout.
+
+A 600-frame profile before the final text-layout change measured Update
+3.718 ms, frame boundary 0.192 ms, Draw 30.079 ms, and 1,802 VBlanks over the
+steady 600-frame interval (19.98 FPS at 60 Hz). The PS1 now avoids rotation
+math for unrotated UI, caches cooked glyph metrics and atlas texel bounds,
+reuses rounded panel geometry, and skips the width-measurement pass for
+left-aligned text. The latter test first failed at 8 glyph lookups for a
+4-glyph label, then passed at 4 with identical positions. The final steady
+600-frame interval used 1,243 VBlanks (28.96 FPS at 60 Hz), with Update
+3.673 ms, frame boundary 0.193 ms, Draw 28.358 ms, and between-frame wait
+2.645 ms. The first 600-frame interval used 1,293 VBlanks and includes the
+57-VBlank startup frame. The user reported 28.7–28.8 FPS, Update 3.7 ms, and
+Render 28.0 ms on the final build; they had confirmed correct text and panel
+corners on the immediately preceding candidate.
+
+The final PS-X EXE is 516,096 bytes versus 512,000 before this work. Static
+RAM is 562,592 versus 558,432 bytes, leaving 1,403,488 versus 1,407,648
+bytes of heap. The full host suite passed: all required exit codes were zero,
+and the negative stream fixture returned its expected 73.
+
+Evidence: final build manifest
+`C:\dev\helworks\builds\helengine-ps1\20260923-132245-065-Release-6c694050d7b841c58db38ca76d80f0bc\manifest.json`,
+preserved guest log
+`C:\dev\helworks\builds\helengine-ps1\20260923-132245-065-Release-6c694050d7b841c58db38ca76d80f0bc\guest-ui-perf.log`,
+and host summary
+`C:\dev\helworks\builds\helengine-ps1\host-tests-20260923-132118-037-1d1e53443e5544d5a786be7ca0876e3c\summary.json`.
