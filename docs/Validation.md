@@ -602,10 +602,9 @@ and DuckStation log
 The UI packet builder already adds each texture's VRAM page-local origin to its
 UVs. `Ps1RenderManager2D::DrawSprite` also added that origin, so the GPU sampled
 the wrong part of the page for textures not placed at its top-left. The
-page-aligned light swatch had U offset 0 and rendered; the two other 8-bit
-textures had U offsets 28 and 24 texels, which were applied twice as 56 and 48.
-The manager now leaves UVs texture-relative and the packet builder applies the
-offset once.
+first runtime texture was page-aligned at X=320; the other 8-bit textures had U
+offsets 28 and 24 texels, which were applied twice as 56 and 48. The manager
+now leaves UVs texture-relative and the packet builder applies the offset once.
 
 The fresh PS1 build used the unchanged `cube_test` export (source SHA-256
 `ca237b8a84abe3db34ad6ee10574ab9e2da1d48819b9083f561c458ff54a58d2`) and
@@ -624,5 +623,34 @@ authored build record
 `C:\dev\helworks\builds\helengine-ps1\20260922-ui-fix-Release\authored-build.json`,
 and host summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260922-201017-283-3976aad036b04557b6cf882f4b4c0e36\summary.json`,
+and DuckStation log
+`C:\dev\helworks\emus\ps1\duckstation-windows-x64-release\duckstation.log`.
+
+## Authored sprite CLUT addressing correction (2026-09-22)
+
+After the page-local UV correction, the user still saw only the light swatch.
+The sprite packets were present, but their palette indices used the wrong VRAM
+coordinates: PSYQo's `ClutIndex` stores X in 16-word units, while the upload
+path passed raw word coordinates. The first two palette reservations were at
+X=334 and X=604, neither aligned to the GPU's 16-word CLUT address step. The
+allocator now aligns palette reservations and the draw path passes `clutX / 16`
+to `ClutIndex`.
+
+The regression test checks that a 27x27 8-bit texture at X=320 is followed by
+an aligned palette at X=336 (encoded CLUT X=21), without overlap. The full PS1
+host suite passed. A fresh build against the same shared `helengine` revision
+booted the unchanged scene and logged textures at `(vram, clut)` coordinates
+`(320,0; 336,0)`, `(592,0; 608,0)`, and `(912,0; 320,64)`. It then logged the
+first frame, three submitted sprites, 98 UI triangles, intact guards and no
+fatal marker. PS-X EXE size and RAM use remained 468,992 bytes, 498,464 bytes
+static and 1,467,616 bytes heap. These logs verify VRAM setup and packet
+submission, not framebuffer pixels; no screenshot was captured.
+
+Evidence: build manifest
+`C:\dev\helworks\builds\helengine-ps1\20260922-clut-fix-Release\editor-output\manifest.json`,
+authored build record
+`C:\dev\helworks\builds\helengine-ps1\20260922-clut-fix-Release\authored-build.json`,
+host summary
+`C:\dev\helworks\builds\helengine-ps1\host-tests-20260922-210649-463-79d56a4a520741cf8a182aac86f26bcc\summary.json`,
 and DuckStation log
 `C:\dev\helworks\emus\ps1\duckstation-windows-x64-release\duckstation.log`.
