@@ -1166,3 +1166,49 @@ Evidence: profiled manifest
 profiled guest log
 `C:\dev\helworks\builds\helengine-ps1\20260924-161751-048-Release-16faae4819964704bc197fa912731d54\duckstation-profile-guest-snapshot.log`,
 and normal manifest and guest log in the preceding section.
+
+## Fast path for unchanged PS1 text (2026-09-24)
+
+`DrawText` now uses `ITextDrawable2D.TextRenderStateVersion` to append the
+existing cached glyph quads when the text/style state has not changed. It
+still validates the viewport, entity position, render order, font, texture,
+and texture dimensions on that path; a changed input takes the full existing
+layout and cache-rebuild path. The eight-entry text cache grew by one
+32-bit version per entry. Both native builds used the same 3,041 copied
+inputs as their respective baselines except for
+`Ps1RenderManager2D.cpp` and `.hpp`; those two source files were subsequently
+committed as `ad0f4d5`.
+
+In normal authored Release builds, the sequence-1200 600-frame averages
+changed from Update 2.043 ms, boundary 0.320 ms, Draw 7.178 ms to Update
+2.043 ms, boundary 0.320 ms, Draw 6.092 ms. Update + Draw fell from 9.221
+to 8.135 ms, a 1.086 ms reduction. Both steady intervals used 600 VBlanks
+for 600 frames. The scene reached frame 1200 without a fatal marker, and
+the UI counters remained 3 sprites, 2 shapes, 5 texts, 100 glyph quads,
+103 submitted sprites, and 298 submitted triangles, with failure=none.
+Helena confirmed text (including the changing FPS values), shapes, sprites,
+and the cube remain visually correct.
+
+The matched profiled second window showed `ui_text_draw` falling from
+1.611 to 0.421 ms and `ui_queue_visit` from 2.785 to 1.703 ms. The
+`ui_packet_flush` stage remained 2.381 versus 2.380 ms, which localizes
+the gain to text preparation rather than packet insertion. Profiled Draw
+fell from 7.602 to 6.520 ms and Update stayed about 2.3 ms. The normal
+PS-X payload and static RAM each grew by 2,048 bytes (to 833,536 and
+884,184 bytes); heap capacity fell by 2,048 bytes to 1,081,896 bytes.
+The sampled heap end moved from `0x80107498` to `0x80107cb8`; after the
+static increase, sampled dynamic use rose by 32 bytes. The full PS1 host
+suite passed: all positive compile/run and Python exit codes were 0, and
+the expected negative embedded-stream fixture returned 73. DuckStation
+was returned to the optimized unprofiled build after profiling.
+
+Evidence: normal manifest
+`C:\dev\helworks\builds\helengine-ps1\20260924-171635-836-Release-3307162041334c8aa8bf6668eb9087a8\manifest.json`,
+normal guest log
+`C:\dev\helworks\builds\helengine-ps1\20260924-171635-836-Release-3307162041334c8aa8bf6668eb9087a8\duckstation-text-fast-guest-snapshot.log`,
+profiled manifest
+`C:\dev\helworks\builds\helengine-ps1\20260924-172218-501-Release-d93f1e8e396a422b9a1e672a362b1d58\manifest.json`,
+profiled guest log
+`C:\dev\helworks\builds\helengine-ps1\20260924-172218-501-Release-d93f1e8e396a422b9a1e672a362b1d58\duckstation-text-fast-profile-guest-snapshot.log`,
+and host summary
+`C:\dev\helworks\builds\helengine-ps1\host-tests-20260924-171551-699-b312b16793794336bf01b193b630cf69\summary.json`.
