@@ -1052,6 +1052,8 @@ The profile-on guest window reported 600 frames (601–1200), Update 2.971 ms, b
 
 The matched profile-off guest averaged Update 2.727 ms, boundary 0.137 ms and Draw 7.670 ms at sequence 1200 (the earlier 600-frame sample was 2.709/0.167/7.702 ms). The profile-on observer cost in this pair was therefore +0.244 ms Update, +0.034 ms boundary and +0.194 ms Draw (+0.438 ms Update+Draw, +0.472 ms including boundary). The off cadence advanced VBlank 654 to 1256 over the 600-frame observation; a later profile-on window advanced 1310 to 1912 for 600 frames (603 VBlanks). The clean steady off interval used for the baseline was 600 VBlanks for 600 frames. These cadence readings include the emulator's fixed-rate scheduling and are reported as evidence rather than a GPU timing measurement.
 
+The periodic report itself causes a visible hitch in DuckStation. It prints 25 BIOS TTY lines (about 2.6 KB) synchronously before the next sampled frame. The first completed window ended at VBlank 1269 and the next began at 1310 (41 VBlanks); subsequent report gaps were 30 VBlanks (1912 to 1942 and 2562 to 2592). This output pause is excluded from the measured 600-frame CPU averages but remains an observer effect during play. The ordinary unprofiled build emits no `HE_CPU_*` lines.
+
 The full host suite passed in `C:\dev\helworks\builds\helengine-ps1\host-tests-20260924-000042-890-abbbf3854ad04daa957eb851ee81a769\summary.json`: all compile/run exit codes were 0, the expected embedded-stream negative fixture returned 73, and Python checks returned 0. The final guest evidence is `C:\dev\helworks\helengine-ps1\out\cpu-profile-identity-final-guest.log`.
 
 Helena confirmed that the UI, text and cube motion remain visually correct in the final profiled DuckStation build.
