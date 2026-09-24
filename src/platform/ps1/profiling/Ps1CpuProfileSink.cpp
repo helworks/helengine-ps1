@@ -161,6 +161,12 @@ const char* Ps1CpuProfileSink::CoreStageName(std::uint32_t stageId) {
         case UiQueueVisit: return "ui_queue_visit";
         case UiPacketFlush: return "ui_packet_flush";
         case Submit: return "submit";
+        case UiTextDraw: return "ui_text_draw";
+        case UiSpriteDraw: return "ui_sprite_draw";
+        case UiShapeDraw: return "ui_shape_draw";
+        case UiSpritePacket: return "ui_sprite_packet";
+        case UiShapePacket: return "ui_shape_packet";
+        case UiSpriteGeometry: return "ui_sprite_geometry";
         default: return "unknown";
     }
 }

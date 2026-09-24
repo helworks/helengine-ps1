@@ -1,4 +1,5 @@
 #include "platform/ps1/rendering/Ps1AuthoredUiGeometry.hpp"
+#include "platform/ps1/rendering/Ps1SpriteGeometryCache.hpp"
 #include "platform/ps1/rendering/Ps1VramAllocator.hpp"
 
 #include <cassert>
@@ -147,5 +148,45 @@ int main() {
     assert(TryMapAlphaToBlend(128, semiTransparent) && semiTransparent);
     assert(TryMapAlphaToBlend(254, semiTransparent) && semiTransparent);
     assert(TryMapAlphaToBlend(255, semiTransparent) && !semiTransparent);
+
+    Ps1SpriteGeometryCache spriteCache;
+    const Ps1SpriteGeometryKey spriteKey{
+        reinterpret_cast<const void*>(1), reinterpret_cast<const void*>(2),
+        {10.0f, 20.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f, 1.0f},
+        26, 27, {0.0f, 0.0f, 1.0f, 1.0f}, 14, 27, full
+    };
+    Ps1UiVertex spriteQuad[4]{};
+    assert(TryBuildSpriteQuad({10.0f, 20.0f}, {26.0f, 27.0f}, {1.0f, 1.0f}, 0.0f,
+                              spriteKey.Source, {14.0f, 27.0f}, full, spriteQuad));
+    Ps1UiVertex reusedSprite[4]{};
+    assert(!spriteCache.TryGet(spriteKey, reusedSprite));
+    spriteCache.Remember(spriteKey, spriteQuad);
+    assert(spriteCache.TryGet(spriteKey, reusedSprite));
+    for (unsigned i = 0; i < 4; ++i) {
+        assert(reusedSprite[i].x == spriteQuad[i].x && reusedSprite[i].y == spriteQuad[i].y);
+        assert(reusedSprite[i].u == spriteQuad[i].u && reusedSprite[i].v == spriteQuad[i].v);
+    }
+    Ps1SpriteGeometryKey changed = spriteKey;
+    changed.Position[0] += 1.0f;
+    assert(!spriteCache.TryGet(changed, reusedSprite));
+    changed = spriteKey;
+    changed.Orientation[2] = 0.5f;
+    assert(!spriteCache.TryGet(changed, reusedSprite));
+    changed = spriteKey;
+    changed.Source.x = 0.25f;
+    assert(!spriteCache.TryGet(changed, reusedSprite));
+    changed = spriteKey;
+    changed.SizeX = 25;
+    assert(!spriteCache.TryGet(changed, reusedSprite));
+    changed = spriteKey;
+    changed.Viewport.x = 160;
+    assert(!spriteCache.TryGet(changed, reusedSprite));
+    changed = spriteKey;
+    changed.TextureWidth = 28;
+    assert(!spriteCache.TryGet(changed, reusedSprite));
+    assert(spriteCache.TryGet(spriteKey, reusedSprite));
+    spriteCache.Remember(changed, spriteQuad);
+    assert(!spriteCache.TryGet(spriteKey, reusedSprite));
+    assert(spriteCache.TryGet(changed, reusedSprite));
     return 0;
 }

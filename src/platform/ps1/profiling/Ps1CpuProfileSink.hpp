@@ -17,6 +17,12 @@ public:
         UiQueueVisit = 102u,
         UiPacketFlush = 103u,
         Submit = 104u,
+        UiTextDraw = 105u,
+        UiSpriteDraw = 106u,
+        UiShapeDraw = 107u,
+        UiSpritePacket = 108u,
+        UiShapePacket = 109u,
+        UiSpriteGeometry = 110u,
     };
 
     std::uint64_t ReadMicroseconds() override;

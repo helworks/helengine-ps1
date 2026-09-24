@@ -42,6 +42,25 @@ constexpr std::uint16_t EightBitPaletteEntries = 256;
 constexpr std::int16_t DisplayWidth = 320;
 constexpr std::int16_t DisplayHeight = 240;
 
+#if defined(PS1_CPU_PROFILE)
+class ScopedUiCpuSample {
+public:
+    ScopedUiCpuSample(Ps1CpuProfileSink* sink, std::uint64_t& total)
+        : Sink(sink), Total(total), Start(sink == nullptr ? 0u : sink->ReadMicroseconds()) {}
+    ~ScopedUiCpuSample() {
+        if (Sink == nullptr) return;
+        const std::uint64_t end = Sink->ReadMicroseconds();
+        if (end < Start) Sink->ClockFault();
+        else Total += end - Start;
+    }
+
+private:
+    Ps1CpuProfileSink* Sink;
+    std::uint64_t& Total;
+    std::uint64_t Start;
+};
+#endif
+
 /// <summary>
 /// Converts one straight RGBA8888 palette entry to the GPU's 16-bit BGR555 with its semi-transparency
 /// bit. A fully transparent entry becomes the all-zero value, which the GPU treats as "do not draw".
@@ -62,11 +81,9 @@ std::uint16_t PackPaletteEntry(std::uint8_t red, std::uint8_t green, std::uint8_
     return static_cast<std::uint16_t>(packed | 0x8000u);
 }
 
-bool TryScreenTransform(::Entity* entity, Ps1UiPoint& position, Ps1UiPoint& scale, float& rotation) {
-    if (entity == nullptr) return false;
-    const ::float3 worldPosition = entity->get_Position();
-    const ::float3 worldScale = entity->get_Scale();
-    const ::float4 orientation = entity->get_Orientation();
+bool TryScreenTransform(const ::float3& worldPosition, const ::float3& worldScale,
+                        const ::float4& orientation, Ps1UiPoint& position,
+                        Ps1UiPoint& scale, float& rotation) {
     const float rightX = 1.0f - 2.0f * (orientation.Y * orientation.Y + orientation.Z * orientation.Z);
     const float rightY = 2.0f * (orientation.X * orientation.Y + orientation.W * orientation.Z);
     position = {worldPosition.X, worldPosition.Y};
@@ -75,6 +92,12 @@ bool TryScreenTransform(::Entity* entity, Ps1UiPoint& position, Ps1UiPoint& scal
     return ui_geometry_detail::Finite(position.x) && ui_geometry_detail::Finite(position.y) &&
            ui_geometry_detail::Finite(scale.x) && ui_geometry_detail::Finite(scale.y) &&
            ui_geometry_detail::Finite(rotation);
+}
+
+bool TryScreenTransform(::Entity* entity, Ps1UiPoint& position, Ps1UiPoint& scale, float& rotation) {
+    if (entity == nullptr) return false;
+    return TryScreenTransform(entity->get_Position(), entity->get_Scale(), entity->get_Orientation(),
+                              position, scale, rotation);
 }
 
 std::uint8_t TextureModulation(std::uint8_t channel) {
@@ -135,6 +158,10 @@ bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
     VisitedTexts = 0;
     QueuedGlyphQuads = 0;
     PendingCount = 0;
+#if defined(PS1_CPU_PROFILE)
+    UiTextDrawUs = UiSpriteDrawUs = UiShapeDrawUs = UiSpriteGeometryUs = 0;
+    UiSpritePacketUs = UiShapePacketUs = 0;
+#endif
     for (CachedText& cached : TextCache) cached.InFrame = false;
     PendingShapes = 0;
     PendingSprites = 0;
@@ -163,6 +190,14 @@ bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
     }
 #endif
     QueueOpen = false;
+#if defined(PS1_CPU_PROFILE)
+    if (CpuProfile != nullptr) {
+        CpuProfile->RecordNativeStage(Ps1CpuProfileSink::UiTextDraw, UiTextDrawUs);
+        CpuProfile->RecordNativeStage(Ps1CpuProfileSink::UiSpriteDraw, UiSpriteDrawUs);
+        CpuProfile->RecordNativeStage(Ps1CpuProfileSink::UiSpriteGeometry, UiSpriteGeometryUs);
+        CpuProfile->RecordNativeStage(Ps1CpuProfileSink::UiShapeDraw, UiShapeDrawUs);
+    }
+#endif
     if (queue->get_Version() != version) {
         Reject("PS1_UI_QUEUE_CHANGED_DURING_DRAW");
     } else if (FailureMarker == nullptr && !UseValidatedQueue) {
@@ -171,7 +206,14 @@ bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
         ValidatedQueue = queue;
         ValidatedQueueVersion = version;
     }
-    return FailureMarker == nullptr && FlushPendingInVisitOrder();
+    const bool flushed = FailureMarker == nullptr && FlushPendingInVisitOrder();
+#if defined(PS1_CPU_PROFILE)
+    if (CpuProfile != nullptr) {
+        CpuProfile->RecordNativeStage(Ps1CpuProfileSink::UiSpritePacket, UiSpritePacketUs);
+        CpuProfile->RecordNativeStage(Ps1CpuProfileSink::UiShapePacket, UiShapePacketUs);
+    }
+#endif
+    return flushed;
 }
 
 bool Ps1RenderManager2D::AppendPending(const PendingUiDrawable& drawable) {
@@ -206,9 +248,29 @@ std::uint32_t Ps1RenderManager2D::AllocatePacketRevision() {
 bool Ps1RenderManager2D::FlushPendingInVisitOrder() {
 #if defined(PS1_CPU_PROFILE)
     const std::uint64_t flushStartUs = CpuProfile == nullptr ? 0u : CpuProfile->ReadMicroseconds();
+    bool runActive = false;
+    bool runIsSprite = false;
+    std::uint64_t runStartUs = 0;
+    const auto closeRun = [&]() {
+        if (CpuProfile == nullptr || !runActive) return;
+        const std::uint64_t endUs = CpuProfile->ReadMicroseconds();
+        if (endUs < runStartUs) CpuProfile->ClockFault();
+        else if (runIsSprite) UiSpritePacketUs += endUs - runStartUs;
+        else UiShapePacketUs += endUs - runStartUs;
+        runActive = false;
+    };
 #endif
     for (std::uint16_t i = PendingCount; i > 0; --i) {
         const PendingUiDrawable& pending = *PendingOrder[i - 1u];
+#if defined(PS1_CPU_PROFILE)
+        const bool packetIsSprite = pending.IsSprite && pending.Texture != nullptr;
+        if (CpuProfile != nullptr && (!runActive || runIsSprite != packetIsSprite)) {
+            closeRun();
+            runStartUs = CpuProfile->ReadMicroseconds();
+            runIsSprite = packetIsSprite;
+            runActive = true;
+        }
+#endif
         bool queued = false;
         if (pending.IsSprite && pending.Texture != nullptr) {
             const Ps1RuntimeTexture& texture = *pending.Texture;
@@ -223,6 +285,9 @@ bool Ps1RenderManager2D::FlushPendingInVisitOrder() {
             queued = Renderer.QueueAuthoredUiTriangle(triangle, pending.Color, pending.SemiTransparent, pending.Bucket);
         }
         if (!queued) {
+#if defined(PS1_CPU_PROFILE)
+            closeRun();
+#endif
             Reject(Renderer.Stats().failure == Ps1RenderFailure::Capacity ? "PS1_UI_PACKET_CAPACITY"
                                                                           : "PS1_UI_FRAME_OWNERSHIP");
 #if defined(PS1_CPU_PROFILE)
@@ -236,6 +301,7 @@ bool Ps1RenderManager2D::FlushPendingInVisitOrder() {
         }
     }
 #if defined(PS1_CPU_PROFILE)
+    closeRun();
     if (CpuProfile != nullptr) {
         const std::uint64_t flushEndUs = CpuProfile->ReadMicroseconds();
         if (flushEndUs >= flushStartUs) CpuProfile->RecordNativeStage(Ps1CpuProfileSink::UiPacketFlush, flushEndUs - flushStartUs);
@@ -388,6 +454,9 @@ void Ps1RenderManager2D::ReleaseTexture(::RuntimeTexture* texture) {
 
 void Ps1RenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D* shape) {
     if (shape == nullptr || shape->get_Parent() == nullptr || !QueueOpen) return;
+#if defined(PS1_CPU_PROFILE)
+    ScopedUiCpuSample cpuSample(CpuProfile, UiShapeDrawUs);
+#endif
     ++VisitedShapes;
     Ps1UiPoint position{};
     Ps1UiPoint scale{};
@@ -440,7 +509,11 @@ void Ps1RenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D* shape) {
 }
 
 void Ps1RenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
-    if (sprite == nullptr || sprite->get_Parent() == nullptr || !QueueOpen) return;
+    ::Entity* parent = sprite == nullptr ? nullptr : sprite->get_Parent();
+    if (parent == nullptr || !QueueOpen) return;
+#if defined(PS1_CPU_PROFILE)
+    ScopedUiCpuSample cpuSample(CpuProfile, UiSpriteDrawUs);
+#endif
     ++VisitedSprites;
     auto* texture = dynamic_cast<Ps1RuntimeTexture*>(sprite->get_Texture());
     if (texture == nullptr) {
@@ -451,21 +524,44 @@ void Ps1RenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
     const std::uint16_t height = static_cast<std::uint16_t>(texture->get_Height());
     ::int2 size = sprite->get_Size();
     if (size.X <= 0 || size.Y <= 0) size = ::int2(width, height);
-    Ps1UiPoint position{};
-    Ps1UiPoint scale{};
-    float rotation = 0.0f;
-    if (!TryScreenTransform(sprite->get_Parent(), position, scale, rotation)) {
-        Reject("PS1_UI_SPRITE_TRANSFORM_REJECTED");
-        return;
-    }
+#if defined(PS1_CPU_PROFILE)
+    const std::uint64_t geometryStartUs = CpuProfile == nullptr ? 0u : CpuProfile->ReadMicroseconds();
+#endif
+    const ::float3 parentPosition = parent->get_Position();
+    const ::float3 parentScale = parent->get_Scale();
+    const ::float4 parentOrientation = parent->get_Orientation();
     const ::float4 source = sprite->get_SourceRect();
+    const Ps1SpriteGeometryKey geometryKey{
+        sprite, texture,
+        {parentPosition.X, parentPosition.Y, parentPosition.Z},
+        {parentScale.X, parentScale.Y, parentScale.Z},
+        {parentOrientation.X, parentOrientation.Y, parentOrientation.Z, parentOrientation.W},
+        size.X, size.Y, {source.X, source.Y, source.Z, source.W}, width, height, ActiveViewport
+    };
     Ps1UiVertex vertices[4]{};
-    if (!TryBuildSpriteQuad(position, {static_cast<float>(size.X), static_cast<float>(size.Y)}, scale, rotation,
-                            {source.X, source.Y, source.Z, source.W}, {static_cast<float>(width), static_cast<float>(height)},
-                            ActiveViewport, vertices)) {
-        Reject("PS1_UI_SPRITE_GEOMETRY_REJECTED");
-        return;
+    if (!SpriteGeometryCache.TryGet(geometryKey, vertices)) {
+        Ps1UiPoint position{};
+        Ps1UiPoint scale{};
+        float rotation = 0.0f;
+        if (!TryScreenTransform(parentPosition, parentScale, parentOrientation, position, scale, rotation)) {
+            Reject("PS1_UI_SPRITE_TRANSFORM_REJECTED");
+            return;
+        }
+        if (!TryBuildSpriteQuad(position, {static_cast<float>(size.X), static_cast<float>(size.Y)}, scale, rotation,
+                                geometryKey.Source, {static_cast<float>(width), static_cast<float>(height)},
+                                ActiveViewport, vertices)) {
+            Reject("PS1_UI_SPRITE_GEOMETRY_REJECTED");
+            return;
+        }
+        SpriteGeometryCache.Remember(geometryKey, vertices);
     }
+#if defined(PS1_CPU_PROFILE)
+    if (CpuProfile != nullptr) {
+        const std::uint64_t geometryEndUs = CpuProfile->ReadMicroseconds();
+        if (geometryEndUs < geometryStartUs) CpuProfile->ClockFault();
+        else UiSpriteGeometryUs += geometryEndUs - geometryStartUs;
+    }
+#endif
     const std::uint16_t pageOffsetU = static_cast<std::uint16_t>((texture->VramX % 64u) * texture->PixelsPerWord());
     const std::uint16_t pageOffsetV = static_cast<std::uint16_t>(texture->VramY % 256u);
     if (pageOffsetU + width > 256u || pageOffsetV + height > 256u) {
@@ -496,6 +592,9 @@ void Ps1RenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
 
 void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
     if (text == nullptr || text->get_Parent() == nullptr || !QueueOpen) return;
+#if defined(PS1_CPU_PROFILE)
+    ScopedUiCpuSample cpuSample(CpuProfile, UiTextDrawUs);
+#endif
     ++VisitedTexts;
     ::FontAsset* font = text->get_Font();
     auto* texture = font == nullptr ? nullptr : dynamic_cast<Ps1RuntimeTexture*>(font->get_Texture());

@@ -5,6 +5,7 @@
 #include "IRenderVisitor2D.hpp"
 #include "RenderManager2D.hpp"
 #include "platform/ps1/rendering/Ps1AuthoredUiGeometry.hpp"
+#include "platform/ps1/rendering/Ps1SpriteGeometryCache.hpp"
 #include "platform/ps1/rendering/Ps1TextLayout.hpp"
 #include "platform/ps1/rendering/Ps1RasterRenderer.hpp"
 #include "platform/ps1/rendering/Ps1VramAllocator.hpp"
@@ -101,6 +102,12 @@ private:
 
 #if defined(PS1_CPU_PROFILE)
     Ps1CpuProfileSink* CpuProfile = nullptr;
+    std::uint64_t UiTextDrawUs = 0;
+    std::uint64_t UiSpriteDrawUs = 0;
+    std::uint64_t UiSpriteGeometryUs = 0;
+    std::uint64_t UiShapeDrawUs = 0;
+    std::uint64_t UiSpritePacketUs = 0;
+    std::uint64_t UiShapePacketUs = 0;
 #endif
     psyqo::GPU& Gpu;
     Ps1RasterRenderer& Renderer;
@@ -122,6 +129,7 @@ private:
     std::uint32_t NextPacketRevision = 0;
     Ps1TextGlyphCache GlyphCache;
     Ps1RoundedRectGeometryCache RoundedRectCache;
+    Ps1SpriteGeometryCache SpriteGeometryCache;
     bool QueueOpen = false;
     ::IRenderQueue2D* ValidatedQueue = nullptr;
     std::int32_t ValidatedQueueVersion = 0;
