@@ -23,6 +23,9 @@
 #include "float4.hpp"
 #include "int2.hpp"
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
+#if defined(PS1_CPU_PROFILE)
+#include "platform/ps1/profiling/Ps1CpuProfileSink.hpp"
+#endif
 #include "platform/ps1/rendering/Ps1RuntimeTexture.hpp"
 #include "platform/ps1/rendering/Ps1TextLayout.hpp"
 #include "runtime/array.hpp"
@@ -148,7 +151,17 @@ bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
     const std::int32_t version = queue->get_Version();
     UseValidatedQueue = queue == ValidatedQueue && version == ValidatedQueueVersion;
     QueueOpen = true;
+#if defined(PS1_CPU_PROFILE)
+    const std::uint64_t visitStartUs = CpuProfile == nullptr ? 0u : CpuProfile->ReadMicroseconds();
+#endif
     queue->VisitOrdered(this);
+#if defined(PS1_CPU_PROFILE)
+    if (CpuProfile != nullptr) {
+        const std::uint64_t visitEndUs = CpuProfile->ReadMicroseconds();
+        if (visitEndUs >= visitStartUs) CpuProfile->RecordNativeStage(Ps1CpuProfileSink::UiQueueVisit, visitEndUs - visitStartUs);
+        else CpuProfile->ClockFault();
+    }
+#endif
     QueueOpen = false;
     if (queue->get_Version() != version) {
         Reject("PS1_UI_QUEUE_CHANGED_DURING_DRAW");
@@ -191,6 +204,9 @@ std::uint32_t Ps1RenderManager2D::AllocatePacketRevision() {
 }
 
 bool Ps1RenderManager2D::FlushPendingInVisitOrder() {
+#if defined(PS1_CPU_PROFILE)
+    const std::uint64_t flushStartUs = CpuProfile == nullptr ? 0u : CpuProfile->ReadMicroseconds();
+#endif
     for (std::uint16_t i = PendingCount; i > 0; --i) {
         const PendingUiDrawable& pending = *PendingOrder[i - 1u];
         bool queued = false;
@@ -209,9 +225,23 @@ bool Ps1RenderManager2D::FlushPendingInVisitOrder() {
         if (!queued) {
             Reject(Renderer.Stats().failure == Ps1RenderFailure::Capacity ? "PS1_UI_PACKET_CAPACITY"
                                                                           : "PS1_UI_FRAME_OWNERSHIP");
+#if defined(PS1_CPU_PROFILE)
+            if (CpuProfile != nullptr) {
+                const std::uint64_t flushEndUs = CpuProfile->ReadMicroseconds();
+                if (flushEndUs >= flushStartUs) CpuProfile->RecordNativeStage(Ps1CpuProfileSink::UiPacketFlush, flushEndUs - flushStartUs);
+                else CpuProfile->ClockFault();
+            }
+#endif
             return false;
         }
     }
+#if defined(PS1_CPU_PROFILE)
+    if (CpuProfile != nullptr) {
+        const std::uint64_t flushEndUs = CpuProfile->ReadMicroseconds();
+        if (flushEndUs >= flushStartUs) CpuProfile->RecordNativeStage(Ps1CpuProfileSink::UiPacketFlush, flushEndUs - flushStartUs);
+        else CpuProfile->ClockFault();
+    }
+#endif
     return true;
 }
 

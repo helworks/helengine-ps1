@@ -15,6 +15,8 @@ param(
 
     [switch] $Authored,
 
+    [switch] $CpuProfile,
+
     [string] $AuthoredContentRoot,
 
     [string] $AuthoredDeclarations
@@ -22,6 +24,10 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ($CpuProfile -and (-not $Authored -or $Configuration -ne 'Release')) {
+    throw 'CpuProfile requires authored Release.'
+}
 
 if ($Authored) {
     # Authored mode links generated Core exactly like the boot checkpoint and adds the
@@ -311,6 +317,7 @@ try {
         "DEMO_MODE=$($DemoMode.ToUpperInvariant())",
         "CORE_BOOT=$([int][bool]$CoreBoot)",
         "AUTHORED=$([int][bool]$Authored)",
+        "CPU_PROFILE=$([int][bool]$CpuProfile)",
         "SDK_DEFINES=$($SdkDefine -join ' ')",
         'all'
     )
@@ -370,6 +377,7 @@ try {
         demo_mode = $DemoMode
         core_boot = [bool]$CoreBoot
         authored = [bool]$Authored
+        cpu_profile = [bool]$CpuProfile
         authored_content_root = $AuthoredContentRoot
         generated_core_root = $GeneratedCoreRoot
         sdk_defines = @($SdkDefine)

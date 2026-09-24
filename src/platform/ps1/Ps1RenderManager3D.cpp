@@ -20,6 +20,9 @@
 #include "float3.hpp"
 #include "float4.hpp"
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
+#if defined(PS1_CPU_PROFILE)
+#include "platform/ps1/profiling/Ps1CpuProfileSink.hpp"
+#endif
 #include "platform/ps1/Ps1RenderManager2D.hpp"
 #include "platform/ps1/rendering/Ps1AuthoredLighting.hpp"
 #include "platform/ps1/rendering/Ps1AuthoredProjection.hpp"
@@ -186,6 +189,9 @@ void Ps1RenderManager3D::Draw() {
     FrameOpen = false;
     FrameSubmitted = false;
     FailureMarker = nullptr;
+#if defined(PS1_CPU_PROFILE)
+    const std::uint64_t cameraSetupStartUs = CpuProfile == nullptr ? 0u : CpuProfile->ReadMicroseconds();
+#endif
     if (OwnerCore == nullptr || OwnerCore->get_ObjectManager() == nullptr) {
         Reject("PS1_RENDER_NO_CORE");
         return;
@@ -221,7 +227,22 @@ void Ps1RenderManager3D::Draw() {
         return;
     }
     FrameOpen = true;
+#if defined(PS1_CPU_PROFILE)
+    if (CpuProfile != nullptr) {
+        const std::uint64_t cameraSetupEndUs = CpuProfile->ReadMicroseconds();
+        if (cameraSetupEndUs >= cameraSetupStartUs) CpuProfile->RecordNativeStage(Ps1CpuProfileSink::CameraSetup, cameraSetupEndUs - cameraSetupStartUs);
+        else CpuProfile->ClockFault();
+    }
+    const std::uint64_t meshStartUs = CpuProfile == nullptr ? 0u : CpuProfile->ReadMicroseconds();
+#endif
     camera->get_RenderQueue3D()->VisitOrdered(this);
+#if defined(PS1_CPU_PROFILE)
+    if (CpuProfile != nullptr) {
+        const std::uint64_t meshEndUs = CpuProfile->ReadMicroseconds();
+        if (meshEndUs >= meshStartUs) CpuProfile->RecordNativeStage(Ps1CpuProfileSink::Mesh3D, meshEndUs - meshStartUs);
+        else CpuProfile->ClockFault();
+    }
+#endif
     if (!FrameOpen) {
         return;
     }
@@ -232,10 +253,20 @@ void Ps1RenderManager3D::Draw() {
         return;
     }
     FrameOpen = false;
+#if defined(PS1_CPU_PROFILE)
+    const std::uint64_t submitStartUs = CpuProfile == nullptr ? 0u : CpuProfile->ReadMicroseconds();
+#endif
     if (!Renderer.SubmitAuthoredFrame(Gpu, ClearColor)) {
         Reject("PS1_RENDER_SUBMISSION_FAILED");
         return;
     }
+#if defined(PS1_CPU_PROFILE)
+    if (CpuProfile != nullptr) {
+        const std::uint64_t submitEndUs = CpuProfile->ReadMicroseconds();
+        if (submitEndUs >= submitStartUs) CpuProfile->RecordNativeStage(Ps1CpuProfileSink::Submit, submitEndUs - submitStartUs);
+        else CpuProfile->ClockFault();
+    }
+#endif
     FrameSubmitted = true;
 }
 

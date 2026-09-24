@@ -9,6 +9,15 @@ EXTRA_LDSCRIPT = linker/retail-memory.ld
 DEMO_MODE ?= Clear
 CORE_BOOT ?= 0
 AUTHORED ?= 0
+CPU_PROFILE ?= 0
+ifeq ($(CPU_PROFILE),1)
+ifneq ($(AUTHORED),1)
+$(error CPU_PROFILE requires authored build)
+endif
+ifneq ($(BUILD),Release)
+$(error CPU_PROFILE requires Release build)
+endif
+endif
 # Authored mode links generated Core like the boot checkpoint and adds the scene catalog,
 # the embedded content archive, and the Core-driven scene host.
 ifeq ($(AUTHORED),1)
@@ -49,6 +58,10 @@ AUTHORED_CORE_SRCS = src/platform/ps1/Ps1AuthoredScene.cpp \
                      src/platform/ps1/rendering/Ps1RuntimeModel.cpp \
                      src/platform/ps1/rendering/Ps1RuntimeMaterial.cpp \
                      generated-core/ps1_runtime_scene_catalog.cpp
+ifeq ($(CPU_PROFILE),1)
+DEFINES += PS1_CPU_PROFILE=1
+AUTHORED_CORE_SRCS += src/platform/ps1/profiling/Ps1CpuProfileSink.cpp src/platform/ps1/profiling/Ps1CpuProfileWindow.cpp
+endif
 SRCS += $(AUTHORED_CORE_SRCS) authored/authored_assets.s
 CORE_RTTI_OBJS = $(AUTHORED_CORE_SRCS:.cpp=.o)
 else

@@ -1,0 +1,155 @@
+#include "platform/ps1/profiling/Ps1CpuProfileSink.hpp"
+
+#include "platform/ps1/Ps1RuntimeProvider.hpp"
+#include "common/syscalls/syscalls.h"
+
+namespace helengine::ps1 {
+
+std::uint64_t Ps1CpuProfileSink::ReadMicroseconds() {
+    return he_cpp_custom::MonotonicMicroseconds();
+}
+
+void Ps1CpuProfileSink::RecordStage(::RuntimeCpuProfileStage stage, std::uint64_t elapsedMicroseconds) {
+    Window.AddStage(static_cast<std::uint32_t>(stage), elapsedMicroseconds);
+}
+
+void Ps1CpuProfileSink::RecordUpdateable(::IUpdateable* item, int index, std::uint32_t typeHash,
+                                         std::uint32_t ownerSceneEntityId,
+                                         std::uint64_t elapsedMicroseconds) {
+    Window.AddComponent(reinterpret_cast<std::uintptr_t>(item), static_cast<std::uint32_t>(index),
+                        typeHash, ownerSceneEntityId, elapsedMicroseconds);
+}
+
+void Ps1CpuProfileSink::RegisterType(std::uint32_t typeHash, HeCppString typeName) {
+    Window.AddTypeLegend(typeHash, typeName.c_str());
+}
+
+void Ps1CpuProfileSink::ClockFault() {
+    Window.ClockFault();
+}
+
+void Ps1CpuProfileSink::BeginFrame(std::uint64_t sequence, std::uint32_t vblank, const char* sceneId) {
+    SceneId = sceneId == nullptr ? "unknown" : sceneId;
+    Window.BeginFrame(sequence, vblank, SceneHash(SceneId));
+}
+
+void Ps1CpuProfileSink::EndFrame(std::uint64_t sequence, std::uint32_t vblank) {
+    Window.EndFrame(sequence, vblank);
+}
+
+void Ps1CpuProfileSink::RecordNativeStage(std::uint32_t stageId, std::uint64_t elapsedMicroseconds) {
+    Window.AddStage(stageId, elapsedMicroseconds);
+}
+
+void Ps1CpuProfileSink::RecordHostTimings(std::uint64_t updateMicroseconds,
+                                          std::uint64_t boundaryMicroseconds,
+                                          std::uint64_t drawMicroseconds,
+                                          std::uint64_t betweenMicroseconds) {
+    const Ps1CpuProfileWindow::ReportView current = Window.GetReport();
+    if (current.Resets != ObservedResetCount) {
+        HostUpdateTotalUs = 0;
+        HostBoundaryTotalUs = 0;
+        HostDrawTotalUs = 0;
+        HostBetweenTotalUs = 0;
+        HostFrameCount = 0;
+        ObservedResetCount = current.Resets;
+    }
+    if (HostFrameCount != 0u) {
+        HostBetweenTotalUs += betweenMicroseconds;
+    }
+    HostUpdateTotalUs += updateMicroseconds;
+    HostBoundaryTotalUs += boundaryMicroseconds;
+    HostDrawTotalUs += drawMicroseconds;
+    ++HostFrameCount;
+}
+std::uint32_t Ps1CpuProfileSink::SceneHash(const char* sceneId) {
+    std::uint32_t hash = 2166136261u;
+    if (sceneId == nullptr) return hash;
+    while (*sceneId != '\0') {
+        hash ^= static_cast<std::uint8_t>(*sceneId++);
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+const char* Ps1CpuProfileSink::CoreStageName(std::uint32_t stageId) {
+    switch (stageId) {
+        case 1u: return "early_input";
+        case 2u: return "frame_counters";
+        case 3u: return "object_manager";
+        case 4u: return "audio";
+        case 5u: return "physics";
+        case 6u: return "late_input";
+        case 7u: return "pointer_interaction";
+        case 8u: return "frame_boundary";
+        case 9u: return "render_manager_3d";
+        case CameraSetup: return "camera_setup";
+        case Mesh3D: return "mesh_3d";
+        case UiQueueVisit: return "ui_queue_visit";
+        case UiPacketFlush: return "ui_packet_flush";
+        case Submit: return "submit";
+        default: return "unknown";
+    }
+}
+
+const char* Ps1CpuProfileSink::CoreStageParent(std::uint32_t stageId) {
+    if (stageId >= CameraSetup || stageId == 9u) return "draw";
+    if (stageId >= 1u && stageId <= 7u) return "update";
+    if (stageId == 8u) return "boundary";
+    return "core";
+}
+
+const char* Ps1CpuProfileSink::FindTypeName(std::uint32_t typeHash,
+                                             const Ps1CpuProfileWindow::ReportView& report) const {
+    for (std::size_t i = 0; i < report.TypeLegendCount; ++i) {
+        if (report.TypeLegends[i].TypeHash == typeHash) return report.TypeLegends[i].Name;
+    }
+    return "unknown";
+}
+
+void Ps1CpuProfileSink::EmitPendingReport() {
+    if (!Window.IsReportReady()) return;
+    const Ps1CpuProfileWindow::ReportView report = Window.GetReport();
+    char updateMilliseconds[16]{};
+    char boundaryMilliseconds[16]{};
+    char drawMilliseconds[16]{};
+    char betweenMilliseconds[16]{};
+    Ps1CpuProfileWindow::TryFormatMilliseconds(HostUpdateTotalUs, HostFrameCount, updateMilliseconds);
+    Ps1CpuProfileWindow::TryFormatMilliseconds(HostBoundaryTotalUs, HostFrameCount, boundaryMilliseconds);
+    Ps1CpuProfileWindow::TryFormatMilliseconds(HostDrawTotalUs, HostFrameCount, drawMilliseconds);
+    Ps1CpuProfileWindow::TryFormatMilliseconds(HostBetweenTotalUs, HostFrameCount, betweenMilliseconds);
+    ramsyscall_printf("HE_CPU_WINDOW platform=ps1 scene=%s build=cpu_profile frames=%u first=%u last=%u clock=hsync64us update_ms=%s draw_ms=%s boundary_ms=%s between_ms=%s scene_hash=%08x dropped=%u resets=%u vblank_first=%u vblank_last=%u\n",
+                      SceneId, static_cast<unsigned>(report.FrameCount), static_cast<unsigned>(report.FirstSequence),
+                      static_cast<unsigned>(report.LastSequence), updateMilliseconds, drawMilliseconds,
+                      boundaryMilliseconds, betweenMilliseconds, static_cast<unsigned>(report.SceneId),
+                      static_cast<unsigned>(report.Dropped), static_cast<unsigned>(report.Resets),
+                      static_cast<unsigned>(report.FirstVblank), static_cast<unsigned>(report.LastVblank));
+    char milliseconds[16]{};
+    for (std::size_t i = 0; i < report.StageCount; ++i) {
+        const Ps1CpuProfileWindow::StageRow& row = report.Stages[i];
+        if (!Ps1CpuProfileWindow::TryFormatMilliseconds(row.TotalMicroseconds, row.Calls, milliseconds)) continue;
+        ramsyscall_printf("HE_CPU_STAGE parent=%s name=%s id=%u avg_ms=%s calls=%u\n",
+                          CoreStageParent(row.StageId), CoreStageName(row.StageId), static_cast<unsigned>(row.StageId),
+                          milliseconds, static_cast<unsigned>(row.Calls));
+    }
+    for (std::size_t i = 0; i < report.ComponentCount; ++i) {
+        const Ps1CpuProfileWindow::ComponentRow& row = report.Components[i];
+        if (!Ps1CpuProfileWindow::TryFormatMilliseconds(row.TotalMicroseconds, row.Calls, milliseconds)) continue;
+        ramsyscall_printf("HE_CPU_COMPONENT index=%u type=%s hash=%08x owner=%u identity=%p avg_ms=%s calls=%u\n",
+                          static_cast<unsigned>(row.Index), FindTypeName(row.TypeHash, report),
+                          static_cast<unsigned>(row.TypeHash), static_cast<unsigned>(row.OwnerSceneEntityId),
+                          reinterpret_cast<const void*>(row.Identity), milliseconds, static_cast<unsigned>(row.Calls));
+    }
+    ramsyscall_printf("HE_CPU_WINDOW_END dropped=%u resets=%u clock_faults=%u vblank_first=%u vblank_last=%u\n",
+                      static_cast<unsigned>(report.Dropped), static_cast<unsigned>(report.Resets),
+                      static_cast<unsigned>(report.ClockFaults), static_cast<unsigned>(report.FirstVblank),
+                      static_cast<unsigned>(report.LastVblank));
+    Window.ClearReport();
+    HostUpdateTotalUs = 0;
+    HostBoundaryTotalUs = 0;
+    HostDrawTotalUs = 0;
+    HostBetweenTotalUs = 0;
+    HostFrameCount = 0;
+}
+
+} // namespace helengine::ps1

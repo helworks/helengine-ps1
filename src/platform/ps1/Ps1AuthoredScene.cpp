@@ -18,6 +18,9 @@
 #include "platform/ps1/Ps1RenderManager3D.hpp"
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
 #include "platform/ps1/Ps1SceneBootstrap.hpp"
+#if defined(PS1_CPU_PROFILE)
+#include "platform/ps1/profiling/Ps1CpuProfileSink.hpp"
+#endif
 #include "platform/ps1/rendering/Ps1FrameOverlayText.hpp"
 #include "psyqo/alloc.h"
 #include "psyqo/kernel.hh"
@@ -69,8 +72,15 @@ void Ps1AuthoredScene::InitializeCore() {
     m_options->set_RenderList3DInitialCapacity(16);
     m_options->set_CommitPendingSceneOperationsDuringDraw(false);
     m_options->set_DefaultUpdateDeltaSeconds(1.0 / 60.0);
+#if defined(PS1_CPU_PROFILE)
+    m_options->set_CpuProfileSink(&m_cpuProfileSink);
+#endif
     m_render2D = new Ps1RenderManager2D(gpu(), m_renderer);
     m_render3D = new Ps1RenderManager3D(gpu(), m_renderer, *m_render2D);
+#if defined(PS1_CPU_PROFILE)
+    m_render2D->SetCpuProfileSink(&m_cpuProfileSink);
+    m_render3D->SetCpuProfileSink(&m_cpuProfileSink);
+#endif
     // Core's screen-bound ViewportComponent reads MainWindowSize to fit authored reference
     // canvases. Register the native display before the scene's first layout update.
     m_render3D->AddWindow(0, 320, 240);
@@ -125,7 +135,8 @@ void Ps1AuthoredScene::ReportSceneState(const char* marker) {
 
 void Ps1AuthoredScene::frame() {
     const std::uint64_t frameStartUs = he_cpp_custom::MonotonicMicroseconds();
-    if (m_frameSequence != 0) m_betweenFramesTotalUs += frameStartUs - m_lastFrameEndUs;
+    const std::uint64_t betweenFrameUs = m_frameSequence != 0 ? frameStartUs - m_lastFrameEndUs : 0u;
+    m_betweenFramesTotalUs += betweenFrameUs;
     // Each frame() should follow exactly one VBlank; count every extra VBlank as a missed frame.
     const std::uint32_t vblankFrame = gpu().getFrameCount();
     if (m_frameSequence != 0) {
@@ -134,6 +145,14 @@ void Ps1AuthoredScene::frame() {
         if (delta > m_worstVblankDelta) m_worstVblankDelta = delta;
     }
     m_lastVblankFrame = vblankFrame;
+#if defined(PS1_CPU_PROFILE)
+    const bool hadPendingReport = m_cpuProfileSink.HasPendingReport();
+    m_cpuProfileSink.EmitPendingReport();
+    const bool profileCapture = m_frameSequence >= 600u && !hadPendingReport;
+    if (profileCapture) {
+        m_cpuProfileSink.BeginFrame(static_cast<std::uint64_t>(m_frameSequence) + 1u, vblankFrame, Ps1StartupSceneId());
+    }
+#endif
     const std::uint32_t now = gpu().now();
     double deltaSeconds = static_cast<double>(static_cast<std::uint32_t>(now - m_lastTimestamp)) / 1000000.0;
     m_lastTimestamp = now;
@@ -148,6 +167,13 @@ void Ps1AuthoredScene::frame() {
     // poses and submits the frame through the shared renderer with the camera's clear color.
     m_core->Draw();
     m_lastFrameEndUs = he_cpp_custom::MonotonicMicroseconds();
+#if defined(PS1_CPU_PROFILE)
+    if (profileCapture) {
+        m_cpuProfileSink.RecordHostTimings(updateEndUs - frameStartUs, boundaryEndUs - updateEndUs,
+                                           m_lastFrameEndUs - boundaryEndUs, betweenFrameUs);
+        m_cpuProfileSink.EndFrame(static_cast<std::uint64_t>(m_frameSequence) + 1u, vblankFrame);
+    }
+#endif
     m_updateTotalUs += updateEndUs - frameStartUs;
     m_boundaryTotalUs += boundaryEndUs - updateEndUs;
     m_drawTotalUs += m_lastFrameEndUs - boundaryEndUs;

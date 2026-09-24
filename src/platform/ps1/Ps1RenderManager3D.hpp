@@ -12,6 +12,9 @@ namespace helengine::ps1 {
 class Ps1RuntimeMaterial;
 class Ps1RuntimeModel;
 class Ps1RenderManager2D;
+#if defined(PS1_CPU_PROFILE)
+class Ps1CpuProfileSink;
+#endif
 
 /// <summary>
 /// 3D render manager backing Core's authored scene on PS1. It builds runtime models and materials
@@ -34,6 +37,9 @@ public:
     void ReleaseMaterial(::RuntimeMaterial* material) override;
     void ReleaseModel(::RuntimeModel* model) override;
     void Visit(::IDrawable3D* drawable) override;
+#if defined(PS1_CPU_PROFILE)
+    void SetCpuProfileSink(Ps1CpuProfileSink* sink) { CpuProfile = sink; }
+#endif
 
     /// <summary>Number of drawables visited during the most recent Draw.</summary>
     std::uint32_t LastVisitedDrawables() const { return VisitedDrawables; }
@@ -66,6 +72,9 @@ private:
     /// <summary>Records a frame rejection once; the first failure wins.</summary>
     void Reject(const char* marker);
 
+#if defined(PS1_CPU_PROFILE)
+    Ps1CpuProfileSink* CpuProfile = nullptr;
+#endif
     psyqo::GPU& Gpu;
     Ps1RasterRenderer& Renderer;
     Ps1RenderManager2D& Render2D;

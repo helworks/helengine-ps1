@@ -18,6 +18,9 @@ class IRenderQueue2D;
 namespace helengine::ps1 {
 
 class Ps1RuntimeTexture;
+#if defined(PS1_CPU_PROFILE)
+class Ps1CpuProfileSink;
+#endif
 
 /// <summary>
 /// 2D render manager backing Core's scene lifecycle on PS1. It uploads cooked paletted textures into
@@ -31,6 +34,9 @@ public:
     Ps1RenderManager2D(psyqo::GPU& gpu, Ps1RasterRenderer& renderer);
 
     bool DrawQueue(::ICamera* camera);
+#if defined(PS1_CPU_PROFILE)
+    void SetCpuProfileSink(Ps1CpuProfileSink* sink) { CpuProfile = sink; }
+#endif
     void Visit(::IDrawable2D* drawable) override;
 
     ::RuntimeTexture* BuildTextureFromCooked(HeCppString cookedAssetPath, ::IContentStreamSource* contentStreamSource) override;
@@ -93,6 +99,9 @@ private:
     bool FlushPendingInVisitOrder();
     std::uint32_t AllocatePacketRevision();
 
+#if defined(PS1_CPU_PROFILE)
+    Ps1CpuProfileSink* CpuProfile = nullptr;
+#endif
     psyqo::GPU& Gpu;
     Ps1RasterRenderer& Renderer;
     Ps1VramAllocator VramAllocator;
