@@ -170,11 +170,18 @@ bool Ps1FrameContext::Insert(TexturedQuadFragment& fragment, std::uint16_t bucke
         return false;
     }
     if (bucket >= 256u) return false;
-    const auto first = reinterpret_cast<std::uintptr_t>(&m_texturedQuads[0]);
-    const auto last = reinterpret_cast<std::uintptr_t>(&m_texturedQuads[TexturedQuadCapacity]);
-    const auto address = reinterpret_cast<std::uintptr_t>(&fragment);
-    if (address < first || address >= last || ((address - first) % sizeof(TexturedQuadFragment)) != 0) return false;
-    const unsigned index = static_cast<unsigned>((address - first) / sizeof(TexturedQuadFragment));
+    unsigned index = 0;
+    // The authored UI path inserts the slot it just reserved. Avoid per-packet address division
+    // there, while retaining the full ownership check for other insertion orders.
+    if (m_texturedReservedCount != 0u && &m_texturedQuads[m_texturedReservedCount - 1u] == &fragment) {
+        index = m_texturedReservedCount - 1u;
+    } else {
+        const auto first = reinterpret_cast<std::uintptr_t>(&m_texturedQuads[0]);
+        const auto last = reinterpret_cast<std::uintptr_t>(&m_texturedQuads[TexturedQuadCapacity]);
+        const auto address = reinterpret_cast<std::uintptr_t>(&fragment);
+        if (address < first || address >= last || ((address - first) % sizeof(TexturedQuadFragment)) != 0) return false;
+        index = static_cast<unsigned>((address - first) / sizeof(TexturedQuadFragment));
+    }
     if (index >= m_texturedReservedCount || m_texturedInserted[index] != 0) return false;
     m_table.insert(fragment, bucket);
     m_texturedInserted[index] = 1;
