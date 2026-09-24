@@ -1182,8 +1182,9 @@ committed as `ad0f4d5`.
 In normal authored Release builds, the sequence-1200 600-frame averages
 changed from Update 2.043 ms, boundary 0.320 ms, Draw 7.178 ms to Update
 2.043 ms, boundary 0.320 ms, Draw 6.092 ms. Update + Draw fell from 9.221
-to 8.135 ms, a 1.086 ms reduction. Both steady intervals used 600 VBlanks
-for 600 frames. The scene reached frame 1200 without a fatal marker, and
+to 8.135 ms, a 1.086 ms reduction. In the optimized run, sequence 600 to
+1200 advanced 602 VBlanks for 600 frames. The scene reached frame 1200
+without a fatal marker, and
 the UI counters remained 3 sprites, 2 shapes, 5 texts, 100 glyph quads,
 103 submitted sprites, and 298 submitted triangles, with failure=none.
 Helena confirmed text (including the changing FPS values), shapes, sprites,
@@ -1212,3 +1213,49 @@ profiled guest log
 `C:\dev\helworks\builds\helengine-ps1\20260924-172218-501-Release-d93f1e8e396a422b9a1e672a362b1d58\duckstation-text-fast-profile-guest-snapshot.log`,
 and host summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260924-171551-699-b312b16793794336bf01b193b630cf69\summary.json`.
+
+## UI packet insertion trials (2026-09-24)
+
+A diagnostic change that skipped the ownership division for the last reserved
+UI triangle slot did not justify keeping it. Against the unchanged-text
+profiled baseline, the second 600-frame window measured `ui_shape_packet`
+1.025 to 1.022 ms, `ui_packet_flush` 2.380 to 2.377 ms, and Draw 6.520 to
+6.499 ms. The native payload, static RAM, and heap capacity were unchanged.
+The change was reverted before the next trial. Its evidence is the manifest
+`C:/dev/helworks/builds/helengine-ps1/20260924-181750-955-Release-d3ce68783bd2473292f9e9cb3e9d7245/manifest.json`
+and `duckstation-shape-last-slot-trial.log` in the same directory.
+
+The retained change combines reservation and ordering-table insertion for
+each authored UI triangle or textured quad. It validates the frame state,
+bucket, and capacity once, then returns the fragment for the caller to fill
+before frame submission. No new persistent cache or packet array is added.
+Only `Ps1FrameContext.cpp`, `.hpp`, and `Ps1RasterRenderer.cpp` differed
+among the 3,041 copied inputs of the matched profiled and normal builds.
+
+In the normal Release second 600-frame interval, Update remained 2.043 ms,
+boundary remained 0.320 ms, and Draw fell from 6.092 to 5.772 ms. Update +
+Draw fell from 8.135 to 7.815 ms. Each second interval covered 600 frames
+and 602 VBlanks (from 655 to 1257). The scene reached frame 1200 without a
+fatal marker and still
+reported 3 sprites, 2 shapes, 5 texts, 100 glyph quads, 103 submitted
+sprites, 298 submitted triangles, 200 packets, intact packet guards, and
+failure=none. The sampled heap end stayed `0x80107cb8`. Normal payload,
+static RAM, and heap capacity stayed 833,536, 884,184, and 1,081,896 bytes.
+Helena confirmed the UI, text, and cube still look correct in the normal build.
+
+The matched profiled second window measured `ui_sprite_packet` 1.350 to
+1.168 ms, `ui_shape_packet` 1.025 to 0.890 ms, and their parent
+`ui_packet_flush` 2.380 to 2.060 ms. Profiled Draw fell from 6.520 to
+6.198 ms while Update stayed about 2.3 ms. Profiled payload, static RAM,
+and heap capacity stayed 843,776, 894,432, and 1,071,648 bytes. The full
+PS1 host suite passed: all positive compile/run and Python exit codes were
+0; the expected negative embedded-stream fixture returned 73.
+
+Evidence: normal manifest
+`C:/dev/helworks/builds/helengine-ps1/20260924-183409-009-Release-60ccfe3c911642d3aaeb4188af31e562/manifest.json`
+and `duckstation-ui-append-guest-snapshot.log` in the same directory;
+profiled manifest
+`C:/dev/helworks/builds/helengine-ps1/20260924-182801-247-Release-b446b1e7e65d4b5aa8afe2817376c973/manifest.json`
+and `duckstation-ui-append-profile-guest-snapshot.log` in the same directory;
+host summary
+`C:/dev/helworks/builds/helengine-ps1/host-tests-20260924-182708-306-a570cf70dba24bfead3a65bdcbf8fb75/summary.json`.
