@@ -1,5 +1,23 @@
 using helengine.ps1.samplegen;
 
+if (args.Length >= 1 && string.Equals(args[0], "--static-menu", StringComparison.Ordinal)) {
+    if (args.Length != 5) {
+        Console.Error.WriteLine("Usage: helengine.ps1.samplegen --static-menu <source-scene-path> <output-root> <source-revision> <source-blob-id>");
+        return 2;
+    }
+
+    string staticMenuSourceScene = Path.GetFullPath(args[1]);
+    string staticMenuOutputRoot = Path.GetFullPath(args[2]);
+    string staticMenuScenePath = new Ps1StaticMenuExporter().Export(
+        staticMenuSourceScene,
+        staticMenuOutputRoot,
+        args[3],
+        args[4]);
+    Console.WriteLine($"Scene: {staticMenuScenePath}");
+    Console.WriteLine($"Report: {Path.Combine(staticMenuOutputRoot, "report.json")}");
+    return 0;
+}
+
 // Two modes. Without --full the tool exports the fixed camera-and-cube subset used by the boot
 // milestone. With --full it exports the whole authored scene unchanged; the engine's packager decides
 // what PS1 receives from the scene's override scopes and the project's platform groups.
@@ -20,6 +38,7 @@ if (args.Length >= 1 && string.Equals(args[0], "--full", StringComparison.Ordina
 if (args.Length < 3 || args.Length > 4) {
     Console.Error.WriteLine("Usage: helengine.ps1.samplegen <project-root> <output-root> <engine-binary-root> [source-scene-path]");
     Console.Error.WriteLine("       helengine.ps1.samplegen --full <source-scene-path> <output-root>");
+    Console.Error.WriteLine("       helengine.ps1.samplegen --static-menu <source-scene-path> <output-root> <source-revision> <source-blob-id>");
     return 2;
 }
 
