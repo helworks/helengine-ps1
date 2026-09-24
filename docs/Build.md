@@ -188,7 +188,9 @@ after that step and does not require an editor assembly:
 ```
 
 For a full PS1 build, pass the editor app built from the same shared engine
-checkout. The wrapper stages the exported scene at
+checkout and copied or built beneath the PS1 build root. The authored build
+publishes codegen beside the editor DLL, so the wrappers reject editor paths
+outside that root before creating output. The wrapper stages the exported scene at
 `scenes/DemoDiscMainMenu.helen`, selecting scene ID
 `Scenes/DemoDiscMainMenu.helen`, then calls `build-authored.ps1`:
 
@@ -196,7 +198,7 @@ checkout. The wrapper stages the exported scene at
 .\scripts\build-static-menu.ps1 `
   -ProjectRoot C:\dev\helprojs\demodisc `
   -EngineSourceRoot C:\dev\helworks\helengine `
-  -EditorAppPath C:\absolute\path\to\helengine.editor.app.dll `
+  -EditorAppPath C:\dev\helworks\builds\helengine-ps1\<editor-build>\helengine.editor.app.dll `
   -OutputRoot C:\dev\helworks\builds\helengine-ps1\static-menu-build
 ```
 

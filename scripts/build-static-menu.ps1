@@ -23,6 +23,17 @@ if (-not $ExportOnly -and [string]::IsNullOrWhiteSpace($EditorAppPath)) {
     throw '-EditorAppPath is required unless -ExportOnly is specified.'
 }
 
+$editorApp = $null
+if ($ExportOnly) {
+    $engineBinaryRoot = Join-Path $engineRoot 'helengine.ui\helengine.editor.app\bin\vs\Debug\net9.0-windows'
+} else {
+    $editorApp = (Resolve-Path -LiteralPath $EditorAppPath).Path
+    if (-not $editorApp.StartsWith($buildsRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "EditorAppPath must be beneath $buildsRoot because the authored build publishes codegen beside the editor assembly."
+    }
+    $engineBinaryRoot = Split-Path -Parent $editorApp
+}
+
 $pinnedRevision = '5cc124eec06b8db729b2f9b15d99d26cb1ca8cc3'
 $pinnedBlob = '7bdb310b5169ebf2c68a394a850f9eacf13cda6a'
 $sourceRelativePath = 'assets/scenes/DemoDiscMainMenu.helen'
@@ -70,13 +81,6 @@ if ($sourceBytes.Length -lt 4 -or [Text.Encoding]::ASCII.GetString($sourceBytes,
     throw "Extracted menu scene does not begin with HELE: $sourcePath"
 }
 
-$editorApp = $null
-if ($ExportOnly) {
-    $engineBinaryRoot = Join-Path $engineRoot 'helengine.ui\helengine.editor.app\bin\vs\Debug\net9.0-windows'
-} else {
-    $editorApp = (Resolve-Path -LiteralPath $EditorAppPath).Path
-    $engineBinaryRoot = Split-Path -Parent $editorApp
-}
 foreach ($name in @('helengine.editor.dll', 'helengine.files.dll', 'helengine.core.dll', 'helengine.baseplatform.dll', 'helengine.shader.dll', 'helengine.shader.compilation.dll')) {
     if (-not (Test-Path -LiteralPath (Join-Path $engineBinaryRoot $name) -PathType Leaf)) {
         throw "Current engine binary is missing beside the selected engine binary root: $(Join-Path $engineBinaryRoot $name)"

@@ -44,6 +44,10 @@ if (-not (Test-Path -LiteralPath $codegenRoot -PathType Container)) {
 $codegenProject = Join-Path $codegenRoot 'codegen\codegen.csproj'
 if (-not (Test-Path -LiteralPath $codegenProject -PathType Leaf)) { throw "codegen project is missing: $codegenProject" }
 $output = [IO.Path]::GetFullPath($OutputRoot)
+$buildsRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $repoRoot) 'builds\helengine-ps1')).TrimEnd('\')
+if (-not $editorApp.StartsWith($buildsRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw "EditorAppPath must be beneath $buildsRoot because the authored build publishes codegen beside the editor assembly."
+}
 if (Test-Path -LiteralPath $output) { throw "Use a fresh authored build output directory: $output" }
 $sceneBytes = [IO.File]::ReadAllBytes($subsetScene)
 if ($sceneBytes.Length -lt 32 -or [Text.Encoding]::ASCII.GetString($sceneBytes, 0, 4) -ne 'HELE') { throw "Subset scene is not a serialized Helengine asset: $subsetScene" }
