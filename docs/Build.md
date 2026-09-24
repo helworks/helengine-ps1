@@ -169,6 +169,45 @@ through an `incbin` stub, and the retail memory check accounts for it. The
 executable, link map and manifest are copied into the editor output directory
 with `native-build-run-root.txt` naming the build run.
 
+## Static main-menu export and build
+
+`scripts/build-static-menu.ps1` extracts the committed demodisc menu scene from
+revision `5cc124eec06b8db729b2f9b15d99d26cb1ca8cc3` and verifies its Git blob
+ID before exporting it. The extraction streams Git's binary output directly to
+disk, preserving the serialized `HELE` bytes. The exporter writes
+`source/DemoDiscMainMenu.helen`, `export/scene.helen`, and
+`export/report.json` beneath the fresh output directory. `-ExportOnly` stops
+after that step and does not require an editor assembly:
+
+```powershell
+.\scripts\build-static-menu.ps1 `
+  -ProjectRoot C:\dev\helprojs\demodisc `
+  -EngineSourceRoot C:\dev\helworks\helengine `
+  -OutputRoot C:\dev\helworks\builds\helengine-ps1\static-menu-export-check `
+  -ExportOnly
+```
+
+For a full PS1 build, pass the editor app built from the same shared engine
+checkout. The wrapper stages the exported scene at
+`scenes/DemoDiscMainMenu.helen`, selecting scene ID
+`Scenes/DemoDiscMainMenu.helen`, then calls `build-authored.ps1`:
+
+```powershell
+.\scripts\build-static-menu.ps1 `
+  -ProjectRoot C:\dev\helprojs\demodisc `
+  -EngineSourceRoot C:\dev\helworks\helengine `
+  -EditorAppPath C:\absolute\path\to\helengine.editor.app.dll `
+  -OutputRoot C:\dev\helworks\builds\helengine-ps1\static-menu-build
+```
+
+The full run writes `authored/authored-build.json` and
+`authored/staged-input-hashes.json` alongside the exported input. The hash file
+lists every final staged `assets` and `settings` file by relative path and
+SHA-256. The authored build report records that hash file and the actual engine
+revision. Script pruning follows the export report, so a visual-only scene with
+no retained project scripts builds with zero project scripts while scenes with
+script components still require each referenced class to exist.
+
 Authored mode never falls back to the diagnostic cube: a missing catalog,
 undeclared asset, unsupported material, unsafe pose or packet failure stops
 the boot with a `PS1_*` marker. Periodic frame diagnostics are opt-in through

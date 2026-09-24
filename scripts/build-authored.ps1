@@ -90,7 +90,6 @@ foreach ($component in @($subsetReport.retainedComponents)) {
     $retainedScriptClasses += $typeName.Substring($typeName.LastIndexOf('.') + 1)
 }
 $retainedScriptClasses = @($retainedScriptClasses | Sort-Object -Unique)
-if ($retainedScriptClasses.Count -eq 0) { throw 'Subset report retains no project script components; the spin component is required.' }
 $codebaseRoot = Join-Path $stagedProject 'assets\codebase'
 if (-not (Test-Path -LiteralPath $codebaseRoot)) { throw "Staged project has no codebase: $codebaseRoot" }
 $removedModules = @()
@@ -146,6 +145,21 @@ $platformsSettingsPath = Join-Path $stagedProject 'settings\platforms.json'
 $platformsSettings = if (Test-Path -LiteralPath $platformsSettingsPath) { Get-Content -LiteralPath $platformsSettingsPath -Raw | ConvertFrom-Json } else { [pscustomobject]@{ supportedPlatforms = @() } }
 $platformsSettings.supportedPlatforms = @($platformsSettings.supportedPlatforms | Where-Object { $_ -ne 'ps1' }) + @('ps1')
 $platformsSettings | ConvertTo-Json -Depth 4 | Out-File -LiteralPath $platformsSettingsPath -Encoding utf8
+
+# Hash the final staged project inputs after scene replacement, script pruning and settings edits.
+$stagedInputs = @(
+    Get-ChildItem -LiteralPath (Join-Path $stagedProject 'assets') -Recurse -File
+) + @(
+    Get-ChildItem -LiteralPath (Join-Path $stagedProject 'settings') -Recurse -File
+)
+$stagedInputHashesPath = Join-Path $output 'staged-input-hashes.json'
+$hashRows = @($stagedInputs | Sort-Object FullName | ForEach-Object {
+    [ordered]@{
+        path = $_.FullName.Substring($stagedProject.Length + 1).Replace('\', '/')
+        sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+})
+$hashRows | ConvertTo-Json -Depth 4 | Out-File -LiteralPath $stagedInputHashesPath -Encoding utf8
 
 # The editor's headless build reads its selection from the project-local build configuration.
 # The subset report written beside the subset scene records the original scene identity.
@@ -236,8 +250,18 @@ $env:HELENGINE_ENGINE_USER_SETTINGS_ROOT = $engineUserSettings
 $env:HELENGINE_BUILD_WORKSPACE_ROOT = $workspaceRoot
 $env:HELENGINE_PS1_REPOSITORY_ROOT = $repoRoot
 $editorLog = Join-Path $logsRoot 'editor-build.log'
-& dotnet $editorApp --project (Join-Path $stagedProject 'project.heproj') --build ps1 --build-profile release --output $editorOutput *> $editorLog
-$editorExit = $LASTEXITCODE
+$editorErrorLog = Join-Path $logsRoot 'editor-build.stderr.log'
+$editorProjectPath = Join-Path $stagedProject 'project.heproj'
+$editorArguments = '"{0}" --project "{1}" --build ps1 --build-profile release --output "{2}"' -f $editorApp, $editorProjectPath, $editorOutput
+$editorProcess = Start-Process `
+    -FilePath (Get-Command dotnet -ErrorAction Stop).Source `
+    -ArgumentList $editorArguments `
+    -Wait `
+    -PassThru `
+    -WindowStyle Hidden `
+    -RedirectStandardOutput $editorLog `
+    -RedirectStandardError $editorErrorLog
+$editorExit = $editorProcess.ExitCode
 
 [ordered]@{
     schema = 1
@@ -253,6 +277,7 @@ $editorExit = $LASTEXITCODE
     project_root = $projectRoot
     subset_scene = $subsetScene
     subset_scene_sha256 = $subsetHash
+    staged_input_hashes = $stagedInputHashesPath
     replaced_scene_sha256 = $originalSceneHash
     staged_project = $stagedProject
     generated_core_root = $generatedCoreRoot
@@ -263,6 +288,7 @@ $editorExit = $LASTEXITCODE
 
 if ($editorExit -ne 0) {
     Get-Content -LiteralPath $editorLog -Tail 40
+    Get-Content -LiteralPath $editorErrorLog -Tail 40
     throw "Editor headless build for ps1 failed with exit code $editorExit (see $editorLog)."
 }
 Write-Output (Join-Path $output 'authored-build.json')
