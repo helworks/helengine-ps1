@@ -574,7 +574,7 @@ bool Ps1RasterRenderer::QueueAuthoredUiTriangle(const Ps1UiTriangle& triangle, p
         m_stats.failure = Ps1RenderFailure::Ownership;
         return false;
     }
-    Ps1FrameContext::UiTriangleFragment* fragment = context->TryReserveUiTriangle();
+    Ps1FrameContext::UiTriangleFragment* fragment = context->TryAppendUiTriangle(bucket);
     if (fragment == nullptr) {
         ++m_stats.capacityFailures;
         m_stats.failure = Ps1RenderFailure::Capacity;
@@ -588,11 +588,6 @@ bool Ps1RasterRenderer::QueueAuthoredUiTriangle(const Ps1UiTriangle& triangle, p
     fragment->primitive.setPointA(vertex(triangle.a));
     fragment->primitive.setPointB(vertex(triangle.b));
     fragment->primitive.setPointC(vertex(triangle.c));
-    if (!context->InsertUiTriangle(*fragment, bucket)) {
-        ++m_stats.ownershipFailures;
-        m_stats.failure = Ps1RenderFailure::Ownership;
-        return false;
-    }
     ++m_stats.uiTriangles;
     return true;
 }
@@ -608,7 +603,7 @@ bool Ps1RasterRenderer::QueueAuthoredUiSprite(const Ps1UiVertex (&vertices)[4], 
         m_stats.failure = Ps1RenderFailure::Ownership;
         return false;
     }
-    Ps1FrameContext::TexturedQuadFragment* fragment = context->TryReserveTexturedQuad();
+    Ps1FrameContext::TexturedQuadFragment* fragment = context->TryAppendTexturedQuad(bucket);
     if (fragment == nullptr) {
         ++m_stats.capacityFailures;
         m_stats.failure = Ps1RenderFailure::Capacity;
@@ -648,11 +643,6 @@ bool Ps1RasterRenderer::QueueAuthoredUiSprite(const Ps1UiVertex (&vertices)[4], 
         fragment->primitive.pointD = point(vertices[3]);
         fragment->primitive.uvD = paddedUv(vertices[3]);
         context->RememberTexturedQuad(*fragment, cacheSource, cacheRevision);
-    }
-    if (!context->Insert(*fragment, bucket)) {
-        ++m_stats.ownershipFailures;
-        m_stats.failure = Ps1RenderFailure::Ownership;
-        return false;
     }
     ++m_stats.uiSprites;
     m_stats.uiTriangles = static_cast<std::uint16_t>(m_stats.uiTriangles + 2u);

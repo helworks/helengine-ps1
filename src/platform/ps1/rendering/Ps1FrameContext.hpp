@@ -54,7 +54,9 @@ class Ps1FrameContext final {
     bool Insert(GouraudFragment& fragment, std::uint16_t bucket);
     UiTriangleFragment* TryReserveUiTriangle();
     bool InsertUiTriangle(UiTriangleFragment& fragment, std::uint16_t bucket);
+    UiTriangleFragment* TryAppendUiTriangle(std::uint16_t bucket);
     TexturedQuadFragment* TryReserveTexturedQuad();
+    TexturedQuadFragment* TryAppendTexturedQuad(std::uint16_t bucket);
     bool ReuseTexturedQuad(const TexturedQuadFragment& fragment, const void* source, std::uint32_t revision) const;
     void RememberTexturedQuad(const TexturedQuadFragment& fragment, const void* source, std::uint32_t revision);
     bool Insert(TexturedQuadFragment& fragment, std::uint16_t bucket);

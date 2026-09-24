@@ -132,6 +132,20 @@ bool Ps1FrameContext::InsertUiTriangle(UiTriangleFragment& fragment, std::uint16
     return true;
 }
 
+Ps1FrameContext::UiTriangleFragment* Ps1FrameContext::TryAppendUiTriangle(std::uint16_t bucket) {
+    if (m_state != State::Building) {
+        AssertState(false, "PS1_UI_TRIANGLE_RESERVE_WRONG_STATE");
+        return nullptr;
+    }
+    if (bucket >= 256u || m_uiReservedCount >= UiTriangleCapacity) return nullptr;
+    const unsigned index = m_uiReservedCount++;
+    UiTriangleFragment* fragment = &m_uiTriangles[index];
+    m_table.insert(*fragment, bucket);
+    m_uiInserted[index] = 1;
+    ++m_uiInsertedCount;
+    return fragment;
+}
+
 Ps1FrameContext::TexturedQuadFragment* Ps1FrameContext::TryReserveTexturedQuad() {
     if (m_state != State::Building) {
         AssertState(false, "PS1_TEXTURED_TRIANGLE_RESERVE_WRONG_STATE");
@@ -139,6 +153,20 @@ Ps1FrameContext::TexturedQuadFragment* Ps1FrameContext::TryReserveTexturedQuad()
     }
     if (m_texturedReservedCount >= TexturedQuadCapacity) return nullptr;
     return &m_texturedQuads[m_texturedReservedCount++];
+}
+
+Ps1FrameContext::TexturedQuadFragment* Ps1FrameContext::TryAppendTexturedQuad(std::uint16_t bucket) {
+    if (m_state != State::Building) {
+        AssertState(false, "PS1_TEXTURED_TRIANGLE_RESERVE_WRONG_STATE");
+        return nullptr;
+    }
+    if (bucket >= 256u || m_texturedReservedCount >= TexturedQuadCapacity) return nullptr;
+    const unsigned index = m_texturedReservedCount++;
+    TexturedQuadFragment* fragment = &m_texturedQuads[index];
+    m_table.insert(*fragment, bucket);
+    m_texturedInserted[index] = 1;
+    ++m_texturedInsertedCount;
+    return fragment;
 }
 
 bool Ps1FrameContext::ReuseTexturedQuad(const TexturedQuadFragment& fragment, const void* source,
