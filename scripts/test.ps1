@@ -111,6 +111,7 @@ Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\host_smoke.cpp') -Dest
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1RenderPolicyTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1RenderPolicyTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1SharedPtrTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1SharedPtrTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1RuntimeClockTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1RuntimeClockTests.cpp')
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1CpuProfileWindowTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1CpuProfileWindowTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1EmbeddedArchiveTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1EmbeddedArchiveTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1AuthoredProjectionTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1AuthoredProjectionTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1AuthoredLightingTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1AuthoredLightingTests.cpp')
@@ -140,6 +141,8 @@ $ps1HashCompileLog = Join-Path $runRoot 'ps1-hash-cpp-compile.log'
 $ps1HashRunLog = Join-Path $runRoot 'ps1-hash-cpp-run.log'
 $runtimeClockCompileLog = Join-Path $runRoot 'runtime-clock-cpp-compile.log'
 $runtimeClockRunLog = Join-Path $runRoot 'runtime-clock-cpp-run.log'
+$cpuProfileWindowCompileLog = Join-Path $runRoot 'cpu-profile-window-cpp-compile.log'
+$cpuProfileWindowRunLog = Join-Path $runRoot 'cpu-profile-window-cpp-run.log'
 $archiveCompileLog = Join-Path $runRoot 'embedded-archive-cpp-compile.log'
 $archiveRunLog = Join-Path $runRoot 'embedded-archive-cpp-run.log'
 $projectionCompileLog = Join-Path $runRoot 'authored-projection-cpp-compile.log'
@@ -174,6 +177,10 @@ $runtimeClockCompileStdout = Join-Path $runRoot 'runtime-clock-cpp-compile.stdou
 $runtimeClockCompileStderr = Join-Path $runRoot 'runtime-clock-cpp-compile.stderr.log'
 $runtimeClockRunStdout = Join-Path $runRoot 'runtime-clock-cpp-run.stdout.log'
 $runtimeClockRunStderr = Join-Path $runRoot 'runtime-clock-cpp-run.stderr.log'
+$cpuProfileWindowCompileStdout = Join-Path $runRoot 'cpu-profile-window-cpp-compile.stdout.log'
+$cpuProfileWindowCompileStderr = Join-Path $runRoot 'cpu-profile-window-cpp-compile.stderr.log'
+$cpuProfileWindowRunStdout = Join-Path $runRoot 'cpu-profile-window-cpp-run.stdout.log'
+$cpuProfileWindowRunStderr = Join-Path $runRoot 'cpu-profile-window-cpp-run.stderr.log'
 $projectionCompileStdout = Join-Path $runRoot 'authored-projection-cpp-compile.stdout.log'
 $projectionCompileStderr = Join-Path $runRoot 'authored-projection-cpp-compile.stderr.log'
 $projectionRunStdout = Join-Path $runRoot 'authored-projection-cpp-run.stdout.log'
@@ -346,6 +353,32 @@ Merge-ProcessLogs -StdoutPath $runtimeClockRunResult.StdoutPath -StderrPath $run
 Add-ExitMarker -LogPath $runtimeClockRunLog -Name 'RUNTIME_CLOCK_CPP_RUN' -ExitCode $runtimeClockRunResult.ExitCode
 if ($runtimeClockRunResult.ExitCode -ne 0) { throw ("PS1 runtime clock executable failed with exit code {0}{1}{2}" -f $runtimeClockRunResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $runtimeClockRunResult.StdoutPath -StderrPath $runtimeClockRunResult.StderrPath)) }
 
+
+$cpuProfileWindowCompileArgs = @(
+    'run', '--rm',
+    '--mount', "type=bind,source=$runRoot,target=/work",
+    '--workdir', '/work',
+    $dockerImage,
+    'g++', '-std=c++20', '-Wall', '-Wextra', '-Isrc',
+    '/work/tests/host/Ps1CpuProfileWindowTests.cpp', '/work/src/platform/ps1/profiling/Ps1CpuProfileWindow.cpp',
+    '-o', '/work/ps1_cpu_profile_window_tests'
+)
+$cpuProfileWindowCompileResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $cpuProfileWindowCompileArgs -WorkingDirectory $runRoot -StdoutPath $cpuProfileWindowCompileStdout -StderrPath $cpuProfileWindowCompileStderr
+Merge-ProcessLogs -StdoutPath $cpuProfileWindowCompileResult.StdoutPath -StderrPath $cpuProfileWindowCompileResult.StderrPath -CombinedPath $cpuProfileWindowCompileLog
+Add-ExitMarker -LogPath $cpuProfileWindowCompileLog -Name 'CPU_PROFILE_WINDOW_CPP_COMPILE' -ExitCode $cpuProfileWindowCompileResult.ExitCode
+if ($cpuProfileWindowCompileResult.ExitCode -ne 0) { throw ("PS1 CPU profile window compile failed with exit code {0}{1}{2}" -f $cpuProfileWindowCompileResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $cpuProfileWindowCompileResult.StdoutPath -StderrPath $cpuProfileWindowCompileResult.StderrPath)) }
+
+$cpuProfileWindowRunArgs = @(
+    'run', '--rm',
+    '--mount', "type=bind,source=$runRoot,target=/work",
+    '--workdir', '/work',
+    $dockerImage,
+    '/work/ps1_cpu_profile_window_tests'
+)
+$cpuProfileWindowRunResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $cpuProfileWindowRunArgs -WorkingDirectory $runRoot -StdoutPath $cpuProfileWindowRunStdout -StderrPath $cpuProfileWindowRunStderr
+Merge-ProcessLogs -StdoutPath $cpuProfileWindowRunResult.StdoutPath -StderrPath $cpuProfileWindowRunResult.StderrPath -CombinedPath $cpuProfileWindowRunLog
+Add-ExitMarker -LogPath $cpuProfileWindowRunLog -Name 'CPU_PROFILE_WINDOW_CPP_RUN' -ExitCode $cpuProfileWindowRunResult.ExitCode
+if ($cpuProfileWindowRunResult.ExitCode -ne 0) { throw ("PS1 CPU profile window executable failed with exit code {0}{1}{2}" -f $cpuProfileWindowRunResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $cpuProfileWindowRunResult.StdoutPath -StderrPath $cpuProfileWindowRunResult.StderrPath)) }
 $projectionCompileArgs = @(
     'run', '--rm',
     '--mount', "type=bind,source=$runRoot,target=/work",
@@ -490,6 +523,8 @@ $summary = [ordered]@{
     ps1_hash_cpp_run = $ps1HashRunLog
     runtime_clock_cpp_compile = $runtimeClockCompileLog
     runtime_clock_cpp_run = $runtimeClockRunLog
+    cpu_profile_window_cpp_compile = $cpuProfileWindowCompileLog
+    cpu_profile_window_cpp_run = $cpuProfileWindowRunLog
     embedded_archive_cpp_compile = $archiveCompileLog
     embedded_archive_cpp_run = $archiveRunLog
     authored_projection_cpp_compile = $projectionCompileLog
@@ -512,6 +547,8 @@ $summary = [ordered]@{
         ps1_hash_cpp_run = $ps1HashRunResult.ExitCode
         runtime_clock_cpp_compile = $runtimeClockCompileResult.ExitCode
         runtime_clock_cpp_run = $runtimeClockRunResult.ExitCode
+        cpu_profile_window_cpp_compile = $cpuProfileWindowCompileResult.ExitCode
+        cpu_profile_window_cpp_run = $cpuProfileWindowRunResult.ExitCode
         embedded_archive_cpp_compile = $archiveCompileResult.ExitCode
         embedded_archive_cpp_run = $archiveRunResult.ExitCode
         authored_projection_cpp_compile = $projectionCompileResult.ExitCode
@@ -544,6 +581,10 @@ $summary = [ordered]@{
         runtime_clock_cpp_compile_stderr = $runtimeClockCompileStderr
         runtime_clock_cpp_run_stdout = $runtimeClockRunStdout
         runtime_clock_cpp_run_stderr = $runtimeClockRunStderr
+        cpu_profile_window_cpp_compile_stdout = $cpuProfileWindowCompileStdout
+        cpu_profile_window_cpp_compile_stderr = $cpuProfileWindowCompileStderr
+        cpu_profile_window_cpp_run_stdout = $cpuProfileWindowRunStdout
+        cpu_profile_window_cpp_run_stderr = $cpuProfileWindowRunStderr
         authored_projection_cpp_compile_stdout = $projectionCompileStdout
         authored_projection_cpp_compile_stderr = $projectionCompileStderr
         authored_projection_cpp_run_stdout = $projectionRunStdout
