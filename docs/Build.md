@@ -308,15 +308,13 @@ Since 2026-09-19 the demodisc authors platform overrides on scope paths
 (Common, platform groups, platforms) and the engine packager resolves them
 against the staged project's `settings/platform-groups.json`. The whole
 `cube_test` scene therefore builds for PS1 without any PS1-specific
-authoring. Since 2026-09-21 the groups include `hd`, `sd`, nested `sd/msd`
-(N64 and PS1), and `sd/dual-screen` (DS and 3DS). PS1 is a member of
-`sd/msd`, so it receives the shared content plus the single-screen
-presentation: camera, sun, cube, instruction overlay, console camera/light
-blueprint and standard UI kit. The dual-screen bottom-screen presentation and
-its chrome remain scoped to `sd/dual-screen` and do not enter PS1.
-The 2026-09-22 full export report resolved the scene from `common`,
-`sd/msd`, and `sd/dual-screen`; the PS1 build inherits the single-screen
-`sd/msd` content while filtering the `sd/dual-screen` presentation.
+authoring. Since 2026-09-21 the groups include `hd`, `sd`, and
+`sd/dual-screen`. PS1 is a member of `sd`, so it receives the shared content
+plus the single-screen presentation: camera, sun, cube, instruction overlay,
+console camera/light blueprint and standard UI kit. The dual-screen
+bottom-screen presentation and its chrome remain scoped to `sd/dual-screen`
+and do not enter PS1. The full export report resolves the PS1 scene from
+`common` and `sd`; the dual-screen presentation is filtered out.
 Export the scene unchanged with `helengine.ps1.samplegen --full <scene>
 <output-root>` (the report lists the authored scope paths) and build with:
 
@@ -343,6 +341,13 @@ The menu-only `FooterIdentityMarqueeComponent` was added after the pinned
 engine revision and uses `ViewportComponent.ReferenceCanvasStretchScalingMode`,
 which that revision lacks. `cube_test` does not reference this component, so
 exclude it from this scene build until an intentional engine pin update.
+For detailed CPU timing during a PS1 authored Release build, pass `-CpuProfile`
+to `scripts/build.ps1` after the authored project has generated Core. The switch
+is valid only with `-Authored -Configuration Release`; use a separate
+`-NativeObjectCacheRoot` for profile-on and profile-off measurements. The guest
+writes one `HE_CPU_WINDOW` report per 600 sampled frames, followed by phase and
+component rows. The profile observes CPU submission work and does not measure
+the GPU rasterizer.
 
 As of csharpcodegen `46b6371` (engine pin `881f9bf0`) the generator's
 freestanding math runtime defines `sin`, `cos`, `sqrt` and friends as global

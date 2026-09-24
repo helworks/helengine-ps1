@@ -1037,3 +1037,19 @@ change; this flag comparison was checked with the native build and guest run.
 Evidence: build manifest
 `C:\dev\helworks\builds\helengine-ps1\20260923-200639-911-Release-610c4096277043008e40f614e3d10e64\manifest.json`
 and guest log `C:\dev\helworks\helengine-ps1\out\o3-trial-guest.log`.
+
+## Cross-platform CPU profiler identity build (2026-09-24)
+
+The shared Core sink now receives the concrete updateable instance during registration. The PS1 adapter resolves native RTTI once at registration, caches the instance identity and stable name hash in bounded storage, and performs only the cached identity lookup in each timed sample. The shared-engine change was built from `15fa776319b9a263bfcb491eafd1d49a420bb0c7`; the PS1 identity adapter is commit `a74ee07`.
+
+The strict matched authored Release pair used the same 3,016 copied inputs with zero SHA-256 mismatches:
+
+- Profile off: `C:\dev\helworks\builds\helengine-ps1\20260924-000229-118-Release-4b4b8ebc714646cf9bd3839c3b5b0637\manifest.json` — PS-X 821,248 bytes, static 871,872 bytes, heap 1,094,208 bytes.
+- Profile on: `C:\dev\helworks\builds\helengine-ps1\20260923-235426-100-Release-90362d95fa1f49808b6ef4cc1938ca9c\manifest.json` — PS-X 827,392 bytes, static 878,024 bytes, heap 1,088,056 bytes.
+- The profiler delta is +6,144 PS-X bytes, +6,152 static bytes, and -6,152 heap bytes.
+
+The profile-on guest window reported 600 frames (601–1200), Update 2.971 ms, boundary 0.171 ms, Draw 7.864 ms and between 6.179 ms, with dropped=0, resets=0 and clock_faults=0. It emitted concrete component rows for `DemoDiscOrbitCameraComponent`, `CubeTestSpinComponent`, `ViewportComponent`, `FPSComponent`, `DemoDiscReturnToMenuComponent`, `DemoDiscLightToggleComponent` and `DemoDiscDebugSceneLabelComponent`; repeated `ViewportComponent` rows retained distinct owner IDs.
+
+The matched profile-off guest averaged Update 2.727 ms, boundary 0.137 ms and Draw 7.670 ms at sequence 1200. The profile-on observer cost in this pair was therefore +0.244 ms Update, +0.034 ms boundary and +0.194 ms Draw (+0.438 ms combined). The off cadence advanced VBlank 654 to 1256 over the 600-frame observation; the profile-on window advanced 657 to 1269. These cadence readings include the emulator's fixed-rate scheduling and are reported as evidence rather than a GPU timing measurement.
+
+The full host suite passed in `C:\dev\helworks\builds\helengine-ps1\host-tests-20260924-000042-890-abbbf3854ad04daa957eb851ee81a769\summary.json`: all compile/run exit codes were 0, the expected embedded-stream negative fixture returned 73, and Python checks returned 0. The final guest evidence is `C:\dev\helworks\helengine-ps1\out\cpu-profile-identity-final-guest.log`.
