@@ -1,8 +1,5 @@
 #include "platform/ps1/profiling/Ps1CpuProfileWindow.hpp"
 
-#include <cstring>
-#include <limits>
-
 namespace helengine::ps1 {
 
 bool Ps1CpuProfileWindow::KeysEqual(const ComponentKey& left, const ComponentKey& right) {
@@ -10,10 +7,12 @@ bool Ps1CpuProfileWindow::KeysEqual(const ComponentKey& left, const ComponentKey
         && left.TypeHash == right.TypeHash && left.OwnerSceneEntityId == right.OwnerSceneEntityId;
 }
 
+constexpr std::uint64_t kMaxUnsigned64 = ~static_cast<std::uint64_t>(0);
+constexpr std::uint32_t kMaxUnsigned32 = ~static_cast<std::uint32_t>(0);
+
 bool Ps1CpuProfileWindow::AddDuration(std::uint64_t& total, std::uint32_t& calls,
                                       std::uint64_t elapsed) {
-    if (elapsed > std::numeric_limits<std::uint64_t>::max() - total
-        || calls == std::numeric_limits<std::uint32_t>::max()) {
+    if (elapsed > kMaxUnsigned64 - total || calls == kMaxUnsigned32) {
         return false;
     }
     total += elapsed;
@@ -169,7 +168,9 @@ void Ps1CpuProfileWindow::EndFrame(std::uint64_t sequence, std::uint32_t vblank)
 
     if (!HaveBaseline) {
         BaselineComponentCount = CurrentComponentCount;
-        std::memcpy(BaselineComponents, CurrentComponents, sizeof(CurrentComponents));
+        for (std::size_t i = 0; i < CurrentComponentCount; ++i) {
+            BaselineComponents[i] = CurrentComponents[i];
+        }
         HaveBaseline = true;
     } else if (CurrentComponentCount != BaselineComponentCount) {
         DiscardWindow(ResetReason::MembershipChanged);
@@ -213,11 +214,13 @@ bool Ps1CpuProfileWindow::AddTypeLegend(std::uint32_t typeHash, const char* name
     }
     TypeLegend& legend = TypeLegends[TypeLegendCount++];
     legend.TypeHash = typeHash;
-    std::size_t length = std::strlen(name);
-    if (length >= sizeof(legend.Name)) {
-        length = sizeof(legend.Name) - 1u;
+    std::size_t length = 0;
+    while (length + 1u < sizeof(legend.Name) && name[length] != '\0') {
+        ++length;
     }
-    std::memcpy(legend.Name, name, length);
+    for (std::size_t i = 0; i < length; ++i) {
+        legend.Name[i] = name[i];
+    }
     legend.Name[length] = '\0';
     return true;
 }

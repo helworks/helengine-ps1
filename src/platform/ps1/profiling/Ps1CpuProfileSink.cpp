@@ -13,7 +13,7 @@ void Ps1CpuProfileSink::RecordStage(::RuntimeCpuProfileStage stage, std::uint64_
     Window.AddStage(static_cast<std::uint32_t>(stage), elapsedMicroseconds);
 }
 
-void Ps1CpuProfileSink::RecordUpdateable(::IUpdateable* item, int index, std::uint32_t typeHash,
+void Ps1CpuProfileSink::RecordUpdateable(::IUpdateable* item, std::int32_t index, std::uint32_t typeHash,
                                          std::uint32_t ownerSceneEntityId,
                                          std::uint64_t elapsedMicroseconds) {
     Window.AddComponent(reinterpret_cast<std::uintptr_t>(item), static_cast<std::uint32_t>(index),

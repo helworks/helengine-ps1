@@ -20,7 +20,7 @@ public:
 
     std::uint64_t ReadMicroseconds() override;
     void RecordStage(::RuntimeCpuProfileStage stage, std::uint64_t elapsedMicroseconds) override;
-    void RecordUpdateable(::IUpdateable* item, int index, std::uint32_t typeHash,
+    void RecordUpdateable(::IUpdateable* item, std::int32_t index, std::uint32_t typeHash,
                           std::uint32_t ownerSceneEntityId, std::uint64_t elapsedMicroseconds) override;
     void RegisterType(std::uint32_t typeHash, HeCppString typeName) override;
     void ClockFault() override;

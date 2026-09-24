@@ -73,13 +73,14 @@ void Ps1AuthoredScene::InitializeCore() {
     m_options->set_CommitPendingSceneOperationsDuringDraw(false);
     m_options->set_DefaultUpdateDeltaSeconds(1.0 / 60.0);
 #if defined(PS1_CPU_PROFILE)
-    m_options->set_CpuProfileSink(&m_cpuProfileSink);
+    m_cpuProfileSink = new Ps1CpuProfileSink();
+    m_options->set_CpuProfileSink(m_cpuProfileSink);
 #endif
     m_render2D = new Ps1RenderManager2D(gpu(), m_renderer);
     m_render3D = new Ps1RenderManager3D(gpu(), m_renderer, *m_render2D);
 #if defined(PS1_CPU_PROFILE)
-    m_render2D->SetCpuProfileSink(&m_cpuProfileSink);
-    m_render3D->SetCpuProfileSink(&m_cpuProfileSink);
+    m_render2D->SetCpuProfileSink(m_cpuProfileSink);
+    m_render3D->SetCpuProfileSink(m_cpuProfileSink);
 #endif
     // Core's screen-bound ViewportComponent reads MainWindowSize to fit authored reference
     // canvases. Register the native display before the scene's first layout update.
@@ -146,11 +147,11 @@ void Ps1AuthoredScene::frame() {
     }
     m_lastVblankFrame = vblankFrame;
 #if defined(PS1_CPU_PROFILE)
-    const bool hadPendingReport = m_cpuProfileSink.HasPendingReport();
-    m_cpuProfileSink.EmitPendingReport();
+    const bool hadPendingReport = m_cpuProfileSink->HasPendingReport();
+    m_cpuProfileSink->EmitPendingReport();
     const bool profileCapture = m_frameSequence >= 600u && !hadPendingReport;
     if (profileCapture) {
-        m_cpuProfileSink.BeginFrame(static_cast<std::uint64_t>(m_frameSequence) + 1u, vblankFrame, Ps1StartupSceneId());
+        m_cpuProfileSink->BeginFrame(static_cast<std::uint64_t>(m_frameSequence) + 1u, vblankFrame, Ps1StartupSceneId());
     }
 #endif
     const std::uint32_t now = gpu().now();
@@ -169,9 +170,9 @@ void Ps1AuthoredScene::frame() {
     m_lastFrameEndUs = he_cpp_custom::MonotonicMicroseconds();
 #if defined(PS1_CPU_PROFILE)
     if (profileCapture) {
-        m_cpuProfileSink.RecordHostTimings(updateEndUs - frameStartUs, boundaryEndUs - updateEndUs,
+        m_cpuProfileSink->RecordHostTimings(updateEndUs - frameStartUs, boundaryEndUs - updateEndUs,
                                            m_lastFrameEndUs - boundaryEndUs, betweenFrameUs);
-        m_cpuProfileSink.EndFrame(static_cast<std::uint64_t>(m_frameSequence) + 1u, vblankFrame);
+        m_cpuProfileSink->EndFrame(static_cast<std::uint64_t>(m_frameSequence) + 1u, vblankFrame);
     }
 #endif
     m_updateTotalUs += updateEndUs - frameStartUs;

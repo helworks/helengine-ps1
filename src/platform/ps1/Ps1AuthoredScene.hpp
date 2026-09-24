@@ -4,9 +4,6 @@
 
 #include "psyqo/scene.hh"
 #include "platform/ps1/rendering/Ps1RasterRenderer.hpp"
-#if defined(PS1_CPU_PROFILE)
-#include "platform/ps1/profiling/Ps1CpuProfileSink.hpp"
-#endif
 
 class Core;
 class CoreInitializationOptions;
@@ -16,6 +13,9 @@ class RuntimeSceneCatalog;
 namespace helengine::ps1 {
 
 class Ps1ContentStreamSource;
+#if defined(PS1_CPU_PROFILE)
+class Ps1CpuProfileSink;
+#endif
 class Ps1InputBackend;
 class Ps1RenderManager2D;
 class Ps1RenderManager3D;
@@ -59,7 +59,7 @@ class Ps1AuthoredScene final : public psyqo::Scene {
     std::uint64_t m_overlayUpdateTotalUs = 0;
     std::uint32_t m_overlayFrames = 0;
 #if defined(PS1_CPU_PROFILE)
-    Ps1CpuProfileSink m_cpuProfileSink;
+    Ps1CpuProfileSink* m_cpuProfileSink = nullptr;
 #endif
     bool m_initialized = false;
 };
