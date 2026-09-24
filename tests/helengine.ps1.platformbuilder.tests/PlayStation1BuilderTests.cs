@@ -275,6 +275,7 @@ public sealed class PlayStation1BuilderTests : IDisposable {
         Assert.Contains("shaders", settings[PlatformCodegenSettingIds.ForcedDisabledFeatures]);
         Assert.Equal(PlatformSerializationEndianness.LittleEndian, codegen.Endianness);
         Assert.Equal(RuntimeMaterialResolutionMode.CookedPlatformOwned, definition.RuntimeGenerationContract.MaterialResolutionMode);
+        Assert.Contains("HELENGINE_CODEGEN_FATAL_ONLY", definition.RuntimeGenerationContract.PortableInputPreprocessorSymbols);
     }
 
     [Fact]

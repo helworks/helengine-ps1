@@ -24,6 +24,10 @@ public sealed class PlayStation1NativeBuildExecutor : IPlayStation1NativeBuildEx
             throw new InvalidOperationException($"{RepositoryRootEnvironmentVariableName} must identify the PS1 implementation checkout.");
         }
         Directory.CreateDirectory(outputRootPath);
+        int omittedBatchSources = PlayStation1UnusedBatch2DPruner.Prune(generatedCoreCppRootPath);
+        if (omittedBatchSources != 0) {
+            Console.WriteLine($"[ps1] omitted {omittedBatchSources} unused generated 2D batch sources");
+        }
 
         ProcessStartInfo info = new() {
             FileName = ResolvePowerShell(),

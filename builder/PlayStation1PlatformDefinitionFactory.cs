@@ -121,7 +121,8 @@ public static class PlayStation1PlatformDefinitionFactory {
             [codegen],
             [new PlatformStorageProfileDefinition("embedded-archive", "Embedded Archive", PlatformStorageProfileKind.LooseFiles, "ps1-embedded-archive", false)],
             [new PlatformMediaProfileDefinition("ps1-exe", "PS-X EXE", PlatformMediaLayoutKind.InstallTree, false, true)],
-            new RuntimeGenerationContract(RuntimeMaterialResolutionMode.CookedPlatformOwned, true, PackagedPathPolicy.ContentRelativeOnly),
+            new RuntimeGenerationContract(RuntimeMaterialResolutionMode.CookedPlatformOwned, true, PackagedPathPolicy.ContentRelativeOnly,
+                ["HELENGINE_CODEGEN_FATAL_ONLY"]),
             null,
             assetCookCapabilities: [
                 new PlatformAssetCookCapabilityDefinition(
