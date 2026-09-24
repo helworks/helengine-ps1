@@ -62,6 +62,30 @@ public sealed class Ps1StaticMenuExporterTests {
         Assert.Equal(2, reportRoot.GetProperty("componentCounts").GetProperty("removed").GetInt32());
     }
 
+    [Fact]
+    public void Export_ClassifiesAssemblyQualifiedTypesWithoutChangingSerializedIds() {
+        SceneAsset scene = CreateScene();
+        SceneEntityAsset camera = scene.RootEntities[0];
+        SceneEntityAsset panel = camera.Children[0];
+        camera.Components[1].ComponentTypeId = "helengine.TextComponent, helengine.editor";
+        camera.Components[^1].ComponentTypeId = "DemoDisc.menu.MenuComponent, DemoDisc";
+        panel.PlatformComponentOverrides[0].AddedComponents[0].Component.ComponentTypeId = "helengine.SpriteComponent, helengine.ui";
+        panel.PlatformComponentOverrides[0].AddedComponents[1].Component.ComponentTypeId = "DemoDisc.menu.MenuItemComponent, DemoDisc";
+        string sourcePath = WriteSource(NewOutputRoot(), scene);
+
+        string outputPath = new Ps1StaticMenuExporter().Export(sourcePath, Path.Combine(Path.GetDirectoryName(sourcePath)!, "out"), SourceRevision, SourceBlobId);
+        SceneAsset exported = Ps1SceneSerialization.Deserialize(File.ReadAllBytes(outputPath));
+        using JsonDocument reportDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(Path.GetDirectoryName(outputPath)!, "report.json")));
+        JsonElement report = reportDocument.RootElement;
+
+        Assert.Contains(exported.RootEntities[0].Components, component => component.ComponentTypeId == "helengine.TextComponent, helengine.editor");
+        Assert.DoesNotContain(exported.RootEntities[0].Components, component => component.ComponentTypeId == "DemoDisc.menu.MenuComponent, DemoDisc");
+        Assert.Contains(exported.RootEntities[0].Children[0].PlatformComponentOverrides[0].AddedComponents, added => added.Component.ComponentTypeId == "helengine.SpriteComponent, helengine.ui");
+        Assert.DoesNotContain(exported.RootEntities[0].Children[0].PlatformComponentOverrides[0].AddedComponents, added => added.Component.ComponentTypeId == "DemoDisc.menu.MenuItemComponent, DemoDisc");
+        Assert.Contains(report.GetProperty("retainedComponents").EnumerateArray(), component => component.GetProperty("componentTypeId").GetString() == "helengine.SpriteComponent, helengine.ui");
+        Assert.Contains(report.GetProperty("removedComponents").EnumerateArray(), component => component.GetProperty("componentTypeId").GetString() == "DemoDisc.menu.MenuItemComponent, DemoDisc");
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -73,15 +97,16 @@ public sealed class Ps1StaticMenuExporterTests {
                 new SceneEntityPlatformAddedComponentAsset { Component = Component("project.MysteryComponent", [1]) }
             ];
         } else {
-            entity.Components = [Component("project.MysteryComponent", [1])];
+            entity.Components = [Component("project.MysteryComponent, DemoDisc", [1])];
         }
+        if (inOverride) entity.PlatformComponentOverrides[0].AddedComponents[0].Component.ComponentTypeId = "project.MysteryComponent, DemoDisc";
         string sourcePath = WriteSource(NewOutputRoot(), scene);
 
         InvalidOperationException error = Assert.Throws<InvalidOperationException>(() =>
             new Ps1StaticMenuExporter().Export(sourcePath, Path.Combine(Path.GetDirectoryName(sourcePath)!, "out"), SourceRevision, SourceBlobId));
 
         Assert.Contains("Panel", error.Message);
-        Assert.Contains("project.MysteryComponent", error.Message);
+        Assert.Contains("project.MysteryComponent, DemoDisc", error.Message);
         Assert.Contains(inOverride ? "group:handheld/platform:ds" : "Common", error.Message);
     }
 

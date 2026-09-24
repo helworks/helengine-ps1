@@ -147,11 +147,18 @@ public sealed class Ps1StaticMenuExporter {
         return retained.ToArray();
     }
 
-    static bool IsRemoved(string componentTypeId) => RemovedComponentTypes.Contains(componentTypeId ?? "");
+    static bool IsRemoved(string componentTypeId) => RemovedComponentTypes.Contains(NormalizeTypeIdentity(componentTypeId));
 
     static void EnsureVisualComponent(string componentTypeId, string entityName, string scope) {
-        if (VisualComponentTypes.Contains(componentTypeId ?? "")) return;
+        if (VisualComponentTypes.Contains(NormalizeTypeIdentity(componentTypeId))) return;
         throw new InvalidOperationException($"Static-menu export found unknown component type '{componentTypeId}' on entity '{entityName}' in scope '{scope}'.");
+    }
+
+    static string NormalizeTypeIdentity(string componentTypeId) {
+        if (string.IsNullOrWhiteSpace(componentTypeId)) return string.Empty;
+        int assemblySeparator = componentTypeId.IndexOf(',');
+        string typeName = assemblySeparator < 0 ? componentTypeId : componentTypeId[..assemblySeparator];
+        return typeName.Trim();
     }
 
     static void VerifyNoRemovedComponents(SceneEntityAsset[] roots) {
