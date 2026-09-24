@@ -1130,3 +1130,39 @@ and host summary
 The launch record and copied guest log are
 `C:\dev\helworks\builds\helengine-ps1\sparse-references-20260924-r3\editor-output\last-launch.json`
 and `C:\dev\helworks\builds\helengine-ps1\sparse-references-20260924-r3\editor-output\duckstation-guest-snapshot-20260924.log`.
+
+## Sparse-reference scene CPU profile (2026-09-24)
+
+The opt-in profiled Release build reused the same generated Core, authored
+content, PS1 sources, and SDK inputs as the normal sparse-reference build:
+all 3,041 copied input paths had identical SHA-256 values. Only the
+`PS1_CPU_PROFILE` build switch differed. Its PS-X payload was 841,728 bytes
+versus 831,488 normally; static RAM was 892,384 versus 882,136 bytes, and
+heap capacity was 1,073,696 versus 1,083,944 bytes. Thus the profiler added
+10,240 payload bytes and 10,248 static bytes.
+
+The second 600-frame report measured Update 2.304 ms, boundary 0.317 ms,
+and Draw 7.602 ms, with dropped=0, resets=0, and clock_faults=0. The
+matched normal build measured 2.043 / 0.320 / 7.178 ms; the profiled
+observation was +0.261 ms Update and +0.424 ms Draw. Inside Draw,
+`ui_queue_visit` was 2.785 ms and `ui_packet_flush` was 2.381 ms, totaling
+5.166 ms of the 7.602 ms. Nested stages within those parents were text
+visit 1.611 ms, shape visit 0.788 ms, sprite visit 0.278 ms, textured
+packet runs 1.357 ms, and shape packet runs 1.024 ms. The nested numbers
+must not be added again to the parent totals. Camera setup was 0.573 ms
+and 3D mesh submission 1.206 ms. Update's `object_manager` stage was
+2.048 ms; its largest components were orbit camera 0.622 ms and cube spin
+0.704 ms. The scene-label component measured 0.000 ms per frame in this
+profile, and the return-to-menu component 0.054 ms.
+
+The first report covered 600 frames in 600 VBlanks; the second covered
+600 frames in 603 VBlanks. The synchronous report print created a 45-VBlank
+gap between those windows, outside the measured CPU averages. The guest
+reached the second window without a fatal marker. After capture, DuckStation
+was returned to the normal unprofiled build.
+
+Evidence: profiled manifest
+`C:\dev\helworks\builds\helengine-ps1\20260924-161751-048-Release-16faae4819964704bc197fa912731d54\manifest.json`,
+profiled guest log
+`C:\dev\helworks\builds\helengine-ps1\20260924-161751-048-Release-16faae4819964704bc197fa912731d54\duckstation-profile-guest-snapshot.log`,
+and normal manifest and guest log in the preceding section.
