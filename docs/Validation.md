@@ -1106,8 +1106,20 @@ Focused shared-Core tests passed 77/77, PS1 builder tests 23/23, and focused
 DemoDisc editor tests 7/7. The PS1 host suite passed, including the expected
 negative embedded-stream exit 73. The full editor suite was stopped after
 unrelated failures, including an older version-24 editor asset while the
-current engine requires version 25. Guest boot, frame times, sampled heap
-peak, and visual correctness remain unmeasured pending an emulator run.
+current engine requires version 25.
+
+DuckStation booted `cube_test`, reached frame 1200 without `PS1_CORE_FATAL`,
+and reported the expected 1 camera, 1 drawable, 9 updateables, 3 sprites,
+2 shapes, 5 texts, and 100 glyph quads at that frame. The steady 600-frame
+interval used 600 VBlanks. Its sequence-1200 average was Update 2.043 ms,
+boundary 0.320 ms, Draw 7.178 ms, and Update + Draw 9.221 ms. The prior
+scene-label run measured 2.280 / 0.190 / 6.784 / 9.064 ms respectively;
+this is an observational comparison because the scene was regenerated and
+the shared engine checkout advanced. The sampled heap end changed from
+`0x80105428` to `0x80107498`; after accounting for the 8,216-byte static
+growth, the sampled dynamic heap use increased by 88 bytes. Helena confirmed
+that the UI and cube still look correct and read about 2.0 ms Update and
+6.7 ms Render on the live panel.
 
 Evidence: authored report
 `C:\dev\helworks\builds\helengine-ps1\sparse-references-20260924-r3\authored-build.json`,
@@ -1115,3 +1127,6 @@ native manifest
 `C:\dev\helworks\builds\helengine-ps1\20260924-152112-095-Release-8744848aa53c449fb808c948a8969beb\manifest.json`,
 and host summary
 `C:\dev\helworks\builds\helengine-ps1\host-tests-20260924-142549-655-3f64f317ef2c41b8ba03db3330ed1b04\summary.json`.
+The launch record and copied guest log are
+`C:\dev\helworks\builds\helengine-ps1\sparse-references-20260924-r3\editor-output\last-launch.json`
+and `C:\dev\helworks\builds\helengine-ps1\sparse-references-20260924-r3\editor-output\duckstation-guest-snapshot-20260924.log`.
