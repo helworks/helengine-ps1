@@ -1079,3 +1079,39 @@ In matched normal Release builds with profiling off, the 600-frame sequence-1200
 The DemoDisc editor test project compiled and its selected test passed. The authored PS1 build exited successfully, generated the updated component and deserializer, and booted through sequence 1200 without a fatal log marker. The newly opened DuckStation process is recorded in `last-launch.json`; this run did not use the CPU profiler.
 
 Evidence: prior manifest `C:\dev\helworks\builds\helengine-ps1\20260924-112112-256-Release-e185f973c9ba4e2eb58e1ae4f73facdf\manifest.json`, new manifest `C:\dev\helworks\builds\helengine-ps1\label-reference-authored-20260924\editor-output\manifest.json`, guest log `out\label-reference-guest.log`, and selected editor test log `out\label-reference-test.stdout.log`.
+
+## Sparse authored scene references (2026-09-24)
+
+The shared Core now collects only referenced scene IDs while decoding, binds them
+after the complete scene has loaded and before component initialization, and
+releases the temporary requests. DemoDisc now persists fixed UI, camera, stage,
+and menu references in its authored scenes. The new `cube_test` export kept the
+same 23 entities; its scene file grew from 50,679 to 50,826 bytes. The PS1
+builder omits 10 unused generated Batch2D sources after checking for external
+references, while the PS1 renderer continues to use its own packet path.
+
+The authored Release build completed with editor and native exit codes 0. The
+PS-X payload was 831,488 bytes, static RAM 882,136 bytes, and heap capacity
+1,083,944 bytes. Against the preceding scene-label build (823,296 / 873,920 /
+1,092,160 bytes), those values changed by +8,192 / +8,216 / -8,216 bytes.
+The embedded archive contained 11 entries and 73,912 bytes. This build used
+the shared engine checkout at `0d2d1f7ebc21396d26a3a0b08386aef5d7140132`
+with the subsequent Core ownership and fatal-only batch-writer edits present
+as dirty source (later committed as `ea1f6218` and `29bf352a`); codegen was
+`941881c8bb7c28459cf0f7b73a0d48b37dbe2925`. The exported scene and
+replaced scene hashes matched at
+`622b06a1dd55cba8556c24913d65f7a23a74988643fe89b6bfad9e8862564e05`.
+
+Focused shared-Core tests passed 77/77, PS1 builder tests 23/23, and focused
+DemoDisc editor tests 7/7. The PS1 host suite passed, including the expected
+negative embedded-stream exit 73. The full editor suite was stopped after
+unrelated failures, including an older version-24 editor asset while the
+current engine requires version 25. Guest boot, frame times, sampled heap
+peak, and visual correctness remain unmeasured pending an emulator run.
+
+Evidence: authored report
+`C:\dev\helworks\builds\helengine-ps1\sparse-references-20260924-r3\authored-build.json`,
+native manifest
+`C:\dev\helworks\builds\helengine-ps1\20260924-152112-095-Release-8744848aa53c449fb808c948a8969beb\manifest.json`,
+and host summary
+`C:\dev\helworks\builds\helengine-ps1\host-tests-20260924-142549-655-3f64f317ef2c41b8ba03db3330ed1b04\summary.json`.

@@ -337,10 +337,9 @@ exception recovery the PS1 runtime profile rejects (`CPP1001`); they form a
 closed family with no other runtime references. Pass the exclusions as a
 PowerShell array through `-Command`; `-File` hands the list over as one
 comma-joined string and the script rejects it.
-The menu-only `FooterIdentityMarqueeComponent` was added after the pinned
-engine revision and uses `ViewportComponent.ReferenceCanvasStretchScalingMode`,
-which that revision lacks. `cube_test` does not reference this component, so
-exclude it from this scene build until an intentional engine pin update.
+`FooterIdentityMarqueeComponent` belongs to the menu, which `cube_test` does
+not load. Keep it excluded from this scene build; the shared engine checkout
+may change between builds, so record its actual revision in the build evidence.
 For detailed CPU timing during a PS1 authored Release build, pass `-CpuProfile`
 to `scripts/build.ps1` after the authored project has generated Core. The switch
 is valid only with `-Authored -Configuration Release`; use a separate
@@ -349,13 +348,13 @@ writes one `HE_CPU_WINDOW` report per 600 sampled frames, followed by phase and
 component rows. The profile observes CPU submission work and does not measure
 the GPU rasterizer.
 
-As of csharpcodegen `46b6371` (engine pin `881f9bf0`) the generator's
+As of csharpcodegen `46b6371` (engine revision `881f9bf0`) the generator's
 freestanding math runtime defines `sin`, `cos`, `sqrt` and friends as global
 symbols. The PS1 Makefile leaves those global wrappers to generated Core and
 does not also link the duplicate SDK wrappers or the old `Ps1Math.cpp`
 shim; the remaining fdlibm internals are still linked for the generated
-implementation. This keeps the build on the engine-pinned codegen checkout,
-so no `-CodegenRoot` override or engine pin bump is required. The native link
+implementation. This keeps the build on the engine checkout's codegen submodule,
+so no `-CodegenRoot` override is required. The native link
 still reports the existing soft/hard-float ABI warnings from psyqo and the
 authored archive; they do not prevent the PS-X EXE from linking. Build
 `authored-groups-10` (engine `dd43413f`) is the earlier reference: 620 KB
