@@ -1,7 +1,9 @@
 #include "platform/ps1/profiling/Ps1CpuProfileSink.hpp"
+#include "IUpdateable.hpp"
 
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
 #include "common/syscalls/syscalls.h"
+#include <typeinfo>
 
 namespace helengine::ps1 {
 
@@ -17,11 +19,39 @@ void Ps1CpuProfileSink::RecordUpdateable(::IUpdateable* item, std::int32_t index
                                          std::uint32_t ownerSceneEntityId,
                                          std::uint64_t elapsedMicroseconds) {
     Window.AddComponent(reinterpret_cast<std::uintptr_t>(item), static_cast<std::uint32_t>(index),
-                        typeHash, ownerSceneEntityId, elapsedMicroseconds);
+                        ResolveRegisteredTypeHash(item, typeHash), ownerSceneEntityId, elapsedMicroseconds);
 }
 
-void Ps1CpuProfileSink::RegisterType(std::uint32_t typeHash, HeCppString typeName) {
-    Window.AddTypeLegend(typeHash, typeName.c_str());
+void Ps1CpuProfileSink::RegisterType(::IUpdateable* item, std::uint32_t typeHash, HeCppString typeName) {
+    if (item == nullptr) return;
+    (void)typeHash;
+
+    char decodedName[48]{};
+    const char* nativeName = typeid(*item).name();
+    const bool decoded = DecodeNativeTypeName(nativeName, decodedName);
+    if (!decoded) {
+        const char* managedName = typeName.c_str();
+        std::size_t length = 0;
+        while (managedName != nullptr && length + 1u < sizeof(decodedName) && managedName[length] != '\0') {
+            decodedName[length] = managedName[length];
+            ++length;
+        }
+        decodedName[length] = '\0';
+    }
+
+    const std::uint32_t nativeHash = StableTypeNameHash(decodedName);
+    const std::uintptr_t identity = reinterpret_cast<std::uintptr_t>(item);
+    for (std::size_t i = 0; i < TypeRegistrationCount; ++i) {
+        if (TypeRegistrations[i].Identity == identity) {
+            TypeRegistrations[i].TypeHash = nativeHash;
+            Window.AddTypeLegend(nativeHash, decodedName);
+            return;
+        }
+    }
+    if (TypeRegistrationCount < MaxTypeRegistrations) {
+        TypeRegistrations[TypeRegistrationCount++] = TypeRegistration{identity, nativeHash};
+    }
+    Window.AddTypeLegend(nativeHash, decodedName);
 }
 
 void Ps1CpuProfileSink::ClockFault() {
@@ -70,6 +100,49 @@ std::uint32_t Ps1CpuProfileSink::SceneHash(const char* sceneId) {
         hash *= 16777619u;
     }
     return hash;
+}
+
+std::uint32_t Ps1CpuProfileSink::StableTypeNameHash(const char* typeName) {
+    std::uint32_t hash = 2166136261u;
+    if (typeName == nullptr) return hash;
+    while (*typeName != '\0') {
+        hash ^= static_cast<std::uint8_t>(*typeName++);
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+bool Ps1CpuProfileSink::DecodeNativeTypeName(const char* encoded, char (&out)[48]) {
+    if (encoded == nullptr || *encoded == '\0') return false;
+    const char* cursor = encoded;
+    const char* lastSegment = nullptr;
+    std::size_t lastLength = 0;
+    if (*cursor == 'N') ++cursor;
+    while (*cursor != '\0' && *cursor != 'E') {
+        if (*cursor < '0' || *cursor > '9') return false;
+        std::size_t length = 0;
+        while (*cursor >= '0' && *cursor <= '9') {
+            length = length * 10u + static_cast<std::size_t>(*cursor - '0');
+            ++cursor;
+        }
+        if (length == 0u || cursor[length - 1u] == '\0') return false;
+        lastSegment = cursor;
+        lastLength = length;
+        cursor += length;
+    }
+    if (lastSegment == nullptr || lastLength == 0u || lastLength >= sizeof(out)) return false;
+    for (std::size_t i = 0; i < lastLength; ++i) out[i] = lastSegment[i];
+    out[lastLength] = '\0';
+    return true;
+}
+
+std::uint32_t Ps1CpuProfileSink::ResolveRegisteredTypeHash(::IUpdateable* item,
+                                                           std::uint32_t fallback) const {
+    const std::uintptr_t identity = reinterpret_cast<std::uintptr_t>(item);
+    for (std::size_t i = 0; i < TypeRegistrationCount; ++i) {
+        if (TypeRegistrations[i].Identity == identity) return TypeRegistrations[i].TypeHash;
+    }
+    return fallback;
 }
 
 const char* Ps1CpuProfileSink::CoreStageName(std::uint32_t stageId) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "IRuntimeCpuProfileSink.hpp"
@@ -22,7 +23,7 @@ public:
     void RecordStage(::RuntimeCpuProfileStage stage, std::uint64_t elapsedMicroseconds) override;
     void RecordUpdateable(::IUpdateable* item, std::int32_t index, std::uint32_t typeHash,
                           std::uint32_t ownerSceneEntityId, std::uint64_t elapsedMicroseconds) override;
-    void RegisterType(std::uint32_t typeHash, HeCppString typeName) override;
+    void RegisterType(::IUpdateable* item, std::uint32_t typeHash, HeCppString typeName) override;
     void ClockFault() override;
 
     void BeginFrame(std::uint64_t sequence, std::uint32_t vblank, const char* sceneId);
@@ -34,9 +35,19 @@ public:
     void EmitPendingReport();
 
 private:
+    struct TypeRegistration {
+        std::uintptr_t Identity = 0;
+        std::uint32_t TypeHash = 0;
+    };
+
+    static constexpr std::size_t MaxTypeRegistrations = 128;
+
     static const char* CoreStageName(std::uint32_t stageId);
     static const char* CoreStageParent(std::uint32_t stageId);
     static std::uint32_t SceneHash(const char* sceneId);
+    static std::uint32_t StableTypeNameHash(const char* typeName);
+    static bool DecodeNativeTypeName(const char* encoded, char (&out)[48]);
+    std::uint32_t ResolveRegisteredTypeHash(::IUpdateable* item, std::uint32_t fallback) const;
     const char* FindTypeName(std::uint32_t typeHash, const Ps1CpuProfileWindow::ReportView& report) const;
 
     Ps1CpuProfileWindow Window;
@@ -47,6 +58,8 @@ private:
     std::uint64_t HostBetweenTotalUs = 0;
     std::uint32_t HostFrameCount = 0;
     std::uint32_t ObservedResetCount = 0;
+    TypeRegistration TypeRegistrations[MaxTypeRegistrations]{};
+    std::size_t TypeRegistrationCount = 0;
 };
 
 } // namespace helengine::ps1
