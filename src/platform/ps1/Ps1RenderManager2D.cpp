@@ -240,6 +240,23 @@ bool Ps1RenderManager2D::AppendPending(const PendingUiDrawable& drawable) {
     return true;
 }
 
+bool Ps1RenderManager2D::AppendCachedText(CachedText& cached) {
+    if (PendingCount + cached.Count > PendingUiCapacity) {
+        Reject("PS1_UI_QUEUE_CAPACITY");
+        return false;
+    }
+    if (PendingSprites + cached.Count > Ps1FramePacketLimits::TexturedTriangles / 2u) {
+        Reject("PS1_UI_SPRITE_CAPACITY");
+        return false;
+    }
+    for (std::uint16_t i = 0; i < cached.Count; ++i) PendingOrder[PendingCount + i] = &cached.Quads[i];
+    PendingCount = static_cast<std::uint16_t>(PendingCount + cached.Count);
+    PendingSprites = static_cast<std::uint16_t>(PendingSprites + cached.Count);
+    QueuedGlyphQuads = static_cast<std::uint16_t>(QueuedGlyphQuads + cached.Count);
+    cached.InFrame = true;
+    return true;
+}
+
 std::uint32_t Ps1RenderManager2D::AllocatePacketRevision() {
     if (++NextPacketRevision == 0) ++NextPacketRevision;
     return NextPacketRevision;
@@ -618,6 +635,31 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
         Reject("PS1_UI_TEXT_TRANSFORM_REJECTED");
         return;
     }
+    std::uint16_t bucket = 0;
+    if (!TryMapRenderOrder(text->get_RenderOrder2D(), bucket)) {
+        Reject("PS1_UI_TEXT_ORDER_REJECTED");
+        return;
+    }
+    const std::int32_t renderStateVersion = text->get_TextRenderStateVersion();
+    CachedText* cached = nullptr;
+    for (CachedText& entry : TextCache) {
+        if (entry.Drawable == text) { cached = &entry; break; }
+    }
+    const std::uint32_t positionX = static_cast<std::uint32_t>(ui_geometry_detail::Round(position.x));
+    const std::uint32_t positionY = static_cast<std::uint32_t>(ui_geometry_detail::Round(position.y));
+    // TextComponent advances its version for text and style changes. Keep the independently
+    // authored viewport, entity position, render order and texture checks on this fast path.
+    if (cached != nullptr && cached->Font == font && cached->Texture == texture &&
+        cached->RenderStateVersion == renderStateVersion &&
+        cached->Key[0] == static_cast<std::uint16_t>(ActiveViewport.x) &&
+        cached->Key[1] == static_cast<std::uint16_t>(ActiveViewport.y) &&
+        cached->Key[2] == static_cast<std::uint16_t>(ActiveViewport.width) &&
+        cached->Key[3] == static_cast<std::uint16_t>(ActiveViewport.height) &&
+        cached->Key[4] == positionX && cached->Key[5] == positionY &&
+        cached->Key[10] == bucket && cached->Key[13] == width && cached->Key[14] == height) {
+        AppendCachedText(*cached);
+        return;
+    }
     const float fontScale = text->get_FontScale() > 0.0001f ? text->get_FontScale() : 0.0001f;
     const ::int2 size = text->get_Size();
     HeCppString content = text->get_Text();
@@ -629,11 +671,6 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
     const float spaceWidth = font->get_FontInfo() != nullptr && font->get_FontInfo()->get_SpaceWidth() * fontScale > 1.0f
         ? font->get_FontInfo()->get_SpaceWidth()
         : (font->get_LineHeight() * 0.25f * fontScale > 1.0f ? font->get_LineHeight() * 0.25f : 1.0f / fontScale);
-    std::uint16_t bucket = 0;
-    if (!TryMapRenderOrder(text->get_RenderOrder2D(), bucket)) {
-        Reject("PS1_UI_TEXT_ORDER_REJECTED");
-        return;
-    }
     const ::float2 shadow = text->get_ShadowOffset();
     struct GlyphPass { float x; float y; ::byte4 color; psyqo::Color gpuColor; bool semiTransparent; } passes[6]{};
     unsigned passCount = 0;
@@ -679,8 +716,8 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
     key[1] = static_cast<std::uint16_t>(ActiveViewport.y);
     key[2] = static_cast<std::uint16_t>(ActiveViewport.width);
     key[3] = static_cast<std::uint16_t>(ActiveViewport.height);
-    key[4] = static_cast<std::uint32_t>(ui_geometry_detail::Round(position.x));
-    key[5] = static_cast<std::uint32_t>(ui_geometry_detail::Round(position.y));
+    key[4] = positionX;
+    key[5] = positionY;
     key[6] = floatBits(fontScale);
     key[7] = static_cast<std::uint32_t>(size.X);
     key[8] = floatBits(lineHeight);
@@ -696,10 +733,6 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
         const ::byte4 c = passes[i].color;
         key[17 + i * 3] = static_cast<std::uint32_t>(c.X) | (static_cast<std::uint32_t>(c.Y) << 8u) |
                              (static_cast<std::uint32_t>(c.Z) << 16u) | (static_cast<std::uint32_t>(c.W) << 24u);
-    }
-    CachedText* cached = nullptr;
-    for (CachedText& entry : TextCache) {
-        if (entry.Drawable == text) { cached = &entry; break; }
     }
     if (cached == nullptr) {
         for (CachedText& entry : TextCache) {
@@ -774,19 +807,8 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
         }
     }
     if (baseMatches && contentMatches) {
-        if (PendingCount + cached->Count > PendingUiCapacity) {
-            Reject("PS1_UI_QUEUE_CAPACITY");
-            return;
-        }
-        if (PendingSprites + cached->Count > Ps1FramePacketLimits::TexturedTriangles / 2u) {
-            Reject("PS1_UI_SPRITE_CAPACITY");
-            return;
-        }
-        for (std::uint16_t i = 0; i < cached->Count; ++i) PendingOrder[PendingCount + i] = &cached->Quads[i];
-        PendingCount = static_cast<std::uint16_t>(PendingCount + cached->Count);
-        PendingSprites = static_cast<std::uint16_t>(PendingSprites + cached->Count);
-        QueuedGlyphQuads = static_cast<std::uint16_t>(QueuedGlyphQuads + cached->Count);
-        cached->InFrame = true;
+        cached->RenderStateVersion = renderStateVersion;
+        AppendCachedText(*cached);
         return;
     }
     const std::uint16_t pendingStart = PendingCount;
@@ -820,6 +842,7 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
         cached->Drawable = text;
         cached->Font = font;
         cached->Texture = texture;
+        cached->RenderStateVersion = renderStateVersion;
         __builtin_memcpy(cached->Key, key, sizeof(key));
         cached->Content = content;
         cached->Count = static_cast<std::uint16_t>(PendingCount - pendingStart);

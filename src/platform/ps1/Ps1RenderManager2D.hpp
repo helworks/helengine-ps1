@@ -78,6 +78,7 @@ private:
         const ::ITextDrawable2D* Drawable = nullptr;
         const void* Font = nullptr;
         const Ps1RuntimeTexture* Texture = nullptr;
+        std::int32_t RenderStateVersion = 0;
         std::uint32_t Key[33]{};
         HeCppString Content;
         std::uint16_t Count = 0;
@@ -97,6 +98,7 @@ private:
     bool ResolveViewport(::ICamera* camera, Ps1ScreenRect& viewport) const;
     void Reject(const char* marker);
     bool AppendPending(const PendingUiDrawable& drawable);
+    bool AppendCachedText(CachedText& cached);
     bool FlushPendingInVisitOrder();
     std::uint32_t AllocatePacketRevision();
 
