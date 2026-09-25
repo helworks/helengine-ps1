@@ -107,11 +107,10 @@ void Ps1AuthoredScene::InitializeCore() {
     ::ObjectManager* objectManager = m_core->get_ObjectManager();
     const int32_t cameraCount = objectManager->get_Cameras() == nullptr ? 0 : objectManager->get_Cameras()->get_Count();
     const int32_t drawableCount = objectManager->get_Drawables3D() == nullptr ? 0 : objectManager->get_Drawables3D()->get_Count();
-    // The subset milestone asserted exactly one of each. A whole authored scene brings several
-    // cameras and drawables, so only an empty scene is a failure; the counts stay reported because
-    // they are the evidence that loading populated the object manager at all.
-    if (cameraCount == 0 || drawableCount == 0) {
-        he_cpp_custom::Fail("Authored scene registered no camera or no drawable");
+    // A 2D authored scene may have no 3D drawables, but it still needs a camera
+    // to drive its viewport and UI render queue.
+    if (cameraCount == 0) {
+        he_cpp_custom::Fail("Authored scene registered no camera");
     }
 }
 
@@ -129,7 +128,7 @@ void Ps1AuthoredScene::ReportSceneState(const char* marker) {
         yawZ = Milli(orientation.Z);
         yawW = Milli(orientation.W);
     }
-    ramsyscall_printf("%s seq=%u cameras=%d drawables=%d updateables=%d cube_orientation_milli=%d,%d,%d,%d elapsed_ms=%d\n", marker,
+    ramsyscall_printf("%s seq=%u cameras=%d drawables=%d updateables=%d orientation_milli=%d,%d,%d,%d elapsed_ms=%d\n", marker,
                       static_cast<unsigned>(m_frameSequence), static_cast<int>(cameraCount), static_cast<int>(drawableCount),
                       static_cast<int>(updateableCount), yawX, yawY, yawZ, yawW, static_cast<int>(m_core->get_TotalElapsedSeconds() * 1000.0));
 }
