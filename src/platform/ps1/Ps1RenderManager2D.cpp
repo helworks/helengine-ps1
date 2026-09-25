@@ -157,6 +157,7 @@ bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
     SkippedTexts = 0;
     VisitedTexts = 0;
     QueuedGlyphQuads = 0;
+    RequestedShapeTriangles = 0;
     PendingCount = 0;
 #if defined(PS1_CPU_PROFILE)
     UiTextDrawUs = UiSpriteDrawUs = UiShapeDrawUs = UiSpriteGeometryUs = 0;
@@ -497,6 +498,11 @@ void Ps1RenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D* shape) {
     }
     const ::byte4 fill = shape->get_FillColor();
     const ::byte4 border = shape->get_BorderColor();
+    for (std::uint16_t i = 0; i < count; ++i) {
+        const bool isFill = i < fillCount;
+        const std::uint8_t alpha = isFill ? fill.W : border.W;
+        if (alpha != 0 && RequestedShapeTriangles != 0xFFFFFFFFu) ++RequestedShapeTriangles;
+    }
     psyqo::Color fillColor;
     psyqo::Color borderColor;
     TryColor(fill, false, fillColor);

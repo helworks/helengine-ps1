@@ -57,6 +57,7 @@ public:
     std::uint16_t LastSkippedTexts() const { return SkippedTexts; }
     std::uint16_t LastVisitedTexts() const { return VisitedTexts; }
     std::uint16_t LastQueuedGlyphQuads() const { return QueuedGlyphQuads; }
+    std::uint32_t LastRequestedShapeTriangles() const { return RequestedShapeTriangles; }
     const char* LastFailureMarker() const { return FailureMarker; }
 
 protected:
@@ -121,6 +122,7 @@ private:
     std::uint16_t SkippedTexts = 0;
     std::uint16_t VisitedTexts = 0;
     std::uint16_t QueuedGlyphQuads = 0;
+    std::uint32_t RequestedShapeTriangles = 0;
     std::uint16_t PendingCount = 0;
     std::uint16_t PendingShapes = 0;
     std::uint16_t PendingSprites = 0;
