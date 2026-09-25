@@ -5,10 +5,11 @@
 namespace helengine::ps1 {
 
 struct Ps1FramePacketLimits final {
-    static constexpr std::uint32_t PacketBudgetBytes = 16384;
+    static constexpr std::uint32_t PacketBudgetBytes = 32768;
     static constexpr std::uint32_t GouraudTriangles = 64;
-    static constexpr std::uint32_t UiTriangles = 96;
-    static constexpr std::uint32_t TexturedTriangles = 256;
+    // The static main menu requests 516 visible shape triangles and 250 textured quads.
+    static constexpr std::uint32_t UiTriangles = 576;
+    static constexpr std::uint32_t TexturedTriangles = 512;
     static constexpr std::uint32_t TexturedQuads = TexturedTriangles / 2u;
     static constexpr std::uint32_t ClearFragmentBytes = 16;
     static constexpr std::uint32_t TriangleFragmentBytes = 20;
@@ -18,8 +19,9 @@ struct Ps1FramePacketLimits final {
     static constexpr std::uint32_t FixedBytes = ClearFragmentBytes + GouraudTriangles * GouraudFragmentBytes +
                                                 UiTriangles * UiFragmentBytes +
                                                 TexturedQuads * TexturedFragmentBytes;
-    static constexpr std::uint32_t SceneTriangles = (PacketBudgetBytes - FixedBytes) / TriangleFragmentBytes;
-    static_assert(FixedBytes < PacketBudgetBytes);
+    // Preserve the established 3D capacity instead of growing it with the UI budget.
+    static constexpr std::uint32_t SceneTriangles = 376;
+    static_assert(FixedBytes + SceneTriangles * TriangleFragmentBytes <= PacketBudgetBytes);
 };
 
 /**

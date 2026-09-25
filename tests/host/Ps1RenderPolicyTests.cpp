@@ -25,15 +25,16 @@ void TestPacketBudget() {
     assert(!zero.TryReserve(slot));
 
     using Limits = helengine::ps1::Ps1FramePacketLimits;
-    assert(Limits::PacketBudgetBytes == 16384);
+    assert(Limits::PacketBudgetBytes == 32768);
     assert(Limits::GouraudTriangles == 64);
-    assert(Limits::UiTriangles == 96);
-    assert(Limits::TexturedTriangles == 256);
-    assert(Limits::TexturedQuads == 128);
-    assert(Limits::FixedBytes == 8848);
+    assert(Limits::UiTriangles == 576);
+    assert(Limits::TexturedTriangles == 512);
+    assert(Limits::TexturedQuads == 256);
+    assert(Limits::FixedBytes == 23568);
     assert(Limits::SceneTriangles == 376);
+    assert(Limits::UiTriangles > 516);
+    assert(Limits::TexturedQuads > 144);
     assert(Limits::FixedBytes + Limits::SceneTriangles * Limits::TriangleFragmentBytes <= Limits::PacketBudgetBytes);
-    assert(Limits::FixedBytes + (Limits::SceneTriangles + 1) * Limits::TriangleFragmentBytes > Limits::PacketBudgetBytes);
     helengine::ps1::Ps1PacketBudget ui(Limits::UiTriangles);
     for (std::uint32_t i = 0; i < Limits::UiTriangles; ++i) assert(ui.TryReserve(slot));
     assert(!ui.TryReserve(slot) && ui.Used() == Limits::UiTriangles);
