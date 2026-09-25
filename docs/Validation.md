@@ -1259,3 +1259,56 @@ profiled manifest
 and `duckstation-ui-append-profile-guest-snapshot.log` in the same directory;
 host summary
 `C:/dev/helworks/builds/helengine-ps1/host-tests-20260924-182708-306-a570cf70dba24bfead3a65bdcbf8fb75/summary.json`.
+
+## Static authored main menu build (2026-09-24)
+
+The pinned committed `DemoDiscMainMenu.helen` blob
+`7bdb310b5169ebf2c68a394a850f9eacf13cda6a` at demodisc revision
+`5cc124eec06b8db729b2f9b15d99d26cb1ca8cc3` exported to a build-local
+scene. Its SHA-256 changed from `81786c9033129e04b292e976b47de301bfa6a39f3a46f8abef760e5fbfbff405`
+to `a5575c02efd7c32bcb889b6ba8a642c80c034c8c2aa7cdf6db68a251d5c85131`
+because 47 behavior components were removed: 291 components before, 244
+visual components after. The exported scene retains its entity IDs and
+platform overrides, including `sd/msd`; the dirty demodisc checkout was not
+used as the menu scene source or modified for this build.
+
+The full authored build used shared helengine revision
+`d98d00208a040dd00352a0b6417eed27d387af07` without moving that
+checkout. Its 3,086 staged asset/settings files are recorded with SHA-256 in
+`staged-input-hashes.json`. The cooked package copied five assets totaling
+96,693 bytes; the cooked menu scene is 54,508 bytes and contains the expected
+camera, layout, clipping, sprite, text, and rounded-rect type names, with no
+menu behavior, animation-player, or scroll type names. The codegen report had
+two known `CPP1000` checked-multiply errors from unused `Batch2DBuffer`, zero
+warnings, and zero info diagnostics. The PS1 diagnostic gate accepted exactly
+that pair; the unused-source guard removed 10 generated Batch2D sources before
+native compilation. Editor exit code was 0, and native packaging completed.
+
+| Footprint comparison | Previous `cube_test` build | Static menu build | Change |
+| --- | ---: | ---: | ---: |
+| PS-X EXE payload | 833,536 B | 778,240 B | -55,296 B |
+| Static RAM footprint | 884,184 B | 828,672 B | -55,512 B |
+| Heap capacity | 1,081,896 B | 1,137,408 B | +55,512 B |
+
+The table compares the last validated cube metrics with the new menu package;
+the content differs, so these are footprint figures, not a performance
+comparison. A fresh regression build of the previously exported `cube_test`
+scene (SHA-256 `622b06a1dd55cba8556c24913d65f7a23a74988643fe89b6bfad9e8862564e05`)
+also completed with editor exit code 0 and exactly the old cube payload,
+static footprint, and heap capacity: 833,536 / 884,184 / 1,081,896 bytes.
+The PS1 host suite passed with all positive compile/run and Python exit codes
+0; the negative embedded-stream fixture returned the expected 73. The
+codegen-gate builder suite passed 37/37 tests.
+
+Build evidence: menu wrapper root
+`C:/dev/helworks/builds/helengine-ps1/static-menu-gated-20260924-a7b45d`,
+menu manifest
+`C:/dev/helworks/builds/helengine-ps1/20260924-213558-321-Release-ebc1270dfbde45cfb8993cb95abe7671/manifest.json`,
+cube regression root
+`C:/dev/helworks/builds/helengine-ps1/static-menu-cube-regression-20260924-5ca290`,
+cube manifest
+`C:/dev/helworks/builds/helengine-ps1/20260924-214257-244-Release-249b51a44f31412b9c17953ea9df690c/manifest.json`,
+and host summary
+`C:/dev/helworks/builds/helengine-ps1/host-tests-20260924-213018-585-6b2bcc7d46f34beeafbf1a599395d336/summary.json`.
+Guest boot, UI packet high-water, and visual appearance remain unverified
+until the approved DuckStation run.
