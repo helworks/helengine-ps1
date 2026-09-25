@@ -1409,8 +1409,8 @@ increased heap capacity from 1,094,456 B to 1,096,504 B.
 
 The geometry host test and full available PS1 host suite passed. All enabled
 C++ and Python exit codes were zero; the optional embedded-stream test was
-skipped because no codegen runtime root was supplied. Visual inspection of
-the square-corner build is pending.
+skipped because no codegen runtime root was supplied. Helena confirmed the
+square-corner panels look correct in DuckStation.
 
 Evidence: profile manifest
 `C:/dev/helworks/builds/helengine-ps1/20260925-111431-860-Release-f66cf941e84e4725b05f628e86bab86a/manifest.json`,
