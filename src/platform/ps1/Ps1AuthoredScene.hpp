@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include "psyqo/simplepad.hh"
 #include "psyqo/scene.hh"
 #include "platform/ps1/rendering/Ps1RasterRenderer.hpp"
 
@@ -35,6 +36,7 @@ class Ps1AuthoredScene final : public psyqo::Scene {
     void ReportSceneState(const char* marker);
 
     Ps1RasterRenderer m_renderer;
+    psyqo::SimplePad m_pad;
     Ps1ContentStreamSource* m_contentSource = nullptr;
     ::RuntimeSceneCatalog* m_sceneCatalog = nullptr;
     ::CoreInitializationOptions* m_options = nullptr;

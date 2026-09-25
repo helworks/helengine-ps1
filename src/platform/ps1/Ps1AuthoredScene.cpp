@@ -48,6 +48,7 @@ void Ps1AuthoredScene::start(StartReason) {
     }
     m_initialized = true;
     m_renderer.Initialize();
+    m_pad.initialize();
     InitializeCore();
     m_lastTimestamp = gpu().now();
     m_overlayWindowStartUs = he_cpp_custom::MonotonicMicroseconds();
@@ -85,7 +86,7 @@ void Ps1AuthoredScene::InitializeCore() {
     // Core's screen-bound ViewportComponent reads MainWindowSize to fit authored reference
     // canvases. Register the native display before the scene's first layout update.
     m_render3D->AddWindow(0, 320, 240);
-    m_input = new Ps1InputBackend();
+    m_input = new Ps1InputBackend(m_pad);
     m_platform = new ::PlatformInfo("ps1", "authored-cube-test");
     m_core = new ::Core(m_options);
     ramsyscall_printf("PS1_CORE_CONSTRUCTED core=%p\n", m_core);

@@ -116,6 +116,7 @@ Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1EmbeddedArchiveTest
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1AuthoredProjectionTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1AuthoredProjectionTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1AuthoredLightingTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1AuthoredLightingTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1AuthoredUiGeometryTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1AuthoredUiGeometryTests.cpp')
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1GamepadButtonMappingTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1GamepadButtonMappingTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\Ps1EmbeddedAssetStreamTests.cpp') -Destination (Join-Path $runRoot 'tests\host\Ps1EmbeddedAssetStreamTests.cpp')
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\stream-config') -Destination (Join-Path $runRoot 'tests\host\stream-config') -Recurse
 Copy-Item -LiteralPath (Join-Path $sourceRoot 'tests\host\test_embed_authored_assets.py') -Destination (Join-Path $runRoot 'tests\host\test_embed_authored_assets.py')
@@ -135,6 +136,8 @@ $policyCompileLog = Join-Path $runRoot 'policy-cpp-compile.log'
 $policyRunLog = Join-Path $runRoot 'policy-cpp-run.log'
 $uiGeometryCompileLog = Join-Path $runRoot 'ui-geometry-cpp-compile.log'
 $uiGeometryRunLog = Join-Path $runRoot 'ui-geometry-cpp-run.log'
+$gamepadMappingCompileLog = Join-Path $runRoot 'gamepad-mapping-cpp-compile.log'
+$gamepadMappingRunLog = Join-Path $runRoot 'gamepad-mapping-cpp-run.log'
 $sharedPtrCompileLog = Join-Path $runRoot 'shared-ptr-cpp-compile.log'
 $sharedPtrRunLog = Join-Path $runRoot 'shared-ptr-cpp-run.log'
 $ps1HashCompileLog = Join-Path $runRoot 'ps1-hash-cpp-compile.log'
@@ -165,6 +168,10 @@ $uiGeometryCompileStdout = Join-Path $runRoot 'ui-geometry-cpp-compile.stdout.lo
 $uiGeometryCompileStderr = Join-Path $runRoot 'ui-geometry-cpp-compile.stderr.log'
 $uiGeometryRunStdout = Join-Path $runRoot 'ui-geometry-cpp-run.stdout.log'
 $uiGeometryRunStderr = Join-Path $runRoot 'ui-geometry-cpp-run.stderr.log'
+$gamepadMappingCompileStdout = Join-Path $runRoot 'gamepad-mapping-cpp-compile.stdout.log'
+$gamepadMappingCompileStderr = Join-Path $runRoot 'gamepad-mapping-cpp-compile.stderr.log'
+$gamepadMappingRunStdout = Join-Path $runRoot 'gamepad-mapping-cpp-run.stdout.log'
+$gamepadMappingRunStderr = Join-Path $runRoot 'gamepad-mapping-cpp-run.stderr.log'
 $sharedPtrCompileStdout = Join-Path $runRoot 'shared-ptr-cpp-compile.stdout.log'
 $sharedPtrCompileStderr = Join-Path $runRoot 'shared-ptr-cpp-compile.stderr.log'
 $sharedPtrRunStdout = Join-Path $runRoot 'shared-ptr-cpp-run.stdout.log'
@@ -249,6 +256,30 @@ $uiGeometryRunResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentLi
 Merge-ProcessLogs -StdoutPath $uiGeometryRunResult.StdoutPath -StderrPath $uiGeometryRunResult.StderrPath -CombinedPath $uiGeometryRunLog
 Add-ExitMarker -LogPath $uiGeometryRunLog -Name 'UI_GEOMETRY_CPP_RUN' -ExitCode $uiGeometryRunResult.ExitCode
 if ($uiGeometryRunResult.ExitCode -ne 0) { throw ("PS1 UI geometry tests failed with exit code {0}{1}{2}" -f $uiGeometryRunResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $uiGeometryRunStdout -StderrPath $uiGeometryRunStderr)) }
+
+$gamepadMappingCompileArgs = @(
+    'run', '--rm',
+    '--mount', "type=bind,source=$runRoot,target=/work",
+    '--workdir', '/work',
+    $dockerImage,
+    'g++', '-std=c++20', '-Wall', '-Wextra', '-Isrc',
+    '/work/tests/host/Ps1GamepadButtonMappingTests.cpp', '-o', '/work/ps1_gamepad_button_mapping_tests'
+)
+$gamepadMappingCompileResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $gamepadMappingCompileArgs -WorkingDirectory $runRoot -StdoutPath $gamepadMappingCompileStdout -StderrPath $gamepadMappingCompileStderr
+Merge-ProcessLogs -StdoutPath $gamepadMappingCompileResult.StdoutPath -StderrPath $gamepadMappingCompileResult.StderrPath -CombinedPath $gamepadMappingCompileLog
+Add-ExitMarker -LogPath $gamepadMappingCompileLog -Name 'GAMEPAD_MAPPING_CPP_COMPILE' -ExitCode $gamepadMappingCompileResult.ExitCode
+if ($gamepadMappingCompileResult.ExitCode -ne 0) { throw ("PS1 gamepad mapping compile failed with exit code {0}{1}{2}" -f $gamepadMappingCompileResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $gamepadMappingCompileStdout -StderrPath $gamepadMappingCompileStderr)) }
+$gamepadMappingRunArgs = @(
+    'run', '--rm',
+    '--mount', "type=bind,source=$runRoot,target=/work",
+    '--workdir', '/work',
+    $dockerImage,
+    '/work/ps1_gamepad_button_mapping_tests'
+)
+$gamepadMappingRunResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $gamepadMappingRunArgs -WorkingDirectory $runRoot -StdoutPath $gamepadMappingRunStdout -StderrPath $gamepadMappingRunStderr
+Merge-ProcessLogs -StdoutPath $gamepadMappingRunResult.StdoutPath -StderrPath $gamepadMappingRunResult.StderrPath -CombinedPath $gamepadMappingRunLog
+Add-ExitMarker -LogPath $gamepadMappingRunLog -Name 'GAMEPAD_MAPPING_CPP_RUN' -ExitCode $gamepadMappingRunResult.ExitCode
+if ($gamepadMappingRunResult.ExitCode -ne 0) { throw ("PS1 gamepad mapping tests failed with exit code {0}{1}{2}" -f $gamepadMappingRunResult.ExitCode, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $gamepadMappingRunStdout -StderrPath $gamepadMappingRunStderr)) }
 
 $policyCompileArgs = @(
     'run', '--rm',
@@ -525,6 +556,8 @@ $summary = [ordered]@{
     runtime_clock_cpp_run = $runtimeClockRunLog
     cpu_profile_window_cpp_compile = $cpuProfileWindowCompileLog
     cpu_profile_window_cpp_run = $cpuProfileWindowRunLog
+    gamepad_mapping_cpp_compile = $gamepadMappingCompileLog
+    gamepad_mapping_cpp_run = $gamepadMappingRunLog
     embedded_archive_cpp_compile = $archiveCompileLog
     embedded_archive_cpp_run = $archiveRunLog
     authored_projection_cpp_compile = $projectionCompileLog
@@ -549,6 +582,8 @@ $summary = [ordered]@{
         runtime_clock_cpp_run = $runtimeClockRunResult.ExitCode
         cpu_profile_window_cpp_compile = $cpuProfileWindowCompileResult.ExitCode
         cpu_profile_window_cpp_run = $cpuProfileWindowRunResult.ExitCode
+        gamepad_mapping_cpp_compile = $gamepadMappingCompileResult.ExitCode
+        gamepad_mapping_cpp_run = $gamepadMappingRunResult.ExitCode
         embedded_archive_cpp_compile = $archiveCompileResult.ExitCode
         embedded_archive_cpp_run = $archiveRunResult.ExitCode
         authored_projection_cpp_compile = $projectionCompileResult.ExitCode
@@ -561,6 +596,10 @@ $summary = [ordered]@{
         python_tests = $pythonResult.ExitCode
     }
     native_streams = [ordered]@{
+        gamepad_mapping_cpp_compile_stdout = $gamepadMappingCompileStdout
+        gamepad_mapping_cpp_compile_stderr = $gamepadMappingCompileStderr
+        gamepad_mapping_cpp_run_stdout = $gamepadMappingRunStdout
+        gamepad_mapping_cpp_run_stderr = $gamepadMappingRunStderr
         host_cpp_compile_stdout = $compileStdout
         host_cpp_compile_stderr = $compileStderr
         host_cpp_run_stdout = $runStdout
