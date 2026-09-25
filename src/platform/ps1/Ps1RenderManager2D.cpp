@@ -498,11 +498,11 @@ void Ps1RenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D* shape) {
     }
     const ::byte4 fill = shape->get_FillColor();
     const ::byte4 border = shape->get_BorderColor();
-    for (std::uint16_t i = 0; i < count; ++i) {
-        const bool isFill = i < fillCount;
-        const std::uint8_t alpha = isFill ? fill.W : border.W;
-        if (alpha != 0 && RequestedShapeTriangles != 0xFFFFFFFFu) ++RequestedShapeTriangles;
-    }
+    const std::uint32_t requestedTriangles =
+        (fill.W == 0 ? 0u : static_cast<std::uint32_t>(fillCount)) +
+        (border.W == 0 ? 0u : static_cast<std::uint32_t>(count - fillCount));
+    RequestedShapeTriangles = requestedTriangles > 0xFFFFFFFFu - RequestedShapeTriangles
+        ? 0xFFFFFFFFu : RequestedShapeTriangles + requestedTriangles;
     psyqo::Color fillColor;
     psyqo::Color borderColor;
     TryColor(fill, false, fillColor);
