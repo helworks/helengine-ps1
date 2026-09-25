@@ -1312,3 +1312,61 @@ and host summary
 `C:/dev/helworks/builds/helengine-ps1/host-tests-20260924-213018-585-6b2bcc7d46f34beeafbf1a599395d336/summary.json`.
 Guest boot, UI packet high-water, and visual appearance remain unverified
 until the approved DuckStation run.
+
+## Static main-menu guest recovery (2026-09-25)
+
+The approved DuckStation run of the first static-menu build loaded the scene but
+stopped on its first UI frame with `PS1_UI_SHAPE_CAPACITY`: 180 rounded rects,
+34 texts, 1 sprite, 1,988 requested shape triangles, and zero submitted
+packets. Inspection of the pinned source, exported scene, and five cooked
+copies found the same six panel flags in each: only `Panel-main` is enabled.
+The PS1 2D visitor had not checked effective hierarchy visibility before
+calling `Draw()`. With that guard, a second guest run visited 148 rounded
+rects and 7 texts, requested 516 shape triangles, and still stopped at the
+old 96-triangle limit. Enlarging that limit to 576 exposed the next limit:
+143 glyph quads were queued before the 144-textured-quad capacity rejected
+the remaining text.
+
+The final measured menu capacity is 576 UI triangles and 256 textured quads
+within a 32,768-byte packet budget; the 3D scene capacity remains 376
+triangles. The first successful guest frame visited 148 shapes, 7 texts and
+1 sprite, requested 516 shape triangles, queued 249 glyph quads, submitted
+250 textured quads and 1,016 total triangles, and emitted 767 packets.
+Packet high-water was 20,336 bytes, guards were intact, and UI and frame
+failure values were both zero. The old failed run had 0 packets and 0-byte
+high-water. The codegen report on shared engine revision
+`dd9ca693403d91b5e2fc52860a3511e6358ed776` had zero errors, warnings,
+and info diagnostics; no PS1-local codegen exception was needed.
+
+| Static-menu footprint | Same-engine 16 KB build | Final menu build | Change |
+| --- | ---: | ---: | ---: |
+| PS-X EXE payload | 778,240 B | 778,240 B | 0 B |
+| Static RAM footprint | 828,672 B | 861,376 B | +32,704 B |
+| Heap capacity | 1,137,408 B | 1,104,704 B | -32,704 B |
+
+The guest heap endpoint remained `0x80139838` through the 600- and
+1,200-frame checkpoints. The second 600-frame window averaged Update 1.984 ms,
+boundary 0.768 ms, and Draw 114.752 ms. A later steady cadence checkpoint
+used 4,320 VBlanks for 600 frames (about 8.3 FPS). The menu is therefore
+rendering, but its present 767-packet frame is not a 60 FPS implementation.
+The full PS1 host suite passed after the packet change: all positive C++ and
+Python exit codes were zero and the expected negative embedded-stream case
+returned 73.
+
+Evidence: final menu wrapper
+`C:/dev/helworks/builds/helengine-ps1/static-menu-textured-capacity-20260925`,
+manifest
+`C:/dev/helworks/builds/helengine-ps1/20260925-090221-597-Release-8b410ee463c64396bb9a0efc26bdece4/manifest.json`,
+guest log
+`C:/dev/helworks/builds/helengine-ps1/20260925-090221-597-Release-8b410ee463c64396bb9a0efc26bdece4/duckstation-menu-1200-guest-snapshot.log`,
+and host summary
+`C:/dev/helworks/builds/helengine-ps1/host-tests-20260925-085911-343-548e5d5db6a44bae9c4a80ea57b96c28/summary.json`.
+The `cube_test` regression rebuilt the unchanged exported scene (SHA-256
+`622b06a1dd55cba8556c24913d65f7a23a74988643fe89b6bfad9e8862564e05`)
+against the same shared engine revision with editor exit code 0. Its PS-X
+payload remained 833,536 bytes; static RAM increased from 884,184 to 916,888
+bytes and heap capacity fell from 1,081,896 to 1,049,192 bytes, the same
+32,704-byte packet-reservation delta as the menu. Cube manifest:
+`C:/dev/helworks/builds/helengine-ps1/20260925-091015-321-Release-19c19be446be4e418820d014d831c5c5/manifest.json`.
+Visible menu appearance is awaiting Helena's inspection of the DuckStation
+window opened with the final manifest.
