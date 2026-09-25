@@ -13,7 +13,6 @@
 #include "IRoundedRectDrawable2D.hpp"
 #include "ISpriteDrawable2D.hpp"
 #include "ITextDrawable2D.hpp"
-#include "RoundedRectCorners.hpp"
 #include "TextureAsset.hpp"
 #include "TextureAssetColorFormat.hpp"
 #include "TextLayoutUtils.hpp"
@@ -485,15 +484,12 @@ void Ps1RenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D* shape) {
         return;
     }
     const ::int2 size = shape->get_Size();
-    const std::uint8_t corners = MapCoreRoundedCorners(static_cast<std::uint8_t>(shape->get_Corners()));
-    const Ps1UiTriangle* triangles = nullptr;
+    Ps1UiTriangle triangles[10]{};
     std::uint16_t count = 0;
     std::uint16_t fillCount = 0;
-    bool reused = false;
-    if (!RoundedRectCache.TryGet(position, {static_cast<float>(size.X), static_cast<float>(size.Y)}, scale,
-                                 rotation + shape->get_Rotation(), shape->get_Radius(),
-                                 shape->get_BorderThickness(), corners, ActiveViewport, triangles,
-                                 count, fillCount, reused)) {
+    if (!TryBuildRectTriangles(position, {static_cast<float>(size.X), static_cast<float>(size.Y)}, scale,
+                               rotation + shape->get_Rotation(), shape->get_BorderThickness(), ActiveViewport,
+                               triangles, 10, count, fillCount)) {
         Reject("PS1_UI_SHAPE_GEOMETRY_REJECTED");
         return;
     }

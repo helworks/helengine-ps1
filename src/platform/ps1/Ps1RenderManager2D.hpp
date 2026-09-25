@@ -132,7 +132,6 @@ private:
     std::uint8_t NextTextCache = 0;
     std::uint32_t NextPacketRevision = 0;
     Ps1TextGlyphCache GlyphCache;
-    Ps1RoundedRectGeometryCache RoundedRectCache;
     Ps1SpriteGeometryCache SpriteGeometryCache;
     bool QueueOpen = false;
     ::IRenderQueue2D* ValidatedQueue = nullptr;

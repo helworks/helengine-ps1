@@ -98,6 +98,32 @@ int main() {
     Ps1UiTriangle triangles[64]{};
     std::uint16_t count = 0;
     std::uint16_t fillCount = 0;
+    assert(TryBuildRectTriangles({10.0f, 10.0f}, {20.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 0.0f,
+                                 full, triangles, 64, count, fillCount));
+    assert(count == 2 && fillCount == 2);
+    assert(triangles[0].a.x == 10 && triangles[0].a.y == 10);
+    assert(triangles[0].b.x == 30 && triangles[0].b.y == 10);
+    assert(triangles[0].c.x == 30 && triangles[0].c.y == 22);
+    assert(triangles[1].c.x == 10 && triangles[1].c.y == 22);
+    assert(TryBuildRectTriangles({10.0f, 10.0f}, {20.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 2.0f,
+                                 full, triangles, 64, count, fillCount));
+    assert(count == 10 && fillCount == 2);
+    assert(triangles[0].a.x == 12 && triangles[0].a.y == 12);
+    assert(triangles[0].b.x == 28 && triangles[0].b.y == 12);
+    assert(triangles[0].c.x == 28 && triangles[0].c.y == 20);
+    assert(triangles[2].a.x == 10 && triangles[2].a.y == 10);
+    assert(triangles[2].b.x == 30 && triangles[2].b.y == 10);
+    assert(TryBuildRectTriangles({10.0f, 10.0f}, {20.0f, 12.0f}, {2.0f, 0.5f}, 0.0f, 0.0f,
+                                 offset, triangles, 64, count, fillCount));
+    assert(triangles[0].a.x == 170 && triangles[0].a.y == 130);
+    assert(triangles[0].b.x == 210 && triangles[0].b.y == 130);
+    assert(triangles[0].c.x == 210 && triangles[0].c.y == 136);
+    assert(TryBuildRectTriangles({10.0f, 10.0f}, {20.0f, 12.0f}, {1.0f, 1.0f}, 1.57079632679f, 0.0f,
+                                 full, triangles, 64, count, fillCount));
+    assert(std::abs(triangles[0].a.x - 26) <= 1 && std::abs(triangles[0].a.y - 6) <= 1);
+    assert(std::abs(triangles[0].b.x - 26) <= 1 && std::abs(triangles[0].b.y - 26) <= 1);
+    assert(!TryBuildRectTriangles({10.0f, 10.0f}, {0.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 0.0f,
+                                  full, triangles, 64, count, fillCount));
     assert(TryBuildRoundedRectTriangles({10.0f, 10.0f}, {20.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 0.0f, 0.0f, 0x0f,
                                         full, triangles, 64, count, fillCount));
     assert(count == 2);

@@ -1368,5 +1368,53 @@ payload remained 833,536 bytes; static RAM increased from 884,184 to 916,888
 bytes and heap capacity fell from 1,081,896 to 1,049,192 bytes, the same
 32,704-byte packet-reservation delta as the menu. Cube manifest:
 `C:/dev/helworks/builds/helengine-ps1/20260925-091015-321-Release-19c19be446be4e418820d014d831c5c5/manifest.json`.
-Visible menu appearance is awaiting Helena's inspection of the DuckStation
-window opened with the final manifest.
+Helena confirmed the menu is visually correct in DuckStation.
+
+### Render-time breakdown
+
+A separate profiling build used the same authored menu and packet capacities.
+Across frames 601–1,200, Update averaged 2.112 ms and Draw averaged 116.032 ms.
+The detailed draw samples attribute 105.536 ms to UI queue visitation,
+101.413 ms to rounded-rectangle geometry, and 7.744 ms to packet flushing;
+text drawing averaged 0.682 ms, sprite drawing 0.064 ms, and 3D rendering
+0 ms. GPU submission measured 0 ms at this timer's resolution. The main cost
+is CPU geometry work for the rounded rectangles, not text, sprites, 3D, or
+packet submission.
+
+The geometry cache in `Ps1RoundedRectGeometryCache` retains only four entries
+and replaces them round-robin. The visible menu draws 148 rounded rectangles
+each frame, so the cache continually evicts entries and rebuilds almost all
+rounded-rectangle geometry on every frame. This explains why the static menu
+uses about 116 ms per frame despite having no animation. The profiling build
+manifest is
+`C:/dev/helworks/builds/helengine-ps1/20260925-103323-292-Release-a5dd8de323f149d98eb7221a29e5126c/manifest.json`;
+the captured guest log is
+`C:/dev/helworks/builds/helengine-ps1/20260925-103323-292-Release-a5dd8de323f149d98eb7221a29e5126c/duckstation-menu-profile-guest-snapshot.log`.
+
+### Square-corner PS1 panels
+
+PS1 now renders authored rounded-rectangle components as square-cornered
+rectangles while preserving fill, border, scale, rotation, viewport and draw
+order. The measured 600-frame window (frames 601–1,200) reduced Draw from
+116.032 ms to 74.240 ms (-36.0%), and rounded-rectangle drawing from 101.413 ms
+to 61.184 ms (-39.7%). UI queue visitation fell from 105.536 ms to 65.536 ms;
+packet flushing fell from 7.744 ms to 6.016 ms. Update stayed at 2.112 ms.
+
+The 148 shapes still render, with requested shape triangles reduced from 516
+to 336. Total submitted triangles fell from 1,016 to 836 and packets from 767
+to 587; the 249 glyph quads and one sprite were unchanged. The profile window
+reported dropped=0, resets=0 and clock_faults=0. Removing the four-entry
+rounded-geometry cache reduced static RAM from 871,624 B to 869,576 B and
+increased heap capacity from 1,094,456 B to 1,096,504 B.
+
+The geometry host test and full available PS1 host suite passed. All enabled
+C++ and Python exit codes were zero; the optional embedded-stream test was
+skipped because no codegen runtime root was supplied. Visual inspection of
+the square-corner build is pending.
+
+Evidence: profile manifest
+`C:/dev/helworks/builds/helengine-ps1/20260925-111431-860-Release-f66cf941e84e4725b05f628e86bab86a/manifest.json`,
+guest log snapshot
+`C:/dev/helworks/builds/helengine-ps1/20260925-111431-860-Release-f66cf941e84e4725b05f628e86bab86a/duckstation-square-menu-profile-guest-snapshot.log`,
+and host suite summary
+`C:/dev/helworks/builds/helengine-ps1/host-tests-20260925-112950-904-355b0d62471c4005bdb49bf06eb8af41/summary.json`.

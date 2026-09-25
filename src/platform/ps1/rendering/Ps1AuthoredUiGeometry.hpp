@@ -187,6 +187,69 @@ inline bool TryBuildGlyphQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiRectF so
            TryBuildGlyphQuadTexels(position, size, texels, static_cast<std::uint16_t>(textureSize.width),
                                    static_cast<std::uint16_t>(textureSize.height), viewport, vertices);
 }
+
+/** Builds a square-cornered rectangle with an optional border, using at most ten triangles. */
+inline bool TryBuildRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint scale,
+                                 float rotationRadians, float borderThickness, Ps1ScreenRect viewport,
+                                 Ps1UiTriangle* triangles, std::uint16_t capacity, std::uint16_t& count,
+                                 std::uint16_t& fillCount) {
+    using namespace ui_geometry_detail;
+    count = 0;
+    fillCount = 0;
+    if (!ValidViewport(viewport) || triangles == nullptr || !Finite(position.x) || !Finite(position.y) ||
+        !Finite(size.width) || !Finite(size.height) || !Finite(scale.x) || !Finite(scale.y) ||
+        !Finite(rotationRadians) || !Finite(borderThickness) || size.width <= 0.0f || size.height <= 0.0f ||
+        scale.x <= 0.0f || scale.y <= 0.0f || borderThickness < 0.0f) return false;
+    const float width = size.width * scale.x;
+    const float height = size.height * scale.y;
+    if (!Finite(width) || !Finite(height) || width <= 0.0f || height <= 0.0f ||
+        borderThickness * 2.0f >= width || borderThickness * 2.0f >= height) return false;
+
+    const Ps1UiPoint outer[4] = {{position.x, position.y}, {position.x + width, position.y},
+                                 {position.x + width, position.y + height}, {position.x, position.y + height}};
+    const Ps1UiPoint inner[4] = {{position.x + borderThickness, position.y + borderThickness},
+                                 {position.x + width - borderThickness, position.y + borderThickness},
+                                 {position.x + width - borderThickness, position.y + height - borderThickness},
+                                 {position.x + borderThickness, position.y + height - borderThickness}};
+    const bool unrotated = rotationRadians == 0.0f;
+    const float cosine = unrotated ? 1.0f : Cos(rotationRadians);
+    const float sine = unrotated ? 0.0f : Sin(rotationRadians);
+    const float centerX = position.x + width * 0.5f;
+    const float centerY = position.y + height * 0.5f;
+    const auto transform = [&](Ps1UiPoint point, Ps1UiVertex& output) {
+        if (unrotated) return ToScreen(point.x, point.y, viewport, output.x, output.y);
+        const float dx = point.x - centerX;
+        const float dy = point.y - centerY;
+        return ToScreen(centerX + dx * cosine - dy * sine, centerY + dx * sine + dy * cosine,
+                        viewport, output.x, output.y);
+    };
+    Ps1UiVertex transformedOuter[4]{};
+    Ps1UiVertex transformedInner[4]{};
+    for (unsigned i = 0; i < 4; ++i) {
+        if (!transform(outer[i], transformedOuter[i]) ||
+            !transform(inner[i], transformedInner[i])) return false;
+    }
+
+    const unsigned needed = borderThickness > 0.0f ? 10u : 2u;
+    if (needed > capacity) return false;
+    const Ps1UiVertex* fill = borderThickness > 0.0f ? transformedInner : transformedOuter;
+    Ps1UiTriangle staged[10]{};
+    staged[0] = {fill[0], fill[1], fill[2]};
+    staged[1] = {fill[0], fill[2], fill[3]};
+    fillCount = 2;
+    unsigned stagedCount = 2;
+    if (borderThickness > 0.0f) {
+        for (unsigned i = 0; i < 4; ++i) {
+            const unsigned next = (i + 1u) % 4u;
+            staged[stagedCount++] = {transformedOuter[i], transformedOuter[next], transformedInner[next]};
+            staged[stagedCount++] = {transformedOuter[i], transformedInner[next], transformedInner[i]};
+        }
+    }
+    for (unsigned i = 0; i < stagedCount; ++i) triangles[i] = staged[i];
+    count = static_cast<std::uint16_t>(stagedCount);
+    return true;
+}
+
 /** Builds a convex fill fan and optional border ring; 0x01, 0x02, 0x04, 0x08 select TL, TR, BR, BL. */
 inline bool TryBuildRoundedRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint scale,
                                          float rotationRadians, float radius, float borderThickness,
