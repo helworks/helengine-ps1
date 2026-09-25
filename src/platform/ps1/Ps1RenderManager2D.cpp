@@ -330,7 +330,8 @@ bool Ps1RenderManager2D::FlushPendingInVisitOrder() {
 }
 
 void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
-    if (drawable == nullptr || !QueueOpen) return;
+    if (drawable == nullptr || !QueueOpen || drawable->get_Parent() == nullptr ||
+        !drawable->get_Parent()->get_IsHierarchyEnabled()) return;
     if (UseValidatedQueue || dynamic_cast<::ISpriteDrawable2D*>(drawable) != nullptr ||
         dynamic_cast<::IRoundedRectDrawable2D*>(drawable) != nullptr ||
         dynamic_cast<::ITextDrawable2D*>(drawable) != nullptr) {
