@@ -408,3 +408,28 @@ authored archive; they do not prevent the PS-X EXE from linking. Build
 `authored-groups-10` (engine `dd43413f`) is the earlier reference: 620 KB
 `ps-exe`, scene entity names in the ELF confirm one `CubeTestSun`, one
 `CubeTestCube`, one `CubeTestCamera` and no DS screen cameras.
+
+## Interactive menu with `cube_test`
+
+`scripts/build-interactive-menu.ps1` exports the last committed complete
+Demodisc main-menu scene plus `scenes/rendering/cube_test.helen` with
+`helengine.ps1.samplegen --full`, then packages both scenes with the menu as
+startup. It retains every runtime script and does not pass component, asset,
+or script exclusions. The staged catalogue contains the menu and `cube_test`;
+the authoring checkout is left unchanged. PS1 input uses Nugget's two digital
+controller ports and the menu's existing D-pad/Cross/Circle handling.
+
+Build the editor app from the shared `C:\dev\helworks\helengine` checkout,
+then run:
+
+```powershell
+.\scripts\build-interactive-menu.ps1 `
+  -ProjectRoot C:\dev\helprojs\demodisc `
+  -EngineSourceRoot C:\dev\helworks\helengine `
+  -EditorAppPath <editor-app-build>\bin\helengine.editor.app\debug\helengine.editor.app.dll `
+  -OutputRoot C:\dev\helworks\builds\helengine-ps1\<fresh-directory>
+```
+
+The build writes full scene exports, authored-build evidence, and the PS-X EXE
+under the selected output root. Record the shared engine revision from
+`authored-build.json`; do not switch the shared checkout for this build.

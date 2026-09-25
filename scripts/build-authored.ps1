@@ -16,6 +16,9 @@ param(
     [Parameter(Mandatory = $true)][string] $OutputRoot,
     [string] $SceneRelativePath = 'scenes/rendering/cube_test.helen',
     [string] $SceneId = 'cube_test',
+    [string[]] $AdditionalSubsetScenePaths = @(),
+    [string[]] $AdditionalSceneRelativePaths = @(),
+    [string[]] $AdditionalSceneIds = @(),
     # Keeps every runtime script instead of pruning to the classes the scene's components name.
     # Pruning exists because the subset milestone only needed one component and the rest of the
     # project may use constructs the PS1 runtime rejects. A whole authored scene needs the whole
@@ -29,10 +32,11 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$dotnetExe = 'C:\Program Files\dotnet\dotnet.exe'
+if (-not (Test-Path -LiteralPath $dotnetExe -PathType Leaf)) { throw "The configured .NET SDK was not found: $dotnetExe" }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $projectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
-$subsetScene = (Resolve-Path -LiteralPath $SubsetScenePath).Path
 $engineRoot = (Resolve-Path -LiteralPath $EngineSourceRoot).Path
 $editorApp = (Resolve-Path -LiteralPath $EditorAppPath).Path
 $pinnedCodegenRoot = Join-Path $engineRoot 'engine\vendor\csharpcodegen'
@@ -49,17 +53,74 @@ if (-not $editorApp.StartsWith($buildsRoot + '\', [StringComparison]::OrdinalIgn
     throw "EditorAppPath must be beneath $buildsRoot because the authored build publishes codegen beside the editor assembly."
 }
 if (Test-Path -LiteralPath $output) { throw "Use a fresh authored build output directory: $output" }
-$sceneBytes = [IO.File]::ReadAllBytes($subsetScene)
-if ($sceneBytes.Length -lt 32 -or [Text.Encoding]::ASCII.GetString($sceneBytes, 0, 4) -ne 'HELE') { throw "Subset scene is not a serialized Helengine asset: $subsetScene" }
+if ($AdditionalSubsetScenePaths.Count -ne $AdditionalSceneRelativePaths.Count -or $AdditionalSubsetScenePaths.Count -ne $AdditionalSceneIds.Count) {
+    throw 'AdditionalSubsetScenePaths, AdditionalSceneRelativePaths and AdditionalSceneIds must have matching counts.'
+}
+$sceneInputPaths = @($SubsetScenePath) + @($AdditionalSubsetScenePaths)
+$sceneRelativePaths = @($SceneRelativePath) + @($AdditionalSceneRelativePaths)
+$sceneIds = @($SceneId) + @($AdditionalSceneIds)
+$selectedScenes = @()
+for ($sceneIndex = 0; $sceneIndex -lt $sceneInputPaths.Count; $sceneIndex++) {
+    $scenePath = (Resolve-Path -LiteralPath $sceneInputPaths[$sceneIndex]).Path
+    $relativePath = ([string]$sceneRelativePaths[$sceneIndex]).Replace('\', '/')
+    $sceneIdValue = [string]$sceneIds[$sceneIndex]
+    if ([string]::IsNullOrWhiteSpace($relativePath) -or [string]::IsNullOrWhiteSpace($sceneIdValue)) {
+        throw "Authored scene selection $sceneIndex has an empty path or scene ID."
+    }
+    $sceneBytes = [IO.File]::ReadAllBytes($scenePath)
+    if ($sceneBytes.Length -lt 32 -or [Text.Encoding]::ASCII.GetString($sceneBytes, 0, 4) -ne 'HELE') { throw "Subset scene is not a serialized Helengine asset: $scenePath" }
+    $reportPath = Join-Path (Split-Path -Parent $scenePath) 'report.json'
+    if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw "Subset report is missing beside the subset scene: $reportPath" }
+    $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+    $authoringAssetId = [string]$report.authoringAssetId
+    if ($authoringAssetId -notmatch '^[0-9a-f]{32}$') { throw "Subset report has no valid authoring asset id: $reportPath" }
+    if (-not [string]::Equals([string]$report.sceneId, $relativePath, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Subset report scene ID '$($report.sceneId)' does not match '$relativePath'."
+    }
+    if (@($selectedScenes | Where-Object { $_.sceneId -eq $sceneIdValue -or $_.relativePath -eq $relativePath }).Count -ne 0) {
+        throw "Authored scene selection contains duplicate scene ID or path: $sceneIdValue / $relativePath"
+    }
+    $selectedScenes += [pscustomobject]@{
+        scenePath = $scenePath
+        reportPath = $reportPath
+        report = $report
+        relativePath = $relativePath
+        sceneId = $sceneIdValue
+        authoringAssetId = $authoringAssetId
+        subsetSceneSha256 = (Get-FileHash -LiteralPath $scenePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+}
 
 New-Item -ItemType Directory -Path $output | Out-Null
 $logsRoot = Join-Path $output 'logs'
 New-Item -ItemType Directory -Path $logsRoot | Out-Null
+function ConvertTo-CmdArgument([string] $value) {
+    return '"' + $value.Replace('"', '\"') + '"'
+}
+function Invoke-DotnetCaptured([string] $label, [string[]] $dotnetArguments) {
+    $batchPath = Join-Path $logsRoot ($label + '.cmd')
+    $stdoutPath = Join-Path $logsRoot ($label + '.stdout.log')
+    $stderrPath = Join-Path $logsRoot ($label + '.stderr.log')
+    $argumentLine = ($dotnetArguments | ForEach-Object { ConvertTo-CmdArgument ([string]$_) }) -join ' '
+    $batch = @(
+        '@echo off',
+        ('{0} {1} 1> {2} 2> {3}' -f (ConvertTo-CmdArgument $dotnetExe), $argumentLine, (ConvertTo-CmdArgument $stdoutPath), (ConvertTo-CmdArgument $stderrPath)),
+        'exit /b %ERRORLEVEL%'
+    )
+    [IO.File]::WriteAllLines($batchPath, $batch, [Text.Encoding]::ASCII)
+    & $env:ComSpec /d /c $batchPath
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        Get-Content -LiteralPath $stderrPath -Tail 60 -ErrorAction SilentlyContinue
+        Get-Content -LiteralPath $stdoutPath -Tail 60 -ErrorAction SilentlyContinue
+        throw "dotnet $label failed with exit code $exitCode (see $stdoutPath and $stderrPath)."
+    }
+    return $exitCode
+}
 
 # 1. Build the PS1 platform builder against the same engine checkout the editor was built from.
 $builderArtifacts = Join-Path $output 'builder'
-& dotnet build (Join-Path $repoRoot 'builder\helengine.ps1.builder.csproj') -c Debug --artifacts-path $builderArtifacts -p:HelengineRoot=$engineRoot -v:q -nologo *> (Join-Path $logsRoot 'builder-build.log')
-if ($LASTEXITCODE -ne 0) { Get-Content (Join-Path $logsRoot 'builder-build.log') -Tail 20; throw 'PS1 platform builder build failed.' }
+Invoke-DotnetCaptured 'builder-build' @('build', (Join-Path $repoRoot 'builder\helengine.ps1.builder.csproj'), '-c', 'Debug', '--artifacts-path', $builderArtifacts, ('-p:HelengineRoot=' + $engineRoot), '-v:q', '--nologo') | Out-Null
 $builderAssembly = Join-Path $builderArtifacts 'bin\helengine.ps1.builder\debug\helengine.ps1.builder.dll'
 if (-not (Test-Path -LiteralPath $builderAssembly -PathType Leaf)) { throw "Builder assembly was not produced: $builderAssembly" }
 
@@ -74,24 +135,26 @@ foreach ($relative in @('assets', 'settings')) {
     & robocopy $sourcePath (Join-Path $stagedProject $relative) /E /NFL /NDL /NJH /NJS /NP /XD bin obj .generated-build | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "Staging $relative failed with robocopy exit code $LASTEXITCODE" }
 }
-$stagedScene = Join-Path $stagedProject ('assets\' + $SceneRelativePath.Replace('/', '\'))
-if (-not (Test-Path -LiteralPath $stagedScene -PathType Leaf)) { throw "Staged project lacks the scene to replace: $stagedScene" }
-$originalSceneHash = (Get-FileHash -LiteralPath $stagedScene -Algorithm SHA256).Hash.ToLowerInvariant()
-Copy-Item -LiteralPath $subsetScene -Destination $stagedScene -Force
-$subsetHash = (Get-FileHash -LiteralPath $stagedScene -Algorithm SHA256).Hash.ToLowerInvariant()
+foreach ($selectedScene in $selectedScenes) {
+    $stagedScene = Join-Path $stagedProject ('assets\' + $selectedScene.relativePath.Replace('/', '\'))
+    if (-not (Test-Path -LiteralPath $stagedScene -PathType Leaf)) { throw "Staged project lacks the scene to replace: $stagedScene" }
+    $selectedScene | Add-Member -NotePropertyName stagedPath -NotePropertyValue $stagedScene
+    $selectedScene | Add-Member -NotePropertyName originalSceneSha256 -NotePropertyValue ((Get-FileHash -LiteralPath $stagedScene -Algorithm SHA256).Hash.ToLowerInvariant())
+    Copy-Item -LiteralPath $selectedScene.scenePath -Destination $stagedScene -Force
+    $selectedScene | Add-Member -NotePropertyName stagedSceneSha256 -NotePropertyValue ((Get-FileHash -LiteralPath $stagedScene -Algorithm SHA256).Hash.ToLowerInvariant())
+}
 
 # Prune project code to the scripts the retained components need. Every other script (menus,
 # overlays, path tracer, editor tooling) is outside the milestone and may use constructs the
 # fatal-only PS1 runtime rejects. The report records exactly what was removed.
-$subsetReportPath = Join-Path (Split-Path -Parent $subsetScene) 'report.json'
-if (-not (Test-Path -LiteralPath $subsetReportPath -PathType Leaf)) { throw "Subset report is missing beside the subset scene: $subsetReportPath" }
-$subsetReport = Get-Content -LiteralPath $subsetReportPath -Raw | ConvertFrom-Json
 $retainedScriptClasses = @()
-foreach ($component in @($subsetReport.retainedComponents)) {
-    $typeId = [string]$component.componentTypeId
-    if ($typeId.StartsWith('helengine.')) { continue }
-    $typeName = ($typeId -split ',')[0].Trim()
-    $retainedScriptClasses += $typeName.Substring($typeName.LastIndexOf('.') + 1)
+foreach ($selectedScene in $selectedScenes) {
+    foreach ($component in @($selectedScene.report.retainedComponents)) {
+        $typeId = [string]$component.componentTypeId
+        if ($typeId.StartsWith('helengine.')) { continue }
+        $typeName = ($typeId -split ',')[0].Trim()
+        $retainedScriptClasses += $typeName.Substring($typeName.LastIndexOf('.') + 1)
+    }
 }
 $retainedScriptClasses = @($retainedScriptClasses | Sort-Object -Unique)
 $codebaseRoot = Join-Path $stagedProject 'assets\codebase'
@@ -165,29 +228,30 @@ $hashRows = @($stagedInputs | Sort-Object FullName | ForEach-Object {
 })
 $hashRows | ConvertTo-Json -Depth 4 | Out-File -LiteralPath $stagedInputHashesPath -Encoding utf8
 
-# The editor's headless build reads its selection from the project-local build configuration.
-# The subset report written beside the subset scene records the original scene identity.
-$subsetReportPath = Join-Path (Split-Path -Parent $subsetScene) 'report.json'
-if (-not (Test-Path -LiteralPath $subsetReportPath -PathType Leaf)) { throw "Subset report is missing beside the subset scene: $subsetReportPath" }
-$subsetReport = Get-Content -LiteralPath $subsetReportPath -Raw | ConvertFrom-Json
-$authoringAssetId = [string]$subsetReport.authoringAssetId
-if ($authoringAssetId -notmatch '^[0-9a-f]{32}$') { throw "Subset report has no authoring asset id: $subsetReportPath" }
-if ([string]$subsetReport.sceneId -ne $SceneRelativePath) { throw "Subset report scene id '$($subsetReport.sceneId)' does not match '$SceneRelativePath'." }
+# The editor's headless build reads all startup and transition scenes from the project-local build configuration.
 $editorOutput = Join-Path $output 'editor-output'
+$sceneReferences = @($selectedScenes | ForEach-Object {
+    [ordered]@{
+        sourceKind = 1
+        relativePath = $_.relativePath
+        providerId = ''
+        assetId = $_.authoringAssetId
+        contentHash = 'sha256:' + $_.stagedSceneSha256
+    }
+})
+$selectedSceneIds = @($selectedScenes | ForEach-Object { $_.sceneId })
+$sceneOrders = @()
+for ($sceneIndex = 0; $sceneIndex -lt $selectedScenes.Count; $sceneIndex++) {
+    $sceneOrders += [ordered]@{ sceneId = $selectedScenes[$sceneIndex].sceneId; orderNumber = $sceneIndex + 1 }
+}
 $buildConfig = [ordered]@{
     platforms = @(
         [ordered]@{
             platformId = 'ps1'
             overridesProjectScenes = $true
-            selectedSceneReferences = @([ordered]@{
-                sourceKind = 1
-                relativePath = $SceneRelativePath
-                providerId = ''
-                assetId = $authoringAssetId
-                contentHash = 'sha256:' + $subsetHash
-            })
-            selectedSceneIds = @($SceneId)
-            sceneOrders = @([ordered]@{ sceneId = $SceneId; orderNumber = 1 })
+            selectedSceneReferences = $sceneReferences
+            selectedSceneIds = $selectedSceneIds
+            sceneOrders = $sceneOrders
             outputDirectoryPath = $editorOutput
             debugBuild = $false
             selectedEnvironmentId = 'release'
@@ -237,8 +301,7 @@ $publishedCodegen = Join-Path (Split-Path -Parent $editorApp) 'codegen'
 # commit's bundled .net.cpp headers. That mix compiles a Core whose calls the headers do not declare.
 if (Test-Path -LiteralPath $publishedCodegen) { Remove-Item -LiteralPath $publishedCodegen -Recurse -Force }
 $codegenPublishLog = Join-Path $logsRoot 'codegen-publish.log'
-& dotnet publish $codegenProject -c Release -o $publishedCodegen --artifacts-path (Join-Path $output 'codegen-artifacts') -v:q --nologo *> $codegenPublishLog
-if ($LASTEXITCODE -ne 0) { Get-Content $codegenPublishLog -Tail 20; throw "Publishing codegen beside the editor failed with exit code $LASTEXITCODE." }
+Invoke-DotnetCaptured 'codegen-publish' @('publish', $codegenProject, '-c', 'Release', '-o', $publishedCodegen, '--artifacts-path', (Join-Path $output 'codegen-artifacts'), '-v:q', '--nologo') | Out-Null
 $codegenTool = Join-Path $publishedCodegen 'codegen.exe'
 if (-not (Test-Path -LiteralPath $codegenTool -PathType Leaf)) { throw "codegen publish did not produce the tool: $codegenTool" }
 if (-not (Test-Path -LiteralPath (Join-Path $publishedCodegen '.net.cpp\system\io\stream.hpp') -PathType Leaf)) {
@@ -256,16 +319,7 @@ $env:HELENGINE_PS1_REPOSITORY_ROOT = $repoRoot
 $editorLog = Join-Path $logsRoot 'editor-build.log'
 $editorErrorLog = Join-Path $logsRoot 'editor-build.stderr.log'
 $editorProjectPath = Join-Path $stagedProject 'project.heproj'
-$editorArguments = '"{0}" --project "{1}" --build ps1 --build-profile release --output "{2}"' -f $editorApp, $editorProjectPath, $editorOutput
-$editorProcess = Start-Process `
-    -FilePath (Get-Command dotnet -ErrorAction Stop).Source `
-    -ArgumentList $editorArguments `
-    -Wait `
-    -PassThru `
-    -WindowStyle Hidden `
-    -RedirectStandardOutput $editorLog `
-    -RedirectStandardError $editorErrorLog
-$editorExit = $editorProcess.ExitCode
+$editorExit = Invoke-DotnetCaptured 'editor-build' @($editorApp, '--project', $editorProjectPath, '--build', 'ps1', '--build-profile', 'release', '--output', $editorOutput)
 
 [ordered]@{
     schema = 1
@@ -279,10 +333,22 @@ $editorExit = $editorProcess.ExitCode
     codegen_tool = $codegenTool
     builder_assembly = $builderAssembly
     project_root = $projectRoot
-    subset_scene = $subsetScene
-    subset_scene_sha256 = $subsetHash
+    startup_scene_id = $selectedScenes[0].sceneId
+    selected_scenes = @($selectedScenes | ForEach-Object {
+        [ordered]@{
+            scene_id = $_.sceneId
+            relative_path = $_.relativePath
+            subset_scene = $_.scenePath
+            subset_report = $_.reportPath
+            subset_scene_sha256 = $_.stagedSceneSha256
+            original_scene_sha256 = $_.originalSceneSha256
+            authoring_asset_id = $_.authoringAssetId
+        }
+    })
+    subset_scene = $selectedScenes[0].scenePath
+    subset_scene_sha256 = $selectedScenes[0].stagedSceneSha256
     staged_input_hashes = $stagedInputHashesPath
-    replaced_scene_sha256 = $originalSceneHash
+    replaced_scene_sha256 = $selectedScenes[0].originalSceneSha256
     staged_project = $stagedProject
     generated_core_root = $generatedCoreRoot
     workspace_root = $workspaceRoot

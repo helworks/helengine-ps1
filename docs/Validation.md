@@ -1418,3 +1418,39 @@ guest log snapshot
 `C:/dev/helworks/builds/helengine-ps1/20260925-111431-860-Release-f66cf941e84e4725b05f628e86bab86a/duckstation-square-menu-profile-guest-snapshot.log`,
 and host suite summary
 `C:/dev/helworks/builds/helengine-ps1/host-tests-20260925-112950-904-355b0d62471c4005bdb49bf06eb8af41/summary.json`.
+
+### Interactive menu and PS1 gamepad input (2026-09-25)
+
+The interactive-menu build exported the complete committed main-menu scene
+and the unchanged `cube_test` scene with `--full`, retained all runtime
+scripts, and packaged both scenes with `Scenes/DemoDiscMainMenu.helen` as the
+startup scene. The build cooked all 37 declared assets, compiled all runtime
+scripts, and linked successfully against shared engine revision
+`dd9ca693403d91b5e2fc52860a3511e6358ed776`. The PS1 backend now captures both
+digital controller ports and maps the 16 PS1 digital buttons into Core input;
+the existing menu code handles directional navigation, Cross to accept, and
+Circle to go back.
+
+| Footprint | Static menu build | Interactive menu + `cube_test` | Change |
+| --- | ---: | ---: | ---: |
+| PS-X EXE payload | 778,240 B | 962,560 B | +184,320 B |
+| Static RAM footprint | 861,376 B | 1,046,192 B | +184,816 B |
+| Heap capacity | 1,104,704 B | 919,888 B | -184,816 B |
+
+The PS-X EXE file is 964,608 bytes. This comparison combines the second scene,
+complete runtime-script retention, and gamepad support, so the size changes
+are not attributed to any one of those changes. The PS1 host suite passed all
+positive compile/run and Python checks; its expected negative embedded-stream
+case returned 73. The platform-builder suite passed 34/34 tests. Visual boot
+and controller navigation still need the authorized DuckStation run.
+
+Evidence: interactive-menu build root
+`C:/dev/helworks/builds/helengine-ps1/interactive-menu-full-r3-20260925`,
+authored build manifest
+`C:/dev/helworks/builds/helengine-ps1/interactive-menu-full-r3-20260925/authored/editor-output/manifest.json`,
+authored build summary
+`C:/dev/helworks/builds/helengine-ps1/interactive-menu-full-r3-20260925/authored/authored-build.json`,
+host test summary
+`C:/dev/helworks/builds/helengine-ps1/host-tests-20260925-123850-288-9dd02853fc094d3697d8eec05c2cf541/summary.json`,
+and platform-builder test output
+`C:/dev/helworks/builds/helengine-ps1/interactive-menu-platformbuilder-tests-20260925/artifacts/bin/helengine.ps1.platformbuilder.tests/debug/helengine.ps1.platformbuilder.tests.dll`.

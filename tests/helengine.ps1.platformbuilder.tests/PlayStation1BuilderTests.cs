@@ -115,17 +115,23 @@ public sealed class PlayStation1BuilderTests : IDisposable {
     }
 
     [Fact]
+    public void SceneCompatibilityValidator_AcceptsMenuStartupAndCubeTargetScenes() {
+        PlatformBuildManifest manifest = Manifest("menu", [Scene("menu"), Scene("cube_test")], [], ["scene", "render2d", "sprites", "text2d", "animation"]);
+
+        new PlayStation1SceneCompatibilityValidator().Validate(manifest);
+    }
+
+    [Fact]
     public void SceneCompatibilityValidator_AcceptsSingleCubeScene() {
         new PlayStation1SceneCompatibilityValidator().Validate(CubeManifest());
     }
 
     [Fact]
-    public void SceneCompatibilityValidator_RejectsMultipleScenesMissingStartupAndUnsupportedFeatures() {
+    public void SceneCompatibilityValidator_RejectsMissingStartupAndUnsupportedFeatures() {
         PlayStation1SceneCompatibilityValidator validator = new();
-        Assert.Throws<InvalidOperationException>(() => validator.Validate(Manifest("cube_test", [Scene("cube_test"), Scene("menu")], [], ["scene"])));
         Assert.Throws<InvalidOperationException>(() => validator.Validate(Manifest("other", [Scene("cube_test")], [], ["scene"])));
-        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() => validator.Validate(Manifest("cube_test", [Scene("cube_test")], [], ["scene", "text2d"])));
-        Assert.Contains("text2d", error.Message);
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(() => validator.Validate(Manifest("cube_test", [Scene("cube_test")], [], ["scene", "physics3d.diagnostics"])));
+        Assert.Contains("physics3d.diagnostics", error.Message);
     }
 
     [Fact]
