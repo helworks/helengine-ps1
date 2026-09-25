@@ -11,6 +11,9 @@ public sealed class PlayStation1NativeBuildExecutor : IPlayStation1NativeBuildEx
     /// <summary>Environment variable naming the helengine-ps1 implementation checkout.</summary>
     public const string RepositoryRootEnvironmentVariableName = "HELENGINE_PS1_REPOSITORY_ROOT";
 
+    /// <summary>Opt-in environment variable set only for the pinned static-menu workaround.</summary>
+    public const string AllowKnownBatch2DErrorsEnvironmentVariableName = "HELENGINE_PS1_ALLOW_KNOWN_BATCH2D_CODEGEN_ERRORS";
+
     /// <inheritdoc />
     public void Build(string generatedCoreCppRootPath, string stagedContentRootPath, string declarationsPath, string outputRootPath, CancellationToken cancellationToken) {
         if (string.IsNullOrWhiteSpace(generatedCoreCppRootPath)) throw new ArgumentException("Generated Core root is required.", nameof(generatedCoreCppRootPath));
@@ -24,6 +27,9 @@ public sealed class PlayStation1NativeBuildExecutor : IPlayStation1NativeBuildEx
             throw new InvalidOperationException($"{RepositoryRootEnvironmentVariableName} must identify the PS1 implementation checkout.");
         }
         Directory.CreateDirectory(outputRootPath);
+        bool allowKnownBatch2DErrors = string.Equals(
+            Environment.GetEnvironmentVariable(AllowKnownBatch2DErrorsEnvironmentVariableName), "true", StringComparison.OrdinalIgnoreCase);
+        PlayStation1CodegenDiagnosticGate.Validate(generatedCoreCppRootPath, allowKnownBatch2DErrors);
         int omittedBatchSources = PlayStation1UnusedBatch2DPruner.Prune(generatedCoreCppRootPath);
         if (omittedBatchSources != 0) {
             Console.WriteLine($"[ps1] omitted {omittedBatchSources} unused generated 2D batch sources");
