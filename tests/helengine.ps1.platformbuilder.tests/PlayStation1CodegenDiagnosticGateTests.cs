@@ -56,6 +56,38 @@ public sealed class PlayStation1CodegenDiagnosticGateTests : IDisposable {
     }
 
     [Fact]
+    public void Validate_RejectsUnknownSeverity() {
+        WriteReport(0, [KnownError() with { severity = "Fatal" }]);
+
+        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: true));
+    }
+
+    [Fact]
+    public void Validate_RejectsHasErrorsContradiction() {
+        WriteReport(0, [], hasErrors: true);
+
+        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: true));
+    }
+
+    [Theory]
+    [InlineData("cpp-conversion-report.v1", 2)]
+    [InlineData("cpp-conversion-report.v2", 1)]
+    public void Validate_RejectsUnknownReportSchemaOrVersion(string schema, int version) {
+        WriteReport(0, [], schema: schema, version: version);
+
+        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: true));
+    }
+
+    [Theory]
+    [InlineData(1, 0)]
+    [InlineData(0, -1)]
+    public void Validate_RejectsMismatchedOrInvalidWarningAndInfoCounters(int warningCount, int infoCount) {
+        WriteReport(0, [], warningCount: warningCount, infoCount: infoCount);
+
+        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: true));
+    }
+
+    [Fact]
     public void Validate_RejectsMalformedOrMissingReport() {
         File.WriteAllText(ReportPath, "{");
         Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: true));
@@ -64,7 +96,28 @@ public sealed class PlayStation1CodegenDiagnosticGateTests : IDisposable {
         Assert.Throws<FileNotFoundException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: true));
     }
 
-    void WriteReport(int errorCount, object[] diagnostics) => File.WriteAllText(ReportPath, JsonSerializer.Serialize(new { errorCount, diagnostics }));
+    void WriteReport(
+        int errorCount,
+        object[] diagnostics,
+        string schema = "cpp-conversion-report.v2",
+        int version = 2,
+        bool? hasErrors = null,
+        int? warningCount = null,
+        int? infoCount = null) {
+        Diagnostic[] typedDiagnostics = diagnostics.OfType<Diagnostic>().ToArray();
+        int actualWarningCount = typedDiagnostics.Count(diagnostic => diagnostic.severity == "Warning");
+        int actualInfoCount = typedDiagnostics.Count(diagnostic => diagnostic.severity == "Info");
+        object report = new {
+            diagnosticsSchema = schema,
+            diagnosticsVersion = version,
+            hasErrors = hasErrors ?? errorCount > 0,
+            errorCount,
+            warningCount = warningCount ?? actualWarningCount,
+            infoCount = infoCount ?? actualInfoCount,
+            diagnostics
+        };
+        File.WriteAllText(ReportPath, JsonSerializer.Serialize(report));
+    }
 
     static Diagnostic KnownError() => new(
         "Error",

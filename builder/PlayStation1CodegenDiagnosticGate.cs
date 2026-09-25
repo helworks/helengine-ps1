@@ -8,6 +8,8 @@ namespace helengine.ps1.builder;
 /// </summary>
 public static class PlayStation1CodegenDiagnosticGate {
     const string ReportFileName = "cpp-conversion-report.json";
+    const string ExpectedDiagnosticsSchema = "cpp-conversion-report.v2";
+    const int ExpectedDiagnosticsVersion = 2;
     const string Batch2DSourceSuffix = "/engine/helengine.core/managers/rendering/batch2d/Batch2DBuffer.cs";
 
     /// <summary>Validates the generated Core conversion report before native compilation.</summary>
@@ -26,28 +28,55 @@ public static class PlayStation1CodegenDiagnosticGate {
         using JsonDocument report = ReadReport(reportPath);
         JsonElement root = report.RootElement;
         if (root.ValueKind != JsonValueKind.Object
+            || !HasString(root, "diagnosticsSchema", ExpectedDiagnosticsSchema)
+            || !root.TryGetProperty("diagnosticsVersion", out JsonElement versionElement)
+            || !versionElement.TryGetInt32(out int version)
+            || version != ExpectedDiagnosticsVersion
             || !root.TryGetProperty("diagnostics", out JsonElement diagnostics)
             || diagnostics.ValueKind != JsonValueKind.Array
+            || !root.TryGetProperty("hasErrors", out JsonElement hasErrorsElement)
+            || hasErrorsElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
             || !root.TryGetProperty("errorCount", out JsonElement errorCountElement)
             || !errorCountElement.TryGetInt32(out int reportedErrorCount)
-            || reportedErrorCount < 0) {
+            || reportedErrorCount < 0
+            || !root.TryGetProperty("warningCount", out JsonElement warningCountElement)
+            || !warningCountElement.TryGetInt32(out int reportedWarningCount)
+            || reportedWarningCount < 0
+            || !root.TryGetProperty("infoCount", out JsonElement infoCountElement)
+            || !infoCountElement.TryGetInt32(out int reportedInfoCount)
+            || reportedInfoCount < 0) {
             throw new InvalidDataException($"Malformed PS1 conversion report: {reportPath}");
         }
 
         List<JsonElement> allDiagnostics = diagnostics.EnumerateArray().ToList();
         int actualErrorCount = 0;
+        int actualWarningCount = 0;
+        int actualInfoCount = 0;
         foreach (JsonElement diagnostic in allDiagnostics) {
             if (diagnostic.ValueKind != JsonValueKind.Object
                 || !diagnostic.TryGetProperty("severity", out JsonElement severity)
                 || severity.ValueKind != JsonValueKind.String) {
                 throw new InvalidDataException($"Malformed diagnostic in PS1 conversion report: {reportPath}");
             }
-            if (string.Equals(severity.GetString(), "Error", StringComparison.OrdinalIgnoreCase)) actualErrorCount++;
+            switch (severity.GetString()) {
+                case "Error": actualErrorCount++; break;
+                case "Warning": actualWarningCount++; break;
+                case "Info": actualInfoCount++; break;
+                default:
+                    throw new InvalidDataException($"Unknown diagnostic severity in PS1 conversion report: {reportPath}");
+            }
         }
 
-        if (actualErrorCount != reportedErrorCount) {
+        if (actualErrorCount != reportedErrorCount
+            || actualWarningCount != reportedWarningCount
+            || actualInfoCount != reportedInfoCount) {
             throw new InvalidDataException(
-                $"PS1 conversion report error count mismatch: errorCount={reportedErrorCount}, diagnostics contain {actualErrorCount} errors.");
+                $"PS1 conversion report count mismatch: reported errors/warnings/info={reportedErrorCount}/{reportedWarningCount}/{reportedInfoCount}, "
+                + $"diagnostics contain {actualErrorCount}/{actualWarningCount}/{actualInfoCount}.");
+        }
+        if (hasErrorsElement.GetBoolean() != (actualErrorCount > 0)) {
+            throw new InvalidDataException(
+                $"PS1 conversion report hasErrors mismatch: hasErrors={hasErrorsElement.GetBoolean()}, errorCount={actualErrorCount}.");
         }
         if (actualErrorCount == 0) return;
 
