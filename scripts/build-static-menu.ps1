@@ -131,7 +131,6 @@ $authoredRoot = Join-Path $output 'authored'
     -EditorAppPath $editorApp `
     -OutputRoot $authoredRoot `
     -SceneRelativePath $sceneRelativePath `
-    -SceneId $sceneId `
-    -AllowKnownBatch2DCodegenErrors
+    -SceneId $sceneId
 if ($LASTEXITCODE -ne 0) { throw "Authored static-menu build failed with exit code $LASTEXITCODE." }
 Write-Output (Join-Path $authoredRoot 'authored-build.json')

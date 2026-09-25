@@ -21,9 +21,6 @@ param(
     # project may use constructs the PS1 runtime rejects. A whole authored scene needs the whole
     # runtime codebase, because its components reference helpers no component names directly.
     [switch] $RetainAllRuntimeScripts,
-    # Allows only the two known checked-multiply errors emitted by Batch2DBuffer. The PS1 builder
-    # validates the conversion report and still requires the existing unused-source prune guard.
-    [switch] $AllowKnownBatch2DCodegenErrors,
     # Class names to drop even when retaining everything else, for project scripts the PS1 runtime
     # profile cannot transpile. Each entry is a deliberate, recorded exclusion rather than a silent
     # one: the build fails if a named class is not found.
@@ -202,7 +199,7 @@ $buildConfig = [ordered]@{
             selectedCodegenProfileId = 'default'
             selectedStorageProfileId = 'embedded-archive'
             selectedMediaProfileId = 'ps1-exe'
-            selectedCodegenOptionValues = if ($AllowKnownBatch2DCodegenErrors) { [ordered]@{ 'fail-on-error' = 'false' } } else { [ordered]@{} }
+            selectedCodegenOptionValues = [ordered]@{}
         }
     )
     queueItems = @()
@@ -256,11 +253,6 @@ $env:HELENGINE_SOURCE_ROOT = $engineRoot
 $env:HELENGINE_ENGINE_USER_SETTINGS_ROOT = $engineUserSettings
 $env:HELENGINE_BUILD_WORKSPACE_ROOT = $workspaceRoot
 $env:HELENGINE_PS1_REPOSITORY_ROOT = $repoRoot
-if ($AllowKnownBatch2DCodegenErrors) {
-    $env:HELENGINE_PS1_ALLOW_KNOWN_BATCH2D_CODEGEN_ERRORS = 'true'
-} else {
-    Remove-Item Env:\HELENGINE_PS1_ALLOW_KNOWN_BATCH2D_CODEGEN_ERRORS -ErrorAction SilentlyContinue
-}
 $editorLog = Join-Path $logsRoot 'editor-build.log'
 $editorErrorLog = Join-Path $logsRoot 'editor-build.stderr.log'
 $editorProjectPath = Join-Path $stagedProject 'project.heproj'

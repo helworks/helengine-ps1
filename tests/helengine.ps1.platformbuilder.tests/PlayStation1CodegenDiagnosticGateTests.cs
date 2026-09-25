@@ -15,58 +15,37 @@ public sealed class PlayStation1CodegenDiagnosticGateTests : IDisposable {
 
     [Fact]
     public void Validate_AcceptsReportWithNoErrors() {
-        WriteReport(0, []);
+        WriteReport(0, [MakeDiagnostic("Warning"), MakeDiagnostic("Info")]);
 
-        PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: false);
+        PlayStation1CodegenDiagnosticGate.Validate(Root);
     }
 
     [Fact]
-    public void Validate_AcceptsExactlyKnownBatch2DPairWhenOptedIn() {
-        WriteReport(2, [KnownError(), KnownError()]);
+    public void Validate_RejectsAnyCodegenErrors() {
+        WriteReport(2, [MakeDiagnostic("Error"), MakeDiagnostic("Error")]);
 
-        PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: true);
-    }
-
-    [Fact]
-    public void Validate_RejectsKnownBatch2DPairWithoutOptIn() {
-        WriteReport(2, [KnownError(), KnownError()]);
-
-        Assert.Throws<InvalidOperationException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: false));
-    }
-
-    [Theory]
-    [MemberData(nameof(UnexpectedDiagnosticReports))]
-    public void Validate_RejectsUnexpectedDiagnosticEvenWhenOptedIn(int errorCount, object[] diagnostics) {
-        WriteReport(errorCount, diagnostics);
-
-        Assert.Throws<InvalidOperationException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: true));
-    }
-
-    public static IEnumerable<object[]> UnexpectedDiagnosticReports() {
-        yield return new object[] { 2, new object[] { KnownError(), KnownError() with { filePath = @"C:\engine\other\Batch2DBuffer.cs" } } };
-        yield return new object[] { 2, new object[] { KnownError(), KnownError() with { code = "CPP1001" } } };
-        yield return new object[] { 3, new object[] { KnownError(), KnownError(), KnownError() } };
+        Assert.Throws<InvalidOperationException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root));
     }
 
     [Fact]
     public void Validate_RejectsErrorCountMismatch() {
-        WriteReport(1, [KnownError(), KnownError()]);
+        WriteReport(1, [MakeDiagnostic("Error"), MakeDiagnostic("Error")]);
 
-        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: true));
+        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root));
     }
 
     [Fact]
     public void Validate_RejectsUnknownSeverity() {
-        WriteReport(0, [KnownError() with { severity = "Fatal" }]);
+        WriteReport(0, [MakeDiagnostic("Fatal")]);
 
-        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: true));
+        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root));
     }
 
     [Fact]
     public void Validate_RejectsHasErrorsContradiction() {
         WriteReport(0, [], hasErrors: true);
 
-        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: true));
+        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root));
     }
 
     [Theory]
@@ -75,7 +54,7 @@ public sealed class PlayStation1CodegenDiagnosticGateTests : IDisposable {
     public void Validate_RejectsUnknownReportSchemaOrVersion(string schema, int version) {
         WriteReport(0, [], schema: schema, version: version);
 
-        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: true));
+        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root));
     }
 
     [Theory]
@@ -84,16 +63,16 @@ public sealed class PlayStation1CodegenDiagnosticGateTests : IDisposable {
     public void Validate_RejectsMismatchedOrInvalidWarningAndInfoCounters(int warningCount, int infoCount) {
         WriteReport(0, [], warningCount: warningCount, infoCount: infoCount);
 
-        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: true));
+        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root));
     }
 
     [Fact]
     public void Validate_RejectsMalformedOrMissingReport() {
         File.WriteAllText(ReportPath, "{");
-        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: true));
+        Assert.Throws<InvalidDataException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root));
 
         File.Delete(ReportPath);
-        Assert.Throws<FileNotFoundException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root, allowKnownBatch2DErrors: true));
+        Assert.Throws<FileNotFoundException>(() => PlayStation1CodegenDiagnosticGate.Validate(Root));
     }
 
     void WriteReport(
@@ -119,13 +98,7 @@ public sealed class PlayStation1CodegenDiagnosticGateTests : IDisposable {
         File.WriteAllText(ReportPath, JsonSerializer.Serialize(report));
     }
 
-    static Diagnostic KnownError() => new(
-        "Error",
-        "CPP1000",
-        "Batch2DBuffer",
-        "Batch2DBuffer",
-        "MultiplyExpression",
-        @"C:\dev\helworks\helengine\engine\helengine.core\managers\rendering\batch2d\Batch2DBuffer.cs");
+    static Diagnostic MakeDiagnostic(string severity) => new(severity);
 
-    sealed record Diagnostic(string severity, string code, string sourceTypeName, string sourceMemberName, string syntaxKind, string filePath);
+    sealed record Diagnostic(string severity);
 }

@@ -210,14 +210,12 @@ revision. Script pruning follows the export report, so a visual-only scene with
 no retained project scripts builds with zero project scripts while scenes with
 script components still require each referenced class to exist.
 
-The static-menu wrapper opts into the two known `CPP1000` checked-multiply
-diagnostics from `Batch2DBuffer`. Before native compilation, the PS1 builder
-validates `generated-core/cpp-conversion-report.json` and accepts that opt-in
-only when the report contains exactly those two diagnostics from the known
-`engine/helengine.core/managers/rendering/batch2d/Batch2DBuffer.cs` source. All
-other conversion errors, a missing or malformed report, or an error-count
-mismatch stop the build. Other authored builds keep codegen's default
-fail-on-error behavior.
+Before native compilation, the PS1 builder validates
+`generated-core/cpp-conversion-report.json`. It requires the v2 schema,
+consistent diagnostic metadata and counters, recognized severities, and zero
+conversion errors. A missing or malformed report, metadata mismatch, unknown
+severity, or any conversion error stops the build. Authored builds retain
+codegen's default fail-on-error behavior.
 
 Authored mode never falls back to the diagnostic cube: a missing catalog,
 undeclared asset, unsupported material, unsafe pose or packet failure stops

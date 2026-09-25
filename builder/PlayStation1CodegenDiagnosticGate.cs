@@ -3,19 +3,15 @@ using System.Text.Json;
 namespace helengine.ps1.builder;
 
 /// <summary>
-/// Fails closed on Core conversion diagnostics, with one PS1-local opt-in for the two
-/// known checked-multiply diagnostics from the unused Batch2DBuffer implementation.
+/// Fails closed on Core conversion diagnostics before native compilation.
 /// </summary>
 public static class PlayStation1CodegenDiagnosticGate {
     const string ReportFileName = "cpp-conversion-report.json";
     const string ExpectedDiagnosticsSchema = "cpp-conversion-report.v2";
     const int ExpectedDiagnosticsVersion = 2;
-    const string Batch2DSourceSuffix = "/engine/helengine.core/managers/rendering/batch2d/Batch2DBuffer.cs";
-
     /// <summary>Validates the generated Core conversion report before native compilation.</summary>
     /// <param name="generatedCoreRootPath">Generated Core directory.</param>
-    /// <param name="allowKnownBatch2DErrors">Whether to allow the exact known pair.</param>
-    public static void Validate(string generatedCoreRootPath, bool allowKnownBatch2DErrors) {
+    public static void Validate(string generatedCoreRootPath) {
         if (string.IsNullOrWhiteSpace(generatedCoreRootPath)) {
             throw new ArgumentException("Generated Core root is required.", nameof(generatedCoreRootPath));
         }
@@ -78,12 +74,10 @@ public static class PlayStation1CodegenDiagnosticGate {
             throw new InvalidDataException(
                 $"PS1 conversion report hasErrors mismatch: hasErrors={hasErrorsElement.GetBoolean()}, errorCount={actualErrorCount}.");
         }
-        if (actualErrorCount == 0) return;
-
-        if (allowKnownBatch2DErrors && IsExactKnownBatch2DErrorPair(allDiagnostics)) return;
-
-        throw new InvalidOperationException(
-            $"PS1 generated Core contains {actualErrorCount} C++ conversion error(s); refusing native build. See '{reportPath}'.");
+        if (actualErrorCount != 0) {
+            throw new InvalidOperationException(
+                $"PS1 generated Core contains {actualErrorCount} C++ conversion error(s); refusing native build. See '{reportPath}'.");
+        }
     }
 
     static JsonDocument ReadReport(string reportPath) {
@@ -94,30 +88,8 @@ public static class PlayStation1CodegenDiagnosticGate {
         }
     }
 
-    static bool IsExactKnownBatch2DErrorPair(IReadOnlyList<JsonElement> diagnostics) {
-        if (diagnostics.Count != 2) return false;
-        foreach (JsonElement diagnostic in diagnostics) {
-            if (!HasString(diagnostic, "severity", "Error")
-                || !HasString(diagnostic, "code", "CPP1000")
-                || !HasString(diagnostic, "sourceTypeName", "Batch2DBuffer")
-                || !HasString(diagnostic, "sourceMemberName", "Batch2DBuffer")
-                || !HasString(diagnostic, "syntaxKind", "MultiplyExpression")
-                || !HasSourceSuffix(diagnostic)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     static bool HasString(JsonElement element, string propertyName, string expected) =>
         element.TryGetProperty(propertyName, out JsonElement value)
         && value.ValueKind == JsonValueKind.String
         && string.Equals(value.GetString(), expected, StringComparison.Ordinal);
-
-    static bool HasSourceSuffix(JsonElement diagnostic) {
-        if (!diagnostic.TryGetProperty("filePath", out JsonElement filePath)
-            || filePath.ValueKind != JsonValueKind.String) return false;
-        string normalized = (filePath.GetString() ?? string.Empty).Replace('\\', '/');
-        return normalized.EndsWith(Batch2DSourceSuffix, StringComparison.OrdinalIgnoreCase);
-    }
 }
