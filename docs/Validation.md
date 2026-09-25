@@ -1441,8 +1441,28 @@ The PS-X EXE file is 964,608 bytes. This comparison combines the second scene,
 complete runtime-script retention, and gamepad support, so the size changes
 are not attributed to any one of those changes. The PS1 host suite passed all
 positive compile/run and Python checks; its expected negative embedded-stream
-case returned 73. The platform-builder suite passed 34/34 tests. Visual boot
-and controller navigation still need the authorized DuckStation run.
+case returned 73. The platform-builder suite passed 34/34 tests. The first
+DuckStation run exposed a runtime UI capacity failure: the menu requested 271
+glyph quads plus one sprite, while the shared textured-quad capacity was 256.
+The emulator therefore booted but did not reach its first rendered frame.
+
+The packet budget now reserves 288 textured quads (576 triangles), leaving 16
+slots over the observed 272-quad menu. The fixed packet reservation increased
+from 23,568 B to 24,848 B, leaving 7,920 B of the 32 KB packet arena for scene
+geometry. The rebuilt r4 image has a 1,049,328 B static RAM footprint and
+916,752 B heap capacity; compared with r3, this is +3,136 B static RAM and
+-3,136 B heap, with no payload size change. A DuckStation guest log confirms
+`PS1_AUTHORED_SCENE_READY`, `PS1_AUTHORED_FIRST_FRAME`, packet guards intact,
+and `PS1_AUTHORED_UI ... submitted_sprites=272 ... failure=none`. That proves
+the menu clears the former capacity failure and submits its first frame;
+visual confirmation and controller navigation remain pending.
+
+Evidence: r4 build root
+`C:/dev/helworks/builds/helengine-ps1/interactive-menu-full-r4-20260925`,
+manifest
+`C:/dev/helworks/builds/helengine-ps1/20260925-130847-209-Release-af40789487be4514af7d7110f98098a0/manifest.json`,
+and guest log
+`C:/dev/helworks/emus/ps1/duckstation-windows-x64-release/duckstation.log`.
 
 Evidence: interactive-menu build root
 `C:/dev/helworks/builds/helengine-ps1/interactive-menu-full-r3-20260925`,

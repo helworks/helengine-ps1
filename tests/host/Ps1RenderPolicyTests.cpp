@@ -28,9 +28,9 @@ void TestPacketBudget() {
     assert(Limits::PacketBudgetBytes == 32768);
     assert(Limits::GouraudTriangles == 64);
     assert(Limits::UiTriangles == 576);
-    assert(Limits::TexturedTriangles == 512);
-    assert(Limits::TexturedQuads == 256);
-    assert(Limits::FixedBytes == 23568);
+    assert(Limits::TexturedTriangles == 576);
+    assert(Limits::TexturedQuads == 288);
+    assert(Limits::FixedBytes == 24848);
     assert(Limits::SceneTriangles == 376);
     assert(Limits::UiTriangles > 516);
     assert(Limits::TexturedQuads > 144);
