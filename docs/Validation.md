@@ -1474,3 +1474,29 @@ host test summary
 `C:/dev/helworks/builds/helengine-ps1/host-tests-20260925-123850-288-9dd02853fc094d3697d8eec05c2cf541/summary.json`,
 and platform-builder test output
 `C:/dev/helworks/builds/helengine-ps1/interactive-menu-platformbuilder-tests-20260925/artifacts/bin/helengine.ps1.platformbuilder.tests/debug/helengine.ps1.platformbuilder.tests.dll`.
+
+### Interactive menu CPU profile (2026-09-25)
+
+The `-CpuProfile` authored Release build passed the retail RAM check with a
+972,800 B PS-X payload, 1,059,576 B static footprint and 906,504 B heap. The
+profile instrumentation adds 10,240 B to the payload and 10,248 B to static
+RAM compared with the unprofiled r4 build. The first detailed report covered
+frames 601–1,200 over 119.899 s and recorded Update 4.615 ms, Draw 106.410 ms,
+boundary 1.019 ms and between-frame 5.767 ms. It reported dropped=0 and
+resets=0.
+
+Within Draw, `ui_queue_visit` averaged 97.966 ms and `ui_shape_draw` 86.300 ms;
+text drawing averaged 7.246 ms and packet flushing 6.683 ms. These UI samples
+are nested inside the draw work and must not be added to the parent totals.
+The largest per-component Update sample was `ViewportComponent` at 1.676 ms;
+`MenuBackgroundMotionComponent` used 0.896 ms and `MenuComponent` 0.320 ms.
+The dominant measured cost remains per-frame CPU work for the 148 UI shapes,
+not menu component updates. The periodic BIOS TTY report causes a short
+emulator hitch and is excluded from the sampled window.
+
+Evidence: profile-on manifest
+`C:/dev/helworks/builds/helengine-ps1/20260925-133728-418-Release-5437dbfc8a6c4a8cba2621041854c211/manifest.json`,
+PS-X EXE
+`C:/dev/helworks/builds/helengine-ps1/20260925-133728-418-Release-5437dbfc8a6c4a8cba2621041854c211/out/helengine_ps1.ps-exe`,
+and guest log
+`C:/dev/helworks/emus/ps1/duckstation-windows-x64-release/duckstation.log`.
