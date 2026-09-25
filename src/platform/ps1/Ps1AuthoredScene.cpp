@@ -106,7 +106,6 @@ void Ps1AuthoredScene::InitializeCore() {
 
     ::ObjectManager* objectManager = m_core->get_ObjectManager();
     const int32_t cameraCount = objectManager->get_Cameras() == nullptr ? 0 : objectManager->get_Cameras()->get_Count();
-    const int32_t drawableCount = objectManager->get_Drawables3D() == nullptr ? 0 : objectManager->get_Drawables3D()->get_Count();
     // A 2D authored scene may have no 3D drawables, but it still needs a camera
     // to drive its viewport and UI render queue.
     if (cameraCount == 0) {
