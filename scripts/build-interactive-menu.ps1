@@ -107,10 +107,6 @@ $authoredRoot = Join-Path $output 'authored'
     -AdditionalSubsetScenePaths @((Join-Path $cubeExportRoot 'scene.helen')) `
     -AdditionalSceneRelativePaths @($cubeSceneRelativePath) `
     -AdditionalSceneIds @('cube_test') `
-    -AdditionalAssetPaths @(
-        $menuTexturePath,
-        (Join-Path $projectRoot 'assets\textures\menu\main_menu_background_ps1.png.hmeta')
-    ) `
     -RetainAllRuntimeScripts
 if ($LASTEXITCODE -ne 0) { throw "Interactive-menu authored build failed with exit code $LASTEXITCODE." }
 Write-Output (Join-Path $authoredRoot 'authored-build.json')
