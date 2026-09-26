@@ -49,41 +49,14 @@ function Invoke-DotnetCaptured([string] $label, [string[]] $dotnetArguments) {
     }
 }
 
-# Use the last committed, complete menu scene for this build without touching demodisc's working tree.
-$pinnedRevision = '5cc124eec06b8db729b2f9b15d99d26cb1ca8cc3'
-$pinnedBlob = '7bdb310b5169ebf2c68a394a850f9eacf13cda6a'
+# Use the DemoDisc-authored scene and keep every platform's shared presentation in sync.
 $menuSourceRelativePath = 'assets/scenes/DemoDiscMainMenu.helen'
 $menuSceneRelativePath = 'scenes/DemoDiscMainMenu.helen'
 $menuSceneId = 'Scenes/DemoDiscMainMenu.helen'
-$menuBlobSpec = "$pinnedRevision`:$menuSourceRelativePath"
-$resolvedBlob = (& git -c "safe.directory=$projectRoot" -C $projectRoot rev-parse $menuBlobSpec 2>&1 | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $resolvedBlob -ne $pinnedBlob) {
-    throw "Pinned complete-menu blob mismatch: expected $pinnedBlob at $menuBlobSpec, got '$resolvedBlob'."
-}
-
-$sourceRoot = Join-Path $output 'source'
 $exportRoot = Join-Path $output 'export'
-New-Item -ItemType Directory -Path $sourceRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $exportRoot -Force | Out-Null
-$menuSourcePath = Join-Path $sourceRoot 'DemoDiscMainMenu.helen'
-$gitStart = New-Object System.Diagnostics.ProcessStartInfo
-$gitStart.FileName = 'git'
-$gitStart.Arguments = "-c safe.directory=`"$projectRoot`" -C `"$projectRoot`" cat-file blob `"$menuBlobSpec`""
-$gitStart.UseShellExecute = $false
-$gitStart.CreateNoWindow = $true
-$gitStart.RedirectStandardOutput = $true
-$gitStart.RedirectStandardError = $true
-$gitProcess = New-Object System.Diagnostics.Process
-$gitProcess.StartInfo = $gitStart
-if (-not $gitProcess.Start()) { throw 'Could not start Git to extract the pinned complete menu scene.' }
-$gitErrorTask = $gitProcess.StandardError.ReadToEndAsync()
-$menuDestination = [IO.File]::Create($menuSourcePath)
-try { $gitProcess.StandardOutput.BaseStream.CopyTo($menuDestination) } finally { $menuDestination.Dispose() }
-$gitProcess.WaitForExit()
-$gitError = $gitErrorTask.Result
-if ($gitProcess.ExitCode -ne 0) { throw "Pinned menu extraction failed: $gitError" }
-$extractedBlob = (& git -c "safe.directory=$projectRoot" -C $projectRoot hash-object $menuSourcePath | Out-String).Trim()
-if ($LASTEXITCODE -ne 0 -or $extractedBlob -ne $pinnedBlob) { throw "Pinned menu hash mismatch: expected $pinnedBlob, got '$extractedBlob'." }
+$menuSourcePath = Join-Path $projectRoot $menuSourceRelativePath
+if (-not (Test-Path -LiteralPath $menuSourcePath -PathType Leaf)) { throw "DemoDisc main-menu source scene is missing: $menuSourcePath" }
 
 $cubeTestSourcePath = Join-Path $projectRoot 'assets\scenes\rendering\cube_test.helen'
 if (-not (Test-Path -LiteralPath $cubeTestSourcePath -PathType Leaf)) { throw "cube_test source scene is missing: $cubeTestSourcePath" }
@@ -103,12 +76,18 @@ if (-not (Test-Path -LiteralPath $samplegenAssembly -PathType Leaf)) { throw "Fu
 
 $menuExportRoot = Join-Path $exportRoot 'menu'
 $cubeExportRoot = Join-Path $exportRoot 'cube_test'
-Invoke-DotnetCaptured 'menu-export' @($samplegenAssembly, '--full', $menuSourcePath, $menuExportRoot)
+$menuTexturePath = Join-Path $projectRoot 'assets\textures\menu\main_menu_background_ps1.png'
+Invoke-DotnetCaptured 'menu-export' @($samplegenAssembly, '--ps1-menu-texture', $menuSourcePath, $menuExportRoot, $menuTexturePath)
 Invoke-DotnetCaptured 'cube-test-export' @($samplegenAssembly, '--full', $cubeTestSourcePath, $cubeExportRoot)
 
 $menuReport = Get-Content -LiteralPath (Join-Path $menuExportRoot 'report.json') -Raw | ConvertFrom-Json
 if (-not [string]::Equals([string]$menuReport.sceneId, $menuSceneRelativePath, [StringComparison]::OrdinalIgnoreCase)) {
-    throw "Full menu export has unexpected scene ID '$($menuReport.sceneId)'."
+    throw "PS1 menu texture export has unexpected scene ID '$($menuReport.sceneId)'."
+}
+if ([int]$menuReport.backgroundTexture.outputQuads -ne 4 -or
+    [int]$menuReport.backgroundTexture.replacedSharedTiles -ne 4 -or
+    [string]$menuReport.backgroundTexture.rotationComponentType -ne 'DemoDisc.rendering.AxisRotationComponent, DemoDisc') {
+    throw 'PS1 menu export report does not describe the expected rotating four-quad texture background.'
 }
 $cubeReport = Get-Content -LiteralPath (Join-Path $cubeExportRoot 'report.json') -Raw | ConvertFrom-Json
 $cubeSceneRelativePath = 'scenes/rendering/cube_test.helen'
@@ -128,6 +107,10 @@ $authoredRoot = Join-Path $output 'authored'
     -AdditionalSubsetScenePaths @((Join-Path $cubeExportRoot 'scene.helen')) `
     -AdditionalSceneRelativePaths @($cubeSceneRelativePath) `
     -AdditionalSceneIds @('cube_test') `
+    -AdditionalAssetPaths @(
+        $menuTexturePath,
+        (Join-Path $projectRoot 'assets\textures\menu\main_menu_background_ps1.png.hmeta')
+    ) `
     -RetainAllRuntimeScripts
 if ($LASTEXITCODE -ne 0) { throw "Interactive-menu authored build failed with exit code $LASTEXITCODE." }
 Write-Output (Join-Path $authoredRoot 'authored-build.json')

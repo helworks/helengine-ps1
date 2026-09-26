@@ -1,5 +1,40 @@
 using helengine.ps1.samplegen;
 
+if (args.Length >= 1 && string.Equals(args[0], "--ps1-menu-texture", StringComparison.Ordinal)) {
+    if (args.Length != 4) {
+        Console.Error.WriteLine("Usage: helengine.ps1.samplegen --ps1-menu-texture <source-scene-path> <output-root> <texture-asset-path>");
+        return 2;
+    }
+
+    string menuSource = Path.GetFullPath(args[1]);
+    string menuOutput = Path.GetFullPath(args[2]);
+    string menuTexture = Path.GetFullPath(args[3]);
+    string menuScene = new Ps1MenuTextureExporter().Export(menuSource, menuOutput, menuTexture);
+    Console.WriteLine($"Scene: {menuScene}");
+    Console.WriteLine($"Report: {Path.Combine(menuOutput, "report.json")}");
+    return 0;
+}
+
+if (args.Length >= 1 && string.Equals(args[0], "--shared-menu-texture", StringComparison.Ordinal)) {
+    if (args.Length != 4) {
+        Console.Error.WriteLine("Usage: helengine.ps1.samplegen --shared-menu-texture <source-scene-path> <output-root> <texture-asset-path>");
+        return 2;
+    }
+
+    string menuSource = Path.GetFullPath(args[1]);
+    string menuOutput = Path.GetFullPath(args[2]);
+    string menuTexture = Path.GetFullPath(args[3]);
+    string menuScene = new Ps1MenuTextureExporter().Export(
+        menuSource,
+        menuOutput,
+        menuTexture,
+        "textures/menu/main_menu_background.png",
+        "c6b0ea0d4e534180af4313cce7d93f12");
+    Console.WriteLine($"Scene: {menuScene}");
+    Console.WriteLine($"Report: {Path.Combine(menuOutput, "report.json")}");
+    return 0;
+}
+
 if (args.Length >= 1 && string.Equals(args[0], "--static-menu", StringComparison.Ordinal)) {
     if (args.Length != 5) {
         Console.Error.WriteLine("Usage: helengine.ps1.samplegen --static-menu <source-scene-path> <output-root> <source-revision> <source-blob-id>");
@@ -38,6 +73,8 @@ if (args.Length >= 1 && string.Equals(args[0], "--full", StringComparison.Ordina
 if (args.Length < 3 || args.Length > 4) {
     Console.Error.WriteLine("Usage: helengine.ps1.samplegen <project-root> <output-root> <engine-binary-root> [source-scene-path]");
     Console.Error.WriteLine("       helengine.ps1.samplegen --full <source-scene-path> <output-root>");
+    Console.Error.WriteLine("       helengine.ps1.samplegen --ps1-menu-texture <source-scene-path> <output-root> <texture-asset-path>");
+    Console.Error.WriteLine("       helengine.ps1.samplegen --shared-menu-texture <source-scene-path> <output-root> <texture-asset-path>");
     Console.Error.WriteLine("       helengine.ps1.samplegen --static-menu <source-scene-path> <output-root> <source-revision> <source-blob-id>");
     return 2;
 }
