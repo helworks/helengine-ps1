@@ -7,9 +7,10 @@ namespace helengine::ps1 {
 struct Ps1FramePacketLimits final {
     static constexpr std::uint32_t PacketBudgetBytes = 32768;
     static constexpr std::uint32_t GouraudTriangles = 64;
-    // The complete main menu uses 272 textured quads; keep 16 slots of headroom.
-    static constexpr std::uint32_t UiTriangles = 576;
-    static constexpr std::uint32_t TexturedTriangles = 576;
+    // The authored menu uses about 291 textured quads (287 glyphs and four background tiles).
+    // Keep 29 slots of headroom while preserving the scene-triangle budget inside the 32 KiB arena.
+    static constexpr std::uint32_t UiTriangles = 256;
+    static constexpr std::uint32_t TexturedTriangles = 640;
     static constexpr std::uint32_t TexturedQuads = TexturedTriangles / 2u;
     static constexpr std::uint32_t ClearFragmentBytes = 16;
     static constexpr std::uint32_t TriangleFragmentBytes = 20;
