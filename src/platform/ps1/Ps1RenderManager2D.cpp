@@ -474,7 +474,7 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     const std::uint16_t widthInWords = static_cast<std::uint16_t>((width + pixelsPerWord - 1u) / pixelsPerWord);
     std::uint16_t vramX = 0;
     std::uint16_t vramY = 0;
-    if (!VramAllocator.TryAllocateWithinHorizontalPage(widthInWords, height, vramX, vramY)) {
+    if (!VramAllocator.TryAllocateWithinHorizontalPage(widthInWords, height, pixelsPerWord, vramX, vramY)) {
         helengine_ps1_vram_diagnostics.FailedWidth=widthInWords;
         helengine_ps1_vram_diagnostics.FailedHeight=height;
         publishVram(VramAllocator);

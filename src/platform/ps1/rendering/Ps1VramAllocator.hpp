@@ -8,11 +8,18 @@ public:
  static constexpr std::uint16_t ClutXAlignment=16, TexturePageWidthWords=64, Capacity=64;
  struct Region { std::uint16_t x=0,y=0,width=0,height=0; };
  void Reset() { for(auto& r:Regions) r={}; }
- bool TryAllocate(std::uint16_t w,std::uint16_t h,std::uint16_t& x,std::uint16_t& y) { return Allocate(w,h,1,false,x,y); }
- bool TryAllocateAligned(std::uint16_t w,std::uint16_t h,std::uint16_t a,std::uint16_t& x,std::uint16_t& y) { return Allocate(w,h,a,false,x,y); }
+ bool TryAllocate(std::uint16_t w,std::uint16_t h,std::uint16_t& x,std::uint16_t& y) { return Allocate(w,h,1,0,x,y); }
+ bool TryAllocateAligned(std::uint16_t w,std::uint16_t h,std::uint16_t a,std::uint16_t& x,std::uint16_t& y) { return Allocate(w,h,a,0,x,y); }
  bool TryAllocateWithinHorizontalPage(std::uint16_t w,std::uint16_t h,std::uint16_t& x,std::uint16_t& y) {
-  if(w>64||h>256) return false;
-  return Allocate(w,h,1,true,x,y);
+  return TryAllocateWithinHorizontalPage(w,h,4,x,y);
+ }
+ bool TryAllocateWithinHorizontalPage(std::uint16_t w,std::uint16_t h,std::uint16_t pixelsPerWord,std::uint16_t& x,std::uint16_t& y) {
+  if(pixelsPerWord!=4&&pixelsPerWord!=2) return false;
+  // TPAGE bases remain 64-word aligned; 256 texels span 64 words at 4bpp,
+  // or 128 words at 8bpp. The latter may cross a 64-word base subdivision.
+  const std::uint16_t pageWidthWords=256/pixelsPerWord;
+  if(w>pageWidthWords||h>256) return false;
+  return Allocate(w,h,1,pageWidthWords,x,y);
  }
  bool Release(std::uint16_t x,std::uint16_t y,std::uint16_t w,std::uint16_t h) {
   for(auto& r:Regions) if(r.width&&r.x==x&&r.y==y&&r.width==w&&r.height==h) { r={};return true; }
@@ -28,18 +35,18 @@ private:
   for(const auto& r:Regions) if(r.width&&x<r.x+r.width&&r.x<x+w&&y<r.y+r.height&&r.y<y+h)return false;
   return true;
  }
- bool Allocate(std::uint16_t w,std::uint16_t h,std::uint16_t a,bool page,std::uint16_t& x,std::uint16_t& y) {
+ bool Allocate(std::uint16_t w,std::uint16_t h,std::uint16_t a,std::uint16_t pageWidthWords,std::uint16_t& x,std::uint16_t& y) {
   if(!w||!h||!a||w>VramWidth-FirstFreeColumn||h>VramHeight)return false;
   Region* slot=nullptr;for(auto& r:Regions)if(!r.width){slot=&r;break;}if(!slot)return false;
   std::uint32_t bestX=VramWidth,bestY=VramHeight;
   for(std::uint16_t row=0;row<Capacity+2;++row) {
    if(row>=2&&!Regions[row-2].width)continue;
    std::uint32_t cy=row==0?0:row==1?256:Regions[row-2].y+Regions[row-2].height;
-   if(page&&cy%256+h>256)cy=Align(cy,256);
+   if(pageWidthWords&&cy%256+h>256)cy=Align(cy,256);
    for(std::uint16_t col=0;col<Capacity+1;++col) {
     if(col&&!Regions[col-1].width)continue;
     std::uint32_t cx=Align(col==0?FirstFreeColumn:Regions[col-1].x+Regions[col-1].width,a);
-    if(page&&cx%64+w>64)cx=Align(cx,64);
+    if(pageWidthWords&&cx%TexturePageWidthWords+w>pageWidthWords)cx=Align(cx,TexturePageWidthWords);
     if((cy<bestY||(cy==bestY&&cx<bestX))&&Fits(cx,cy,w,h)){bestX=cx;bestY=cy;}
    }
   }

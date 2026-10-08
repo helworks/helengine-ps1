@@ -62,6 +62,53 @@ int main() {
     assert(fontAtlasAllocator.TryAllocateWithinHorizontalPage(64, 256, x, y));
     assert(x % 64 == 0 && y % 256 == 0);
 
+    // 256 Indexed8 texels occupy 128 words, while TPAGE bases remain 64-word aligned.
+    Ps1VramAllocator indexed8Allocator;
+    assert(indexed8Allocator.TryAllocateWithinHorizontalPage(128, 256, 2, textureX, textureY));
+    assert(textureX == 320 && textureY == 0 && textureX % 64 == 0);
+    assert(textureX % 64 + 128 <= 128 && textureY % 256 + 256 <= 256);
+    assert(indexed8Allocator.TryAllocateAligned(256, 1, 16, paletteX, paletteY));
+    assert(indexed8Allocator.TryAllocateWithinHorizontalPage(64, 256, x, y));
+    const auto neighbor = indexed8Allocator.GetRegion(2);
+    for (unsigned i = 0; i < Ps1VramAllocator::Capacity; ++i) {
+        const auto& a = indexed8Allocator.GetRegion(i);
+        if (!a.width) continue;
+        assert(a.x >= Ps1VramAllocator::FirstFreeColumn && a.x + a.width <= Ps1VramAllocator::VramWidth);
+        assert(a.y + a.height <= Ps1VramAllocator::VramHeight);
+        for (unsigned j = i + 1; j < Ps1VramAllocator::Capacity; ++j) {
+            const auto& b = indexed8Allocator.GetRegion(j);
+            if (b.width) assert(a.x + a.width <= b.x || b.x + b.width <= a.x ||
+                                a.y + a.height <= b.y || b.y + b.height <= a.y);
+        }
+    }
+    assert(indexed8Allocator.UsedWords() == 128u * 256u + 256u + 64u * 256u);
+    assert(indexed8Allocator.Release(textureX, textureY, 128, 256));
+    assert(indexed8Allocator.Release(paletteX, paletteY, 256, 1));
+    assert(indexed8Allocator.TryAllocateWithinHorizontalPage(128, 256, 2, textureX, textureY));
+    assert(textureX == 320 && textureY == 0);
+    assert(indexed8Allocator.GetRegion(2).x == neighbor.x && indexed8Allocator.GetRegion(2).y == neighbor.y);
+    const auto beforeInvalid = indexed8Allocator.UsedWords();
+    assert(!indexed8Allocator.TryAllocateWithinHorizontalPage(129, 1, 2, x, y));
+    assert(!indexed8Allocator.TryAllocateWithinHorizontalPage(65, 1, 4, x, y));
+    assert(!indexed8Allocator.TryAllocateWithinHorizontalPage(65, 1, x, y));
+    assert(!indexed8Allocator.TryAllocateWithinHorizontalPage(1, 257, 2, x, y));
+    assert(!indexed8Allocator.TryAllocateWithinHorizontalPage(1, 1, 3, x, y));
+    assert(indexed8Allocator.UsedWords() == beforeInvalid);
+
+    // A partial 8bpp texture can cross the 64-word subdivision if U stays below 256.
+    Ps1VramAllocator exactPageEdge;
+    assert(exactPageEdge.TryAllocate(28, 256, x, y));
+    assert(exactPageEdge.TryAllocateWithinHorizontalPage(100, 256, 2, x, y));
+    assert(x == 348 && y == 0 && (x % 64 + 100) * 2 == 256);
+    Ps1VramAllocator beyondPageEdge;
+    assert(beyondPageEdge.TryAllocate(29, 256, x, y));
+    assert(beyondPageEdge.TryAllocateWithinHorizontalPage(100, 256, 2, x, y));
+    assert(x == 384 && y == 0 && x % 64 + 100 <= 128);
+    Ps1VramAllocator verticalPageEdge;
+    assert(verticalPageEdge.TryAllocate(704, 1, x, y));
+    assert(verticalPageEdge.TryAllocateWithinHorizontalPage(128, 256, 2, x, y));
+    assert(x == 320 && y == 256);
+
     Ps1UiVertex quad[4]{};
     const Ps1ScreenRect full{0, 0, 320, 240};
     assert(TryBuildSpriteQuad({20.0f, 30.0f}, {26.0f, 27.0f}, {1.0f, 1.0f}, 0.0f,
