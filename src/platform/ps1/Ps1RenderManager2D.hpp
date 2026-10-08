@@ -15,6 +15,8 @@ class TextureAsset;
 class ICamera;
 class IDrawable2D;
 class IRenderQueue2D;
+class Component;
+class IClipRegion2D;
 
 namespace helengine::ps1 {
 
@@ -58,6 +60,19 @@ public:
     std::uint16_t LastVisitedTexts() const { return VisitedTexts; }
     std::uint16_t LastQueuedGlyphQuads() const { return QueuedGlyphQuads; }
     std::uint32_t LastRequestedShapeTriangles() const { return RequestedShapeTriangles; }
+    bool HasLastUiBounds() const { return HasUiBounds; }
+    std::int16_t LastUiMinY() const { return UiMinY; }
+    std::int16_t LastUiMaxY() const { return UiMaxY; }
+    bool HasLastSpriteBounds() const { return HasSpriteBounds; }
+    std::int16_t LastSpriteMinY() const { return SpriteMinY; }
+    std::int16_t LastSpriteMaxY() const { return SpriteMaxY; }
+    bool HasLastShapeBounds() const { return HasShapeBounds; }
+    std::int16_t LastShapeMinY() const { return ShapeMinY; }
+    std::int16_t LastShapeMaxY() const { return ShapeMaxY; }
+    bool HasLastTextBounds() const { return HasTextBounds; }
+    std::int16_t LastTextMinY() const { return TextMinY; }
+    std::int16_t LastTextMaxY() const { return TextMaxY; }
+    const Ps1ScreenRect& LastViewport() const { return ActiveViewport; }
     const char* LastFailureMarker() const { return FailureMarker; }
 
 protected:
@@ -65,11 +80,18 @@ protected:
                                  Array<uint8_t>* rgba8, int32_t sourceRowPitch) override;
 
 private:
+    enum class PendingKind : std::uint8_t {
+        Sprite,
+        Shape,
+        Text,
+    };
+
     struct PendingUiDrawable {
         Ps1UiVertex Vertices[4]{};
         const Ps1RuntimeTexture* Texture = nullptr;
         psyqo::Color Color{};
         std::uint16_t Bucket = 0;
+        PendingKind Kind = PendingKind::Shape;
         bool SemiTransparent = false;
         bool IsSprite = false;
         std::uint32_t PacketRevision = 0;
@@ -80,12 +102,25 @@ private:
         const void* Font = nullptr;
         const Ps1RuntimeTexture* Texture = nullptr;
         std::int32_t RenderStateVersion = 0;
-        std::uint32_t Key[33]{};
+        std::uint32_t Key[37]{};
         HeCppString Content;
         std::uint16_t Count = 0;
         // PendingOrder may still point into this entry until the current frame is flushed.
         bool InFrame = false;
         PendingUiDrawable Quads[96]{};
+        // Compare exact ancestor component membership before reusing interface
+        // casts. Clip geometry still resolves every frame as scroll offsets move.
+        const ::Component* ClipComponents[64]{};
+        ::IClipRegion2D* ClipRegions[8]{};
+        std::uint8_t ClipComponentCount = 0;
+        std::uint8_t ClipRegionCount = 0;
+        bool ClipCacheValid = false;
+        // Keep unclipped glyphs so authored scrolling changes only integer screen geometry.
+        PendingUiDrawable RawQuads[96]{};
+        std::uint16_t RawCount = 0;
+        bool RawReady = false;
+        std::int16_t MinY = 0;
+        std::int16_t MaxY = 0;
     };
     static constexpr std::uint8_t TextCacheCapacity = 8;
     static constexpr std::uint16_t PendingUiCapacity = Ps1FramePacketLimits::UiTriangles +
@@ -100,6 +135,8 @@ private:
     void Reject(const char* marker);
     bool AppendPending(const PendingUiDrawable& drawable);
     bool AppendCachedText(CachedText& cached);
+    void IncludeBounds(PendingKind kind, std::int16_t minimum, std::int16_t maximum);
+    void IncludeBounds(const PendingUiDrawable& drawable);
     bool FlushPendingInVisitOrder();
     std::uint32_t AllocatePacketRevision();
 
@@ -134,6 +171,20 @@ private:
     Ps1TextGlyphCache GlyphCache;
     Ps1SpriteGeometryCache SpriteGeometryCache;
     bool QueueOpen = false;
+    bool PreloadingTextTextures = false;
+    bool HasUiBounds = false;
+    std::int16_t UiMinY = 0;
+    std::int16_t UiMaxY = 0;
+    bool HasSpriteBounds = false;
+    std::int16_t SpriteMinY = 0;
+    std::int16_t SpriteMaxY = 0;
+    bool HasShapeBounds = false;
+    std::int16_t ShapeMinY = 0;
+    std::int16_t ShapeMaxY = 0;
+    bool HasTextBounds = false;
+    std::int16_t TextMinY = 0;
+    std::int16_t TextMaxY = 0;
+    bool HasLoggedFirstUiGeometry = false;
     ::IRenderQueue2D* ValidatedQueue = nullptr;
     std::int32_t ValidatedQueueVersion = 0;
     bool UseValidatedQueue = false;

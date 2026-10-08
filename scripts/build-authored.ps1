@@ -19,6 +19,8 @@ param(
     [string[]] $AdditionalSubsetScenePaths = @(),
     [string[]] $AdditionalSceneRelativePaths = @(),
     [string[]] $AdditionalSceneIds = @(),
+    # Optional build-local files from this PS1 repository's assets tree, staged over the project copy.
+    [string[]] $AdditionalAssetPaths = @(),
     # Keeps every runtime script instead of pruning to the classes the scene's components name.
     # Pruning exists because the subset milestone only needed one component and the rest of the
     # project may use constructs the PS1 runtime rejects. A whole authored scene needs the whole
@@ -134,6 +136,27 @@ foreach ($relative in @('assets', 'settings')) {
     if (-not (Test-Path -LiteralPath $sourcePath)) { throw "Project is missing ${relative}: $sourcePath" }
     & robocopy $sourcePath (Join-Path $stagedProject $relative) /E /NFL /NDL /NJH /NJS /NP /XD bin obj .generated-build | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "Staging $relative failed with robocopy exit code $LASTEXITCODE" }
+}
+$repoAssetsRoot = [IO.Path]::GetFullPath((Join-Path $repoRoot 'assets')).TrimEnd('\')
+foreach ($assetPath in $AdditionalAssetPaths) {
+    $sourceAssetPath = (Resolve-Path -LiteralPath $assetPath -ErrorAction Stop).Path
+    if (-not (Test-Path -LiteralPath $sourceAssetPath -PathType Leaf)) { throw "Additional asset path is not a file: $sourceAssetPath" }
+    if (-not $sourceAssetPath.StartsWith($repoAssetsRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Additional assets must come from beneath the PS1 repository assets tree: $sourceAssetPath"
+    }
+    $relativeAssetPath = $sourceAssetPath.Substring($repoAssetsRoot.Length + 1)
+    $destinationAssetPath = Join-Path $stagedProject ('assets\' + $relativeAssetPath)
+    $destinationAssetDirectory = Split-Path -Parent $destinationAssetPath
+    New-Item -ItemType Directory -Path $destinationAssetDirectory -Force | Out-Null
+    if (Test-Path -LiteralPath $destinationAssetPath -PathType Leaf) {
+        $sourceHash = (Get-FileHash -LiteralPath $sourceAssetPath -Algorithm SHA256).Hash
+        $destinationHash = (Get-FileHash -LiteralPath $destinationAssetPath -Algorithm SHA256).Hash
+        if ($sourceHash -ne $destinationHash) {
+            throw "Additional asset conflicts with project content at '$relativeAssetPath'; refusing to overwrite the authored project asset."
+        }
+    } else {
+        Copy-Item -LiteralPath $sourceAssetPath -Destination $destinationAssetPath
+    }
 }
 foreach ($selectedScene in $selectedScenes) {
     $stagedScene = Join-Path $stagedProject ('assets\' + $selectedScene.relativePath.Replace('/', '\'))

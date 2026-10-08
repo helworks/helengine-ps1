@@ -7,6 +7,8 @@
 #include "FontChar.hpp"
 #include "FontInfo.hpp"
 #include "ICamera.hpp"
+#include "IClipRegion2D.hpp"
+#include "Component.hpp"
 #include "IDrawable2D.hpp"
 #include "IContentStreamSource.hpp"
 #include "IRenderQueue2D.hpp"
@@ -26,6 +28,7 @@
 #include "platform/ps1/profiling/Ps1CpuProfileSink.hpp"
 #endif
 #include "platform/ps1/rendering/Ps1RuntimeTexture.hpp"
+#include "platform/ps1/rendering/Ps1VramDiagnostics.hpp"
 #include "platform/ps1/rendering/Ps1TextLayout.hpp"
 #include "runtime/array.hpp"
 #include "runtime/native_cast.hpp"
@@ -33,7 +36,20 @@
 
 
 namespace helengine::ps1 {
+extern "C" {
+volatile Ps1VramDiagnostics helengine_ps1_vram_diagnostics;
+}
 namespace {
+
+void publishVram(const Ps1VramAllocator& allocator) {
+    auto& d=helengine_ps1_vram_diagnostics;
+    d.UsedWords=allocator.UsedWords(); d.LiveRegions=allocator.LiveCount();
+    for(std::uint16_t i=0;i<Ps1VramAllocator::Capacity;++i) {
+        const auto& r=allocator.GetRegion(i);
+        d.Regions[i].x=r.x;d.Regions[i].y=r.y;d.Regions[i].width=r.width;d.Regions[i].height=r.height;
+    }
+    d.Serial=d.Serial+1;
+}
 
 /// <summary>Palette entries the GPU reads for each supported depth.</summary>
 constexpr std::uint16_t FourBitPaletteEntries = 16;
@@ -56,6 +72,21 @@ public:
 private:
     Ps1CpuProfileSink* Sink;
     std::uint64_t& Total;
+    std::uint64_t Start;
+};
+class ScopedNativeStage {
+public:
+    ScopedNativeStage(Ps1CpuProfileSink* sink, std::uint32_t stage)
+        : Sink(sink), Stage(stage), Start(sink == nullptr ? 0u : sink->ReadMicroseconds()) {}
+    ~ScopedNativeStage() {
+        if (Sink == nullptr) return;
+        const auto end = Sink->ReadMicroseconds();
+        if (end >= Start) Sink->RecordNativeStage(Stage, end - Start);
+        else Sink->ClockFault();
+    }
+private:
+    Ps1CpuProfileSink* Sink;
+    std::uint32_t Stage;
     std::uint64_t Start;
 };
 #endif
@@ -151,6 +182,9 @@ void Ps1RenderManager2D::Reject(const char* marker) {
 }
 
 bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
+#if defined(PS1_CPU_PROFILE)
+    ScopedNativeStage totalSample(CpuProfile, 111);
+#endif
     VisitedSprites = 0;
     VisitedShapes = 0;
     SkippedTexts = 0;
@@ -158,6 +192,11 @@ bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
     QueuedGlyphQuads = 0;
     RequestedShapeTriangles = 0;
     PendingCount = 0;
+    HasUiBounds = false;
+    UiMinY = 0;
+    UiMaxY = 0;
+    HasSpriteBounds = HasShapeBounds = HasTextBounds = false;
+    SpriteMinY = SpriteMaxY = ShapeMinY = ShapeMaxY = TextMinY = TextMaxY = 0;
 #if defined(PS1_CPU_PROFILE)
     UiTextDrawUs = UiSpriteDrawUs = UiShapeDrawUs = UiSpriteGeometryUs = 0;
     UiSpritePacketUs = UiShapePacketUs = 0;
@@ -181,7 +220,16 @@ bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
 #if defined(PS1_CPU_PROFILE)
     const std::uint64_t visitStartUs = CpuProfile == nullptr ? 0u : CpuProfile->ReadMicroseconds();
 #endif
+    if (!UseValidatedQueue) {
+        // Font atlases can be 256 rows tall and must start at a vertical texture-page boundary.
+        // Load them before sprites consume VRAM shelves; this prepass runs only when the queue's
+        // membership changes, and the actual draw pass below keeps the original visit order.
+        PreloadingTextTextures = true;
+        queue->VisitOrdered(this);
+        PreloadingTextTextures = false;
+    }
     queue->VisitOrdered(this);
+    HasLoggedFirstUiGeometry = true;
 #if defined(PS1_CPU_PROFILE)
     if (CpuProfile != nullptr) {
         const std::uint64_t visitEndUs = CpuProfile->ReadMicroseconds();
@@ -236,11 +284,36 @@ bool Ps1RenderManager2D::AppendPending(const PendingUiDrawable& drawable) {
     }
     Pending[PendingCount] = drawable;
     PendingOrder[PendingCount] = &Pending[PendingCount];
+    IncludeBounds(drawable);
     ++PendingCount;
     return true;
 }
 
+void Ps1RenderManager2D::IncludeBounds(PendingKind kind, std::int16_t minimum, std::int16_t maximum) {
+    if (!HasUiBounds) { UiMinY = minimum; UiMaxY = maximum; HasUiBounds = true; }
+    else { if (minimum < UiMinY) UiMinY = minimum; if (maximum > UiMaxY) UiMaxY = maximum; }
+    bool* has = kind == PendingKind::Text ? &HasTextBounds : kind == PendingKind::Sprite ? &HasSpriteBounds : &HasShapeBounds;
+    auto* low = kind == PendingKind::Text ? &TextMinY : kind == PendingKind::Sprite ? &SpriteMinY : &ShapeMinY;
+    auto* high = kind == PendingKind::Text ? &TextMaxY : kind == PendingKind::Sprite ? &SpriteMaxY : &ShapeMaxY;
+    if (!*has) { *low = minimum; *high = maximum; *has = true; }
+    else { if (minimum < *low) *low = minimum; if (maximum > *high) *high = maximum; }
+}
+
+void Ps1RenderManager2D::IncludeBounds(const PendingUiDrawable& drawable) {
+    std::int16_t minimum = drawable.Vertices[0].y, maximum = minimum;
+    const unsigned count = drawable.Kind == PendingKind::Shape ? 3u : 4u;
+    for (unsigned i = 1; i < count; ++i) {
+        const auto y = drawable.Vertices[i].y;
+        if (y < minimum) minimum = y;
+        if (y > maximum) maximum = y;
+    }
+    IncludeBounds(drawable.Kind, minimum, maximum);
+}
+
 bool Ps1RenderManager2D::AppendCachedText(CachedText& cached) {
+#if defined(PS1_CPU_PROFILE)
+    ScopedNativeStage cacheSample(CpuProfile, 115);
+#endif
     if (PendingCount + cached.Count > PendingUiCapacity) {
         Reject("PS1_UI_QUEUE_CAPACITY");
         return false;
@@ -254,6 +327,7 @@ bool Ps1RenderManager2D::AppendCachedText(CachedText& cached) {
     PendingSprites = static_cast<std::uint16_t>(PendingSprites + cached.Count);
     QueuedGlyphQuads = static_cast<std::uint16_t>(QueuedGlyphQuads + cached.Count);
     cached.InFrame = true;
+    if (cached.Count != 0) IncludeBounds(PendingKind::Text, cached.MinY, cached.MaxY);
     return true;
 }
 
@@ -331,6 +405,14 @@ bool Ps1RenderManager2D::FlushPendingInVisitOrder() {
 void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     if (drawable == nullptr || !QueueOpen || drawable->get_Parent() == nullptr ||
         !drawable->get_Parent()->get_IsHierarchyEnabled()) return;
+    if (PreloadingTextTextures) {
+        auto* text = dynamic_cast<::ITextDrawable2D*>(drawable);
+        if (text != nullptr) {
+            ::FontAsset* font = text->get_Font();
+            if (font != nullptr) (void)font->get_Texture();
+        }
+        return;
+    }
     if (UseValidatedQueue || dynamic_cast<::ISpriteDrawable2D*>(drawable) != nullptr ||
         dynamic_cast<::IRoundedRectDrawable2D*>(drawable) != nullptr ||
         dynamic_cast<::ITextDrawable2D*>(drawable) != nullptr) {
@@ -393,6 +475,9 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     std::uint16_t vramX = 0;
     std::uint16_t vramY = 0;
     if (!VramAllocator.TryAllocateWithinHorizontalPage(widthInWords, height, vramX, vramY)) {
+        helengine_ps1_vram_diagnostics.FailedWidth=widthInWords;
+        helengine_ps1_vram_diagnostics.FailedHeight=height;
+        publishVram(VramAllocator);
         ramsyscall_printf("PS1_TEXTURE_VRAM_EXHAUSTED words=%u used=%u\n",
                           static_cast<unsigned>(widthInWords) * static_cast<unsigned>(height),
                           static_cast<unsigned>(VramAllocator.UsedWords()));
@@ -429,6 +514,10 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     std::uint16_t clutX = 0;
     std::uint16_t clutY = 0;
     if (!VramAllocator.TryAllocateAligned(paletteEntries, 1, Ps1VramAllocator::ClutXAlignment, clutX, clutY)) {
+        VramAllocator.Release(vramX,vramY,widthInWords,height);
+        helengine_ps1_vram_diagnostics.FailedWidth=paletteEntries;
+        helengine_ps1_vram_diagnostics.FailedHeight=1;
+        publishVram(VramAllocator);
         he_cpp_custom::Fail("PS1 ran out of VRAM for a texture palette");
     }
     std::uint16_t palette[EightBitPaletteEntries];
@@ -453,8 +542,11 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     texture->VramY = vramY;
     texture->ClutX = clutX;
     texture->ClutY = clutY;
+    texture->WidthInWords=widthInWords;
+    texture->PaletteEntries=paletteEntries;
     texture->PixelDepth = fourBit ? Ps1RuntimeTexture::Depth::FourBit : Ps1RuntimeTexture::Depth::EightBit;
     ++UploadedTextures;
+    publishVram(VramAllocator);
     ramsyscall_printf("PS1_TEXTURE_UPLOADED w=%u h=%u bpp=%u vram=%u,%u clut=%u,%u used_words=%u\n",
                       static_cast<unsigned>(width), static_cast<unsigned>(height), fourBit ? 4u : 8u,
                       static_cast<unsigned>(vramX), static_cast<unsigned>(vramY), static_cast<unsigned>(clutX),
@@ -464,6 +556,20 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
 
 void Ps1RenderManager2D::ReleaseTexture(::RuntimeTexture* texture) {
     if (texture == nullptr) { return; }
+    auto* native=dynamic_cast<Ps1RuntimeTexture*>(texture);
+    if(native==nullptr || QueueOpen) he_cpp_custom::Fail("PS1 texture release outside safe frame boundary");
+    // Complete prior DMA and GPU commands before another resource can upload
+    // into these regions. This waits through PSYQo's normal callback pump.
+    Gpu.waitChainIdle();
+    Gpu.waitReady();
+    auto& diagnostics=helengine_ps1_vram_diagnostics;
+    diagnostics.BeforeReleaseWords=VramAllocator.UsedWords();
+    if(!VramAllocator.Release(native->VramX,native->VramY,native->WidthInWords,native->get_Height()) ||
+       !VramAllocator.Release(native->ClutX,native->ClutY,native->PaletteEntries,1))
+        he_cpp_custom::Fail("PS1 texture VRAM reservation ownership mismatch");
+    diagnostics.AfterReleaseWords=VramAllocator.UsedWords();
+    diagnostics.Releases=diagnostics.Releases+1;
+    publishVram(VramAllocator);
     GlyphCache.Invalidate();
     for (CachedText& cached : TextCache) if (cached.Texture == texture) cached.Drawable = nullptr;
     texture->Dispose();
@@ -493,6 +599,21 @@ void Ps1RenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D* shape) {
         Reject("PS1_UI_SHAPE_GEOMETRY_REJECTED");
         return;
     }
+    if (!HasLoggedFirstUiGeometry) {
+        std::int16_t minimumY = 32767;
+        std::int16_t maximumY = -32768;
+        for (std::uint16_t i = 0; i < count; ++i) {
+            const std::int16_t ys[3] = {triangles[i].a.y, triangles[i].b.y, triangles[i].c.y};
+            for (const std::int16_t y : ys) {
+                if (y < minimumY) minimumY = y;
+                if (y > maximumY) maximumY = y;
+            }
+        }
+        ramsyscall_printf("PS1_UI_SHAPE y=%d..%d size=%d,%d screen_y=%d scale_y=%d order=%u\n",
+                          static_cast<int>(minimumY), static_cast<int>(maximumY), size.X, size.Y,
+                          static_cast<int>(position.y), static_cast<int>(scale.y),
+                          static_cast<unsigned>(PendingCount));
+    }
     const ::byte4 fill = shape->get_FillColor();
     const ::byte4 border = shape->get_BorderColor();
     const std::uint32_t requestedTriangles =
@@ -508,16 +629,15 @@ void Ps1RenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D* shape) {
     bool borderSemiTransparent = false;
     TryMapAlphaToBlend(fill.W, fillSemiTransparent);
     TryMapAlphaToBlend(border.W, borderSemiTransparent);
-    std::uint16_t bucket = 0;
-    if (!TryMapRenderOrder(shape->get_RenderOrder2D(), bucket)) {
-        Reject("PS1_UI_SHAPE_ORDER_REJECTED");
-        return;
-    }
+    // Core's VisitOrdered supplies world-depth and hierarchy order. All UI packets
+    // share one OT bucket and FlushPendingInVisitOrder reverses insertion to retain it.
+    const std::uint16_t bucket = 0;
     for (std::uint16_t i = 0; i < count; ++i) {
         const bool isFill = i < fillCount;
         const std::uint8_t alpha = isFill ? fill.W : border.W;
         if (alpha == 0) continue;
         PendingUiDrawable pending{};
+        pending.Kind = PendingKind::Shape;
         pending.Vertices[0] = triangles[i].a;
         pending.Vertices[1] = triangles[i].b;
         pending.Vertices[2] = triangles[i].c;
@@ -595,19 +715,30 @@ void Ps1RenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
     if (tint.W == 0) return;
     psyqo::Color modulation;
     TryColor(tint, true, modulation);
-    std::uint16_t bucket = 0;
-    if (!TryMapRenderOrder(sprite->get_RenderOrder2D(), bucket)) {
-        Reject("PS1_UI_SPRITE_ORDER_REJECTED");
-        return;
-    }
+    const std::uint16_t bucket = 0;
     PendingUiDrawable pending{};
+    pending.Kind = PendingKind::Sprite;
     for (unsigned i = 0; i < 4; ++i) pending.Vertices[i] = vertices[i];
     pending.Texture = texture;
     pending.Color = modulation;
     pending.Bucket = bucket;
     TryMapAlphaToBlend(tint.W, pending.SemiTransparent);
     pending.IsSprite = true;
-    AppendPending(pending);
+    Ps1UiVertex safeQuads[16][4]{};
+    std::uint16_t safeCount = 0;
+    if (!TrySplitGpuSafeSpriteQuad(vertices, safeQuads, safeCount)) {
+        Reject("PS1_UI_SPRITE_GPU_EXTENT_REJECTED");
+        return;
+    }
+    if (PendingCount + safeCount > PendingUiCapacity ||
+        PendingSprites + safeCount > Ps1FramePacketLimits::TexturedQuads) {
+        Reject("PS1_UI_SPRITE_CAPACITY");
+        return;
+    }
+    for (std::uint16_t i = 0; i < safeCount; ++i) {
+        for (unsigned vertex = 0; vertex < 4; ++vertex) pending.Vertices[vertex] = safeQuads[i][vertex];
+        if (!AppendPending(pending)) return;
+    }
 }
 
 void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
@@ -634,20 +765,87 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
     Ps1UiPoint position{};
     Ps1UiPoint parentScale{};
     float rotation = 0.0f;
-    if (!TryScreenTransform(text->get_Parent(), position, parentScale, rotation)) {
+    bool transformValid = false;
+    {
+#if defined(PS1_CPU_PROFILE)
+        ScopedNativeStage transformSample(CpuProfile, 113);
+#endif
+        transformValid = TryScreenTransform(text->get_Parent(), position, parentScale, rotation);
+    }
+    if (!transformValid) {
         Reject("PS1_UI_TEXT_TRANSFORM_REJECTED");
         return;
     }
-    std::uint16_t bucket = 0;
-    if (!TryMapRenderOrder(text->get_RenderOrder2D(), bucket)) {
-        Reject("PS1_UI_TEXT_ORDER_REJECTED");
-        return;
-    }
-    const std::int32_t renderStateVersion = text->get_TextRenderStateVersion();
+    const std::uint16_t bucket = 0;
     CachedText* cached = nullptr;
     for (CachedText& entry : TextCache) {
         if (entry.Drawable == text) { cached = &entry; break; }
     }
+    const ::Component* clipComponents[64]{};
+    ::IClipRegion2D* clipRegions[8]{};
+    unsigned componentCount = 0, clipCount = 0;
+    bool clipCacheable = true;
+    {
+#if defined(PS1_CPU_PROFILE)
+        ScopedNativeStage clipSample(CpuProfile, 114);
+#endif
+    for (::Entity* current = text->get_Parent(); current != nullptr; current = current->get_Parent()) {
+        auto* components = current->get_Components();
+        if (components == nullptr) continue;
+        for (int32_t i = 0; i < components->get_Count(); ++i) {
+            if (componentCount == 64) { clipCacheable = false; break; }
+            clipComponents[componentCount++] = components->get_Item(i);
+        }
+        if (!clipCacheable) break;
+    }
+    bool clipCacheMatches = clipCacheable && cached != nullptr && cached->ClipCacheValid &&
+                            cached->ClipComponentCount == componentCount;
+    for (unsigned i = 0; clipCacheMatches && i < componentCount; ++i)
+        clipCacheMatches = cached->ClipComponents[i] == clipComponents[i];
+    if (clipCacheMatches) {
+        clipCount = cached->ClipRegionCount;
+        for (unsigned i = 0; i < clipCount; ++i) clipRegions[i] = cached->ClipRegions[i];
+    } else if (clipCacheable) {
+        for (unsigned i = 0; i < componentCount; ++i) {
+            auto* region = dynamic_cast<::IClipRegion2D*>(const_cast<::Component*>(clipComponents[i]));
+            if (region == nullptr) continue;
+            if (clipCount == 8) { clipCacheable = false; break; }
+            clipRegions[clipCount++] = region;
+        }
+    }
+    }
+    Ps1ScreenRect clipRect = ActiveViewport;
+    const auto applyClip = [&](::IClipRegion2D* clip) {
+            const ::float4 r = clip->GetClipRect();
+            const int left = ui_geometry_detail::Round(r.X) + ActiveViewport.x;
+            const int top = ui_geometry_detail::Round(r.Y) + ActiveViewport.y;
+            const int right = ui_geometry_detail::Round(r.X + r.Z) + ActiveViewport.x;
+            const int bottom = ui_geometry_detail::Round(r.Y + r.W) + ActiveViewport.y;
+            const int x0 = left > clipRect.x ? left : clipRect.x;
+            const int y0 = top > clipRect.y ? top : clipRect.y;
+            const int x1 = right < clipRect.x + clipRect.width ? right : clipRect.x + clipRect.width;
+            const int y1 = bottom < clipRect.y + clipRect.height ? bottom : clipRect.y + clipRect.height;
+            if (x1 <= x0 || y1 <= y0) return false;
+            clipRect = {static_cast<std::int16_t>(x0), static_cast<std::int16_t>(y0),
+                        static_cast<std::int16_t>(x1 - x0), static_cast<std::int16_t>(y1 - y0)};
+            return true;
+    };
+    if (clipCacheable) {
+        for (unsigned i = 0; i < clipCount; ++i) if (!applyClip(clipRegions[i])) return;
+    } else {
+        for (::Entity* current = text->get_Parent(); current != nullptr; current = current->get_Parent()) {
+            auto* components = current->get_Components();
+            if (components == nullptr) continue;
+            for (int32_t i = 0; i < components->get_Count(); ++i) {
+                auto* region = dynamic_cast<::IClipRegion2D*>(components->get_Item(i));
+                if (region != nullptr && !applyClip(region)) return;
+            }
+        }
+    }
+    const std::int32_t renderStateVersion = text->get_TextRenderStateVersion();
+    const ::int2 size = text->get_Size();
+    HeCppString diagnosticContent;
+    if (!HasLoggedFirstUiGeometry) diagnosticContent = text->get_Text();
     const std::uint32_t positionX = static_cast<std::uint32_t>(ui_geometry_detail::Round(position.x));
     const std::uint32_t positionY = static_cast<std::uint32_t>(ui_geometry_detail::Round(position.y));
     // TextComponent advances its version for text and style changes. Keep the independently
@@ -659,12 +857,68 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
         cached->Key[2] == static_cast<std::uint16_t>(ActiveViewport.width) &&
         cached->Key[3] == static_cast<std::uint16_t>(ActiveViewport.height) &&
         cached->Key[4] == positionX && cached->Key[5] == positionY &&
-        cached->Key[10] == bucket && cached->Key[13] == width && cached->Key[14] == height) {
+        cached->Key[10] == bucket && cached->Key[13] == width && cached->Key[14] == height &&
+        cached->Key[33] == static_cast<std::uint16_t>(clipRect.x) &&
+        cached->Key[34] == static_cast<std::uint16_t>(clipRect.y) &&
+        cached->Key[35] == static_cast<std::uint16_t>(clipRect.width) &&
+        cached->Key[36] == static_cast<std::uint16_t>(clipRect.height)) {
+        if (!HasLoggedFirstUiGeometry) {
+            char label[64]{};
+            const std::size_t length = diagnosticContent.size() < sizeof(label) - 1u ? diagnosticContent.size() : sizeof(label) - 1u;
+            for (std::size_t i = 0; i < length; ++i) label[i] = diagnosticContent[i];
+            ramsyscall_printf("PS1_UI_TEXT y=%d size=%d,%d scale_y=%d order=%u text=%s\n",
+                              static_cast<int>(position.y), size.X, size.Y, static_cast<int>(parentScale.y * 1000.0f),
+                              static_cast<unsigned>(PendingCount), label);
+        }
         AppendCachedText(*cached);
         return;
     }
+    if (cached != nullptr && !cached->InFrame && cached->RawReady && cached->Font == font && cached->Texture == texture &&
+        cached->RenderStateVersion == renderStateVersion &&
+        cached->Key[0] == static_cast<std::uint16_t>(ActiveViewport.x) &&
+        cached->Key[1] == static_cast<std::uint16_t>(ActiveViewport.y) &&
+        cached->Key[2] == static_cast<std::uint16_t>(ActiveViewport.width) &&
+        cached->Key[3] == static_cast<std::uint16_t>(ActiveViewport.height) &&
+        cached->Key[13] == width && cached->Key[14] == height) {
+        const auto dx = static_cast<std::int32_t>(positionX - cached->Key[4]);
+        const auto dy = static_cast<std::int32_t>(positionY - cached->Key[5]);
+        bool translated = true;
+        for (unsigned i = 0; translated && i < cached->RawCount; ++i) {
+            for (const auto& vertex : cached->RawQuads[i].Vertices) {
+                const auto x = static_cast<std::int32_t>(vertex.x) + dx;
+                const auto y = static_cast<std::int32_t>(vertex.y) + dy;
+                if (x < -32768 || x > 32767 || y < -32768 || y > 32767) { translated = false; break; }
+            }
+        }
+        if (translated) {
+            cached->Count = 0;
+            cached->MinY = 32767; cached->MaxY = -32768;
+            const auto revision = AllocatePacketRevision();
+            for (unsigned i = 0; i < cached->RawCount; ++i) {
+                auto& raw = cached->RawQuads[i];
+                for (auto& vertex : raw.Vertices) {
+                    vertex.x = static_cast<std::int16_t>(vertex.x + dx);
+                    vertex.y = static_cast<std::int16_t>(vertex.y + dy);
+                }
+                auto quad = raw;
+                if (!ClipPs1GlyphQuad(quad.Vertices, clipRect)) continue;
+                quad.PacketRevision = revision;
+                for (const auto& vertex : quad.Vertices) {
+                    if (vertex.y < cached->MinY) cached->MinY = vertex.y;
+                    if (vertex.y > cached->MaxY) cached->MaxY = vertex.y;
+                }
+                cached->Quads[cached->Count++] = quad;
+            }
+            cached->Key[4] = positionX; cached->Key[5] = positionY;
+            cached->Key[33] = static_cast<std::uint16_t>(clipRect.x);
+            cached->Key[34] = static_cast<std::uint16_t>(clipRect.y);
+            cached->Key[35] = static_cast<std::uint16_t>(clipRect.width);
+            cached->Key[36] = static_cast<std::uint16_t>(clipRect.height);
+            AppendCachedText(*cached);
+            return;
+        }
+    }
     const float fontScale = text->get_FontScale() > 0.0001f ? text->get_FontScale() : 0.0001f;
-    const ::int2 size = text->get_Size();
     HeCppString content = text->get_Text();
     if (text->get_WrapText()) {
         const int32_t wrapWidth = static_cast<int32_t>(ui_geometry_detail::Round(static_cast<float>(size.X) / fontScale));
@@ -709,7 +963,7 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
     };
     // A text component usually keeps the same string for many frames. Cache the exact quads so
     // the PS1 does not redo software floating-point layout and glyph geometry on every VBlank.
-    std::uint32_t key[33]{};
+    std::uint32_t key[37]{};
     const auto floatBits = [](float value) {
         std::uint32_t bits = 0;
         __builtin_memcpy(&bits, &value, sizeof(bits));
@@ -730,6 +984,10 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
     key[12] = passCount;
     key[13] = width;
     key[14] = height;
+    key[33] = static_cast<std::uint16_t>(clipRect.x);
+    key[34] = static_cast<std::uint16_t>(clipRect.y);
+    key[35] = static_cast<std::uint16_t>(clipRect.width);
+    key[36] = static_cast<std::uint16_t>(clipRect.height);
     for (unsigned i = 0; i < passCount; ++i) {
         key[15 + i * 3] = floatBits(passes[i].x);
         key[16 + i * 3] = floatBits(passes[i].y);
@@ -756,7 +1014,11 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
                              __builtin_memcmp(cached->Key, key, sizeof(key)) == 0;
     bool contentMatches = baseMatches && cached->Content.size() == content.size() &&
                           __builtin_memcmp(cached->Content.data(), content.data(), content.size()) == 0;
-    if (baseMatches && !contentMatches && !cached->InFrame && cached->Content.size() == content.size()) {
+    const bool unclippedViewport = clipRect.x == ActiveViewport.x && clipRect.y == ActiveViewport.y &&
+                                   clipRect.width == ActiveViewport.width && clipRect.height == ActiveViewport.height;
+    // Retained clipped quads have cropped UVs. A replacement glyph must go through layout
+    // again rather than overwriting those cropped endpoints with its full source rectangle.
+    if (baseMatches && !contentMatches && unclippedViewport && !cached->InFrame && cached->Content.size() == content.size()) {
         unsigned visiblePasses = 0;
         for (unsigned pass = 0; pass < passCount; ++pass) if (passes[pass].color.W != 0) ++visiblePasses;
         std::uint16_t quad = 0;
@@ -806,6 +1068,7 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
                 quad = static_cast<std::uint16_t>(quad + visiblePasses);
             }
             cached->Content = content;
+            cached->RawReady = false;
             contentMatches = true;
         }
     }
@@ -815,12 +1078,16 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
         return;
     }
     const std::uint16_t pendingStart = PendingCount;
+    unsigned rawCount = 0;
+    bool rawReady = cached != nullptr && !cached->InFrame;
+    if (rawReady) cached->RawReady = false;
     const auto emit = [&](char, const Ps1TextGlyph& glyph, float x, float y) {
         const Ps1GlyphTexelRect source{glyph.sourceX, glyph.sourceY, glyph.sourceWidth, glyph.sourceHeight};
         for (unsigned passIndex = 0; passIndex < passCount; ++passIndex) {
             const GlyphPass& pass = passes[passIndex];
             if (pass.color.W == 0) continue;
             PendingUiDrawable pending{};
+            pending.Kind = PendingKind::Text;
             if (!glyph.sourceValid || !TryBuildGlyphQuadTexels({x + pass.x, y + pass.y}, {glyph.width * fontScale, glyph.height * fontScale},
                                     source,
                                     width, height, ActiveViewport,
@@ -833,6 +1100,11 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
             pending.Bucket = bucket;
             pending.SemiTransparent = pass.semiTransparent;
             pending.IsSprite = true;
+            if (rawReady) {
+                if (rawCount == 96) rawReady = false;
+                else cached->RawQuads[rawCount++] = pending;
+            }
+            if (!ClipPs1GlyphQuad(pending.Vertices, clipRect)) continue;
             if (!AppendPending(pending)) return false;
             ++QueuedGlyphQuads;
         }
@@ -841,16 +1113,36 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
     const bool laidOut = LayoutPs1Text(content.data(), content.size(), static_cast<float>(ui_geometry_detail::Round(position.x)),
                        static_cast<float>(ui_geometry_detail::Round(position.y)), lineHeight, spaceWidth,
                        fontScale, static_cast<float>(size.X), alignment, lookup, emit);
+    if (!HasLoggedFirstUiGeometry) {
+        char label[64]{};
+        const std::size_t length = diagnosticContent.size() < sizeof(label) - 1u ? diagnosticContent.size() : sizeof(label) - 1u;
+        for (std::size_t i = 0; i < length; ++i) label[i] = diagnosticContent[i];
+        ramsyscall_printf("PS1_UI_TEXT y=%d size=%d,%d scale_y=%d order=%u text=%s\n",
+                          static_cast<int>(position.y), size.X, size.Y, static_cast<int>(parentScale.y * 1000.0f),
+                          static_cast<unsigned>(pendingStart), label);
+    }
     if (cached != nullptr && !cached->InFrame && laidOut && FailureMarker == nullptr && PendingCount - pendingStart <= 96u) {
         cached->Drawable = text;
         cached->Font = font;
         cached->Texture = texture;
         cached->RenderStateVersion = renderStateVersion;
+        cached->ClipCacheValid = clipCacheable;
+        cached->ClipComponentCount = static_cast<std::uint8_t>(componentCount);
+        cached->ClipRegionCount = static_cast<std::uint8_t>(clipCount);
+        for (unsigned i = 0; i < componentCount; ++i) cached->ClipComponents[i] = clipComponents[i];
+        for (unsigned i = 0; i < clipCount; ++i) cached->ClipRegions[i] = clipRegions[i];
         __builtin_memcpy(cached->Key, key, sizeof(key));
         cached->Content = content;
         cached->Count = static_cast<std::uint16_t>(PendingCount - pendingStart);
+        cached->RawCount = static_cast<std::uint16_t>(rawCount);
+        cached->RawReady = rawReady;
+        cached->MinY = 32767; cached->MaxY = -32768;
         const std::uint32_t revision = AllocatePacketRevision();
         for (std::uint16_t i = 0; i < cached->Count; ++i) {
+            for (const auto& vertex : PendingOrder[pendingStart + i]->Vertices) {
+                if (vertex.y < cached->MinY) cached->MinY = vertex.y;
+                if (vertex.y > cached->MaxY) cached->MaxY = vertex.y;
+            }
             cached->Quads[i] = Pending[pendingStart + i];
             cached->Quads[i].PacketRevision = revision;
         }

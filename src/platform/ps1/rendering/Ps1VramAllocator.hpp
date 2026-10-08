@@ -1,125 +1,51 @@
 #pragma once
-
 #include <cstdint>
-
 namespace helengine::ps1 {
-
-/// <summary>
-/// Places textures and palettes in the VRAM the display buffers do not use.
-///
-/// VRAM is 1024 by 512 sixteen-bit words. PSYQo puts the two 320 by 240 display buffers in the left
-/// 320 columns, so everything from column 320 rightwards is free. Allocation is a bump over that
-/// region in shelves: a request takes space on the current shelf, and a request that does not fit
-/// starts a new shelf below. Nothing is ever freed, because the authored milestone loads one scene
-/// and keeps it; a scene that unloads textures needs a real allocator instead.
-/// </summary>
+// Fixed reservations exclude display buffers. Freed resources never move live resources.
 class Ps1VramAllocator {
 public:
-    /// <summary>First VRAM column not used by the display buffers.</summary>
-    static constexpr std::uint16_t FirstFreeColumn = 320;
-
-    /// <summary>VRAM width in 16-bit words.</summary>
-    static constexpr std::uint16_t VramWidth = 1024;
-
-    /// <summary>VRAM height in rows.</summary>
-    static constexpr std::uint16_t VramHeight = 512;
-
-    /// <summary>CLUT X coordinates are encoded by the GPU in 16-word units.</summary>
-    static constexpr std::uint16_t ClutXAlignment = 16;
-
-    /// <summary>A PS1 texture page spans 64 sixteen-bit VRAM words horizontally.</summary>
-    static constexpr std::uint16_t TexturePageWidthWords = 64;
-
-    /// <summary>Returns the allocator to its empty state, releasing every placement at once.</summary>
-    void Reset() {
-        NextColumn = FirstFreeColumn;
-        ShelfTop = 0;
-        ShelfHeight = 0;
-    }
-
-    /// <summary>
-    /// Reserves a rectangle measured in 16-bit VRAM words.
-    /// </summary>
-    /// <param name="widthInWords">Width in 16-bit words; a paletted texture packs several pixels per word.</param>
-    /// <param name="heightInRows">Height in VRAM rows, which equals the texture's pixel height.</param>
-    /// <param name="x">Receives the VRAM column of the placement.</param>
-    /// <param name="y">Receives the VRAM row of the placement.</param>
-    /// <returns>False when the request does not fit in the remaining region, leaving x and y untouched.</returns>
-    bool TryAllocate(std::uint16_t widthInWords, std::uint16_t heightInRows, std::uint16_t& x, std::uint16_t& y) {
-        return TryAllocateAligned(widthInWords, heightInRows, 1, x, y);
-    }
-
-    /// <summary>Places a texture without crossing a horizontal GPU texture-page boundary.</summary>
-    bool TryAllocateWithinHorizontalPage(std::uint16_t widthInWords, std::uint16_t heightInRows,
-                                         std::uint16_t& x, std::uint16_t& y) {
-        if (widthInWords == 0 || widthInWords > TexturePageWidthWords) return false;
-        Ps1VramAllocator trial = *this;
-        std::uint16_t trialX = 0, trialY = 0;
-        if (trial.TryAllocate(widthInWords, heightInRows, trialX, trialY) &&
-            trialX % TexturePageWidthWords + widthInWords <= TexturePageWidthWords) {
-            *this = trial;
-            x = trialX;
-            y = trialY;
-            return true;
-        }
-        return TryAllocateAligned(widthInWords, heightInRows, TexturePageWidthWords, x, y);
-    }
-
-    /// <summary>
-    /// Reserves an aligned rectangle, for VRAM structures such as CLUTs whose GPU address has
-    /// fewer horizontal bits than a raw VRAM word coordinate.
-    /// </summary>
-    /// <param name="widthInWords">Width in 16-bit VRAM words.</param>
-    /// <param name="heightInRows">Height in VRAM rows.</param>
-    /// <param name="horizontalAlignment">Required X-coordinate alignment in words.</param>
-    /// <param name="x">Receives the aligned VRAM column.</param>
-    /// <param name="y">Receives the VRAM row of the placement.</param>
-    /// <returns>False when the request does not fit, leaving outputs and allocator state untouched.</returns>
-    bool TryAllocateAligned(std::uint16_t widthInWords, std::uint16_t heightInRows,
-                            std::uint16_t horizontalAlignment, std::uint16_t& x, std::uint16_t& y) {
-        if (widthInWords == 0 || heightInRows == 0 || horizontalAlignment == 0) { return false; }
-        if (widthInWords > VramWidth - FirstFreeColumn || heightInRows > VramHeight) { return false; }
-
-        std::uint32_t shelfTop = ShelfTop;
-        std::uint32_t shelfHeight = ShelfHeight;
-        std::uint32_t nextColumn = NextColumn;
-        const auto alignColumn = [horizontalAlignment](std::uint32_t column) {
-            const std::uint32_t remainder = column % horizontalAlignment;
-            return remainder == 0 ? column : column + horizontalAlignment - remainder;
-        };
-        std::uint32_t alignedColumn = alignColumn(nextColumn);
-        if (alignedColumn + widthInWords > VramWidth) {
-            // The aligned request does not fit this shelf, so try a fresh one below it.
-            shelfTop += shelfHeight;
-            shelfHeight = 0;
-            nextColumn = FirstFreeColumn;
-            alignedColumn = alignColumn(nextColumn);
-        }
-        if (shelfTop + heightInRows > VramHeight || alignedColumn + widthInWords > VramWidth) return false;
-
-        ShelfTop = static_cast<std::uint16_t>(shelfTop);
-        ShelfHeight = static_cast<std::uint16_t>(heightInRows > shelfHeight ? heightInRows : shelfHeight);
-        NextColumn = static_cast<std::uint16_t>(alignedColumn + widthInWords);
-        x = static_cast<std::uint16_t>(alignedColumn);
-        y = ShelfTop;
-        return true;
-    }
-
-    /// <summary>Number of VRAM words already handed out, for budget diagnostics.</summary>
-    std::uint32_t UsedWords() const {
-        return static_cast<std::uint32_t>(ShelfTop) * (VramWidth - FirstFreeColumn) +
-               static_cast<std::uint32_t>(NextColumn - FirstFreeColumn) * ShelfHeight;
-    }
-
+ static constexpr std::uint16_t FirstFreeColumn=320, VramWidth=1024, VramHeight=512;
+ static constexpr std::uint16_t ClutXAlignment=16, TexturePageWidthWords=64, Capacity=64;
+ struct Region { std::uint16_t x=0,y=0,width=0,height=0; };
+ void Reset() { for(auto& r:Regions) r={}; }
+ bool TryAllocate(std::uint16_t w,std::uint16_t h,std::uint16_t& x,std::uint16_t& y) { return Allocate(w,h,1,false,x,y); }
+ bool TryAllocateAligned(std::uint16_t w,std::uint16_t h,std::uint16_t a,std::uint16_t& x,std::uint16_t& y) { return Allocate(w,h,a,false,x,y); }
+ bool TryAllocateWithinHorizontalPage(std::uint16_t w,std::uint16_t h,std::uint16_t& x,std::uint16_t& y) {
+  if(w>64||h>256) return false;
+  return Allocate(w,h,1,true,x,y);
+ }
+ bool Release(std::uint16_t x,std::uint16_t y,std::uint16_t w,std::uint16_t h) {
+  for(auto& r:Regions) if(r.width&&r.x==x&&r.y==y&&r.width==w&&r.height==h) { r={};return true; }
+  return false;
+ }
+ std::uint32_t UsedWords() const { std::uint32_t n=0;for(const auto& r:Regions)n+=std::uint32_t(r.width)*r.height;return n; }
+ std::uint16_t LiveCount() const { std::uint16_t n=0;for(const auto& r:Regions)if(r.width)++n;return n; }
+ const Region& GetRegion(std::uint16_t i) const { return Regions[i]; }
 private:
-    /// <summary>Next free column on the current shelf.</summary>
-    std::uint16_t NextColumn = FirstFreeColumn;
-
-    /// <summary>Row where the current shelf begins.</summary>
-    std::uint16_t ShelfTop = 0;
-
-    /// <summary>Height of the tallest entry placed on the current shelf.</summary>
-    std::uint16_t ShelfHeight = 0;
+ static std::uint32_t Align(std::uint32_t v,std::uint16_t a) { return (v+a-1u)/a*a; }
+ bool Fits(std::uint32_t x,std::uint32_t y,std::uint16_t w,std::uint16_t h) const {
+  if(x+w>VramWidth||y+h>VramHeight) return false;
+  for(const auto& r:Regions) if(r.width&&x<r.x+r.width&&r.x<x+w&&y<r.y+r.height&&r.y<y+h)return false;
+  return true;
+ }
+ bool Allocate(std::uint16_t w,std::uint16_t h,std::uint16_t a,bool page,std::uint16_t& x,std::uint16_t& y) {
+  if(!w||!h||!a||w>VramWidth-FirstFreeColumn||h>VramHeight)return false;
+  Region* slot=nullptr;for(auto& r:Regions)if(!r.width){slot=&r;break;}if(!slot)return false;
+  std::uint32_t bestX=VramWidth,bestY=VramHeight;
+  for(std::uint16_t row=0;row<Capacity+2;++row) {
+   if(row>=2&&!Regions[row-2].width)continue;
+   std::uint32_t cy=row==0?0:row==1?256:Regions[row-2].y+Regions[row-2].height;
+   if(page&&cy%256+h>256)cy=Align(cy,256);
+   for(std::uint16_t col=0;col<Capacity+1;++col) {
+    if(col&&!Regions[col-1].width)continue;
+    std::uint32_t cx=Align(col==0?FirstFreeColumn:Regions[col-1].x+Regions[col-1].width,a);
+    if(page&&cx%64+w>64)cx=Align(cx,64);
+    if((cy<bestY||(cy==bestY&&cx<bestX))&&Fits(cx,cy,w,h)){bestX=cx;bestY=cy;}
+   }
+  }
+  if(bestY==VramHeight)return false;
+  *slot={static_cast<std::uint16_t>(bestX),static_cast<std::uint16_t>(bestY),w,h};x=slot->x;y=slot->y;return true;
+ }
+ Region Regions[Capacity]{};
 };
-
-}  // namespace helengine::ps1
+} // namespace helengine::ps1

@@ -16,7 +16,7 @@ public sealed class PlayStation1ContentStager {
     /// <param name="artifacts">Cooked artifacts declared by the build manifest.</param>
     /// <param name="cookWorkItems">Builder-owned cook work items whose outputs this builder wrote.</param>
     /// <param name="sourceRootPath">Package-source root that owns the cooked files.</param>
-    /// <param name="stagingRootPath">Fresh staging root; any previous content is removed.</param>
+    /// <param name="stagingRootPath">Staging root; previous content is removed only after input preflight succeeds.</param>
     /// <param name="cancellationToken">Cancellation token for the copy loop.</param>
     /// <returns>Staged assets keyed by the relative path the runtime will request.</returns>
     public IReadOnlyList<PlayStation1StagedAsset> Stage(
@@ -29,29 +29,27 @@ public sealed class PlayStation1ContentStager {
         if (cookWorkItems == null) throw new ArgumentNullException(nameof(cookWorkItems));
         if (string.IsNullOrWhiteSpace(sourceRootPath)) throw new ArgumentException("Source root is required.", nameof(sourceRootPath));
         if (string.IsNullOrWhiteSpace(stagingRootPath)) throw new ArgumentException("Staging root is required.", nameof(stagingRootPath));
+        cancellationToken.ThrowIfCancellationRequested();
 
         string sourceRoot = Path.GetFullPath(sourceRootPath);
         string stagingRoot = Path.GetFullPath(stagingRootPath);
-        if (string.Equals(TrimSeparators(sourceRoot), TrimSeparators(stagingRoot), StringComparison.OrdinalIgnoreCase)) {
-            throw new InvalidOperationException("PS1 source and staging roots must be different directories.");
+        if (IsSameOrNested(sourceRoot, stagingRoot) || IsSameOrNested(stagingRoot, sourceRoot)) {
+            throw new InvalidOperationException("PS1 source and staging roots must not overlap.");
         }
-        if (Directory.Exists(stagingRoot)) Directory.Delete(stagingRoot, true);
-        Directory.CreateDirectory(stagingRoot);
+        if (!Directory.Exists(sourceRoot)) throw new DirectoryNotFoundException($"PS1 package source root does not exist: {sourceRoot}");
+        RejectReparseRootOrAncestor(sourceRoot);
+        RejectReparseRootOrAncestor(stagingRoot);
 
+        // Resolve the entire input list before replacing an earlier staging tree. A malformed
+        // declaration late in the manifest must not leave a partial replacement behind.
         HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
-        List<PlayStation1StagedAsset> staged = new(artifacts.Count);
+        List<(string RelativePath, string SourcePath, string DestinationPath)> planned = new(artifacts.Count);
         foreach (PlatformBuildArtifact artifact in artifacts) {
             cancellationToken.ThrowIfCancellationRequested();
+            ArgumentNullException.ThrowIfNull(artifact);
             string relativePath = NormalizeRelativePath(artifact.RelativePath);
             if (!paths.Add(relativePath)) throw new InvalidOperationException($"PS1 cooked artifact path collision: '{relativePath}'.");
-            string sourcePath = ResolveUnderRoot(sourceRoot, relativePath);
-            if (!File.Exists(sourcePath)) {
-                throw new FileNotFoundException($"PS1 cooked artifact '{relativePath}' was not found under package source root '{sourceRoot}'.", sourcePath);
-            }
-            string destinationPath = ResolveUnderRoot(stagingRoot, relativePath);
-            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath) ?? stagingRoot);
-            File.Copy(sourcePath, destinationPath, true);
-            staged.Add(new PlayStation1StagedAsset(relativePath, destinationPath));
+            PlanFile(relativePath);
         }
 
         foreach (PlatformCookWorkItem workItem in cookWorkItems) {
@@ -61,18 +59,30 @@ public sealed class PlayStation1ContentStager {
             // A cook work item that also appears as a manifest artifact is already staged; staging it
             // twice would be a path collision rather than a duplicate copy.
             if (!paths.Add(relativePath)) continue;
-            string sourcePath = ResolveUnderRoot(sourceRoot, relativePath);
-            if (!File.Exists(sourcePath)) {
-                throw new FileNotFoundException($"PS1 cooked work item output '{relativePath}' was not found under package source root '{sourceRoot}'.", sourcePath);
-            }
-            string destinationPath = ResolveUnderRoot(stagingRoot, relativePath);
-            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath) ?? stagingRoot);
-            File.Copy(sourcePath, destinationPath, true);
-            staged.Add(new PlayStation1StagedAsset(relativePath, destinationPath));
+            PlanFile(relativePath);
         }
 
-        staged.Sort((left, right) => string.CompareOrdinal(left.RelativePath, right.RelativePath));
+        cancellationToken.ThrowIfCancellationRequested();
+        if (Directory.Exists(stagingRoot)) Directory.Delete(stagingRoot, true);
+        Directory.CreateDirectory(stagingRoot);
+        List<PlayStation1StagedAsset> staged = new(planned.Count);
+        foreach (var file in planned.OrderBy(file => file.RelativePath, StringComparer.Ordinal)) {
+            cancellationToken.ThrowIfCancellationRequested();
+            RejectReparseRootOrAncestor(file.SourcePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(file.DestinationPath) ?? stagingRoot);
+            File.Copy(file.SourcePath, file.DestinationPath, true);
+            staged.Add(new PlayStation1StagedAsset(file.RelativePath, file.DestinationPath));
+        }
         return staged;
+
+        void PlanFile(string relativePath) {
+            string sourcePath = ResolveUnderRoot(sourceRoot, relativePath);
+            RejectReparseRootOrAncestor(sourcePath);
+            if (!File.Exists(sourcePath)) {
+                throw new FileNotFoundException($"PS1 cooked artifact '{relativePath}' was not found under package source root '{sourceRoot}'.", sourcePath);
+            }
+            planned.Add((relativePath, sourcePath, ResolveUnderRoot(stagingRoot, relativePath)));
+        }
     }
 
     /// <summary>
@@ -113,7 +123,9 @@ public sealed class PlayStation1ContentStager {
     public static string NormalizeRelativePath(string path) {
         if (string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("PS1 cooked artifact path is required.");
         string normalized = path.Replace('\\', '/');
-        if (normalized.StartsWith('/') || Path.IsPathRooted(normalized) || normalized.Split('/').Any(segment => segment == ".." || segment == "." || segment.Length == 0)) {
+        if (normalized.StartsWith('/') || Path.IsPathRooted(normalized) || normalized.Split('/').Any(segment =>
+                segment == ".." || segment == "." || segment.Length == 0 ||
+                segment.Contains(':') || segment.EndsWith('.') || segment.EndsWith(' '))) {
             throw new InvalidOperationException($"PS1 cooked artifact path must remain relative and canonical: '{path}'.");
         }
         return normalized;
@@ -131,4 +143,21 @@ public sealed class PlayStation1ContentStager {
 
     /// <summary>Removes trailing separators so two spellings of one directory compare equal.</summary>
     static string TrimSeparators(string path) => path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    /// <summary>Detects equality and parent-child overlap using complete path segments.</summary>
+    static bool IsSameOrNested(string candidate, string root) {
+        string normalizedCandidate = Path.TrimEndingDirectorySeparator(candidate);
+        string normalizedRoot = Path.TrimEndingDirectorySeparator(root);
+        return normalizedCandidate.Equals(normalizedRoot, StringComparison.OrdinalIgnoreCase) ||
+            normalizedCandidate.StartsWith(Path.EndsInDirectorySeparator(normalizedRoot) ? normalizedRoot : normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Rejects filesystem aliases before copying content or clearing an existing staging tree.</summary>
+    static void RejectReparseRootOrAncestor(string path) {
+        for (string current = Path.GetFullPath(path); !string.IsNullOrEmpty(current); current = Path.GetDirectoryName(current)) {
+            if ((File.Exists(current) || Directory.Exists(current)) && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0) {
+                throw new InvalidOperationException($"PS1 package path contains a reparse point: '{current}'.");
+            }
+        }
+    }
 }

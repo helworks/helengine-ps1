@@ -1481,7 +1481,7 @@ The `-CpuProfile` authored Release build passed the retail RAM check with a
 972,800 B PS-X payload, 1,059,576 B static footprint and 906,504 B heap. The
 profile instrumentation adds 10,240 B to the payload and 10,248 B to static
 RAM compared with the unprofiled r4 build. The first detailed report covered
-frames 601–1,200 over 119.899 s and recorded Update 4.615 ms, Draw 106.410 ms,
+frames 601-1,200 over 119.899 s and recorded Update 4.615 ms, Draw 106.410 ms,
 boundary 1.019 ms and between-frame 5.767 ms. It reported dropped=0 and
 resets=0.
 
@@ -1500,3 +1500,108 @@ PS-X EXE
 `C:/dev/helworks/builds/helengine-ps1/20260925-133728-418-Release-5437dbfc8a6c4a8cba2621041854c211/out/helengine_ps1.ps-exe`,
 and guest log
 `C:/dev/helworks/emus/ps1/duckstation-windows-x64-release/duckstation.log`.
+
+### Animated menu shape-cache measurement (2026-09-25)
+
+The fixed 160-entry geometry cache and borderless-shape fast path were tested
+against the preceding interactive-menu profile. Across frames 601-1,200,
+Draw fell from 106.410 ms to 90.381 ms; `ui_shape_draw` fell from 86.300 ms to
+70.141 ms and `ui_queue_visit` from 97.966 ms to 81.932 ms. This measures the
+combined change, not the cache alone. The updated window still takes about
+10 frames per second, with Update at 4.615 ms, boundary at 1.020 ms and 3D
+mesh drawing at 0.013 ms.
+
+The cache diagnostic recorded 8 hits and 140 misses among 148 shapes. All 140
+misses were position changes; drawable identity, scale, rotation, size, border
+and viewport stayed unchanged. These are exactly the moving background shapes
+authored by `DemoDiscStandardMainMenuSceneFactory`: 29 vertical grid lines,
+18 horizontal grid lines and 93 scanlines on the 1280x720 menu canvas. Their
+parent grid and scanline entities move every update, so their world positions
+change and their cached screen geometry cannot be reused. The remaining eight
+shapes hit. The 160-entry cache occupies 12,800 bytes in the heap-allocated PS1
+render manager, so its current hit rate does not justify keeping that memory
+cost as the menu's primary optimization.
+
+The main cost is per-shape CPU work for the animated 2D background: `ui_shape_draw`
+uses 70.141 ms of the 90.381 ms Draw phase. The 3D scene and GPU submission are
+not the cause. The measured cache was removed after this run because 8 hits do
+not justify its 12,800 B runtime table. The borderless-shape fast path remains.
+
+A follow-up profile without the cache kept the result: Draw averaged 88.916 ms,
+`ui_shape_draw` 68.631 ms and `ui_queue_visit` 80.469 ms, versus 106.410 ms,
+86.300 ms and 97.966 ms before either change. The menu still runs at about 10
+frames per second, so removing the cache costs no measurable speed and recovers
+memory. In this comparison the no-cache build's static footprint was 1,059,576 B
+and heap capacity 906,504 B, versus 1,061,624 B and 904,456 B with the cache.
+After scene load, `heap_end` was 0x80170180 without the cache and 0x80173b88 with
+it (14,856 B lower; the linker static-footprint change also shifts the heap
+base).
+
+The next useful optimization is to represent the grid and scanlines as a small
+number of pre-scaled background quads/assets instead of 140 moving rectangle
+drawables. That preserves their motion while removing per-line world-transform
+and shape-queue work.
+
+Evidence: final diagnostic manifest
+`C:/dev/helworks/builds/helengine-ps1/20260925-151733-258-Release-dc68ee4fd69745049fe3c83cab20e099/manifest.json`,
+cache-free comparison manifest
+`C:/dev/helworks/builds/helengine-ps1/20260925-152849-761-Release-7a5a74f74db34d90ad75032596b89872/manifest.json`,
+and guest log
+`C:/dev/helworks/emus/ps1/duckstation-windows-x64-release/duckstation.log`.
+
+### PS1 menu texture background (2026-09-25)
+
+The build-local menu exporter replaces all 140 animated grid and scanline
+RoundedRects with four tiled SpriteComponents. They share one 240x240 indexed
+4-bit texture (28,800 texel bytes, about 28.1 KiB) and rotate around the canvas
+center at 1 degree per second clockwise using the existing
+`DemoDisc.rendering.AxisRotationComponent`. The 240-pixel tile width and height
+make the 12-pixel vertical grid, 16-pixel horizontal grid and 3-pixel scanline
+periods repeat without seams. The authoring scene in demodisc is not modified;
+the PS1 texture and metadata are copied into the temporary authored-build stage.
+
+The unprofiled Release build completed with a 940,032 B PS-X executable,
+1,024,752 B static footprint and 941,328 B heap capacity. Compared with the
+unprofiled static-menu build using the same shared engine revision, the PS-X
+executable is 24,576 B smaller and heap capacity is 24,576 B higher. These are
+build-size measurements; runtime frame time and visual motion still require an
+emulator check.
+
+Evidence: exporter report
+`C:/dev/helworks/builds/helengine-ps1/interactive-menu-texture-rotate-20260925-r3/export/menu/report.json`,
+authored manifest
+`C:/dev/helworks/builds/helengine-ps1/interactive-menu-texture-rotate-20260925-r3/authored/editor-output/manifest.json`,
+PS-X manifest
+`C:/dev/helworks/builds/helengine-ps1/20260925-164504-508-Release-1ae8af035f2445a7bf57805464c52900/manifest.json`,
+and authored build summary
+`C:/dev/helworks/builds/helengine-ps1/interactive-menu-texture-rotate-20260925-r3/authored/authored-build.json`.
+
+### Builder staging preflight (2026-10-07)
+
+`PlayStation1ContentStager` now rejects equal or nested package-source/staging
+roots in either direction before clearing previous staging. It checks
+cancellation, normalizes the full declaration list, detects artifact path
+collisions, checks input existence, and rejects reparse points in roots and
+source ancestors before replacement. Existing manifest/work-item overlap
+continues to stage one copy, and generated control textures retain PS1 filtering.
+Colon-bearing path segments and segments ending in a dot or space are rejected
+to prevent Windows alternate streams and filesystem aliases.
+
+Six new regression cases failed before the correction: both nested-root cases,
+precanceled empty staging, and preservation after a missing, colliding, or
+traversing declaration. After correction the complete platformbuilder suite
+passed **44/44** tests, including equal-root preservation and three Windows path
+alias rejection cases. Tests used
+the existing shared engine revision
+`9c9bbbf2c58da7e16751a9fa1c473656bc1eacbb` without switching or editing it.
+
+Command: `dotnet test
+tests/helengine.ps1.platformbuilder.tests/helengine.ps1.platformbuilder.tests.csproj
+--artifacts-path C:/dev/helworks/builds/helengine-ps1/coord-20261007/artifacts`.
+Before/after TRX evidence is under
+`C:/dev/helworks/builds/helengine-ps1/coord-20261007/tests-before/before.trx` and
+`C:/dev/helworks/builds/helengine-ps1/coord-20261007/tests-after/after.trx`.
+These are managed builder tests; the native toolchain and emulator were not run
+for this staging correction. I/O failures or cancellation during the subsequent
+copy loop can still leave an incomplete staging tree; preflight preserves prior
+staging for the validated input failures above.

@@ -2,3 +2,20 @@
 __pycache__/
 *.py[cod]
 out/
+
+# Build outputs and local tooling caches.
+bin/
+obj/
+*.log
+/.claude/
+/.local/
+/.superpowers/
+
+# Accidental shell redirection outputs.
+/-e
+/1E-05
+/Drawable
+
+# Generated sample raster and metadata; recreate with the source generator.
+/assets/textures/ps1/main_menu_background.png
+/assets/textures/ps1/main_menu_background.png.hmeta

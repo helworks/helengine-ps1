@@ -1,4 +1,11 @@
 #include "platform/ps1/profiling/Ps1CpuProfileSink.hpp"
+
+// Numeric guest-memory counters let a host profiler inspect native work without
+// BIOS logging stalls or screen capture. They are linked only in CPU-profile builds.
+extern "C" {
+volatile std::uint64_t helengine_ps1_profile_native_us[128]{};
+volatile std::uint32_t helengine_ps1_profile_native_calls[128]{};
+}
 #include "IUpdateable.hpp"
 
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
@@ -12,7 +19,7 @@ std::uint64_t Ps1CpuProfileSink::ReadMicroseconds() {
 }
 
 void Ps1CpuProfileSink::RecordStage(::RuntimeCpuProfileStage stage, std::uint64_t elapsedMicroseconds) {
-    Window.AddStage(static_cast<std::uint32_t>(stage), elapsedMicroseconds);
+    RecordNativeStage(static_cast<std::uint32_t>(stage), elapsedMicroseconds);
 }
 
 void Ps1CpuProfileSink::RecordUpdateable(::IUpdateable* item, std::int32_t index, std::uint32_t typeHash,
@@ -68,6 +75,10 @@ void Ps1CpuProfileSink::EndFrame(std::uint64_t sequence, std::uint32_t vblank) {
 }
 
 void Ps1CpuProfileSink::RecordNativeStage(std::uint32_t stageId, std::uint64_t elapsedMicroseconds) {
+    if (stageId < 128u) {
+        helengine_ps1_profile_native_us[stageId] = helengine_ps1_profile_native_us[stageId] + elapsedMicroseconds;
+        helengine_ps1_profile_native_calls[stageId] = helengine_ps1_profile_native_calls[stageId] + 1u;
+    }
     Window.AddStage(stageId, elapsedMicroseconds);
 }
 

@@ -16,7 +16,7 @@ public:
     /// <summary>Bits per pixel the GPU samples with; the PS1 supports 4 and 8 for paletted textures.</summary>
     enum class Depth : std::uint8_t { FourBit = 4, EightBit = 8 };
 
-    /// <summary>Releases the VRAM reservation bookkeeping; VRAM itself is reclaimed by an allocator reset.</summary>
+    /// <summary>Marks disposed; the manager releases both reservations after GPU completion.</summary>
     void Dispose() override {
         set_IsDisposed(true);
     }
@@ -32,6 +32,9 @@ public:
 
     /// <summary>VRAM row of the colour lookup table.</summary>
     std::uint16_t ClutY = 0;
+
+    std::uint16_t WidthInWords = 0;
+    std::uint16_t PaletteEntries = 0;
 
     /// <summary>Bit depth the GPU must sample this texture with.</summary>
     Depth PixelDepth = Depth::EightBit;

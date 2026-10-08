@@ -92,8 +92,6 @@ inline bool TryBuildSpriteQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint s
 
     const float width = size.width * scale.x;
     const float height = size.height * scale.y;
-    const float centerX = position.x + width * 0.5f;
-    const float centerY = position.y + height * 0.5f;
     const bool unrotated = rotationRadians == 0.0f;
     const float cosine = unrotated ? 1.0f : Cos(rotationRadians);
     const float sine = unrotated ? 0.0f : Sin(rotationRadians);
@@ -108,10 +106,10 @@ inline bool TryBuildSpriteQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint s
         float x = position.x + localX[i];
         float y = position.y + localY[i];
         if (!unrotated) {
-            const float dx = localX[i] - width * 0.5f;
-            const float dy = localY[i] - height * 0.5f;
-            x = centerX + dx * cosine - dy * sine;
-            y = centerY + dx * sine + dy * cosine;
+            // Entity.Position already includes the parent's rotation of its
+            // local origin. Rotate only the size basis around that world origin.
+            x = position.x + localX[i] * cosine - localY[i] * sine;
+            y = position.y + localX[i] * sine + localY[i] * cosine;
         }
         if (!ToScreen(x, y, viewport, result[i].x, result[i].y)) return false;
         const float u = sourceU[i] * (textureSize.width - 1.0f);
@@ -124,12 +122,79 @@ inline bool TryBuildSpriteQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint s
     return true;
 }
 
+// PS1 polygons exceeding 1023 columns or 511 rows are discarded by the GPU.
+// Split oversized affine sprites, keeping the original position and UV basis.
+inline bool TrySplitGpuSafeSpriteQuad(const Ps1UiVertex (&input)[4],
+                                      Ps1UiVertex (&output)[16][4], std::uint16_t& count) {
+    count = 0;
+    int minX = input[0].x, maxX = minX, minY = input[0].y, maxY = minY;
+    for (const auto& vertex : input) {
+        if (vertex.x < minX) minX = vertex.x;
+        if (vertex.x > maxX) maxX = vertex.x;
+        if (vertex.y < minY) minY = vertex.y;
+        if (vertex.y > maxY) maxY = vertex.y;
+    }
+    const int spanX = maxX - minX, spanY = maxY - minY;
+    const int divisions = spanX <= 1023 && spanY <= 511 ? 1 :
+                          spanX <= 2044 && spanY <= 1020 ? 2 : 4;
+    const auto interpolate = [&](int x, int y) {
+        const int weights[4] = {(divisions-x)*(divisions-y), x*(divisions-y), (divisions-x)*y, x*y};
+        const int denominator = divisions * divisions;
+        int px = 0, py = 0, u = 0, v = 0;
+        for (unsigned i = 0; i < 4; ++i) {
+            px += input[i].x * weights[i]; py += input[i].y * weights[i];
+            u += input[i].u * weights[i]; v += input[i].v * weights[i];
+        }
+        const auto round = [denominator](int value) {
+            return (value + (value >= 0 ? denominator/2 : -denominator/2)) / denominator;
+        };
+        return Ps1UiVertex{static_cast<std::int16_t>(round(px)), static_cast<std::int16_t>(round(py)),
+                           static_cast<std::uint8_t>(round(u)), static_cast<std::uint8_t>(round(v))};
+    };
+    for (int y = 0; y < divisions; ++y) for (int x = 0; x < divisions; ++x) {
+        auto& quad = output[count];
+        quad[0] = interpolate(x, y); quad[1] = interpolate(x+1, y);
+        quad[2] = interpolate(x, y+1); quad[3] = interpolate(x+1, y+1);
+        for (unsigned a = 0; a < 4; ++a) for (unsigned b = a+1; b < 4; ++b) {
+            const int dx = quad[a].x - quad[b].x, dy = quad[a].y - quad[b].y;
+            if (dx < -1023 || dx > 1023 || dy < -511 || dy > 511) { count = 0; return false; }
+        }
+        ++count;
+    }
+    return true;
+}
+
 struct Ps1GlyphTexelRect {
     std::int16_t x;
     std::int16_t y;
     std::int16_t width;
     std::int16_t height;
 };
+
+// Axis-aligned glyphs retain their atlas interval when cropped by a carousel
+// ancestor. Round UV intersections once; fully clipped glyphs emit no packet.
+inline bool ClipPs1GlyphQuad(Ps1UiVertex (&v)[4], Ps1ScreenRect clip) {
+    const int x0 = v[0].x, y0 = v[0].y, x1 = v[3].x, y1 = v[3].y;
+    const int left = x0 > clip.x ? x0 : clip.x;
+    const int top = y0 > clip.y ? y0 : clip.y;
+    const int right = x1 < clip.x + clip.width ? x1 : clip.x + clip.width;
+    const int bottom = y1 < clip.y + clip.height ? y1 : clip.y + clip.height;
+    if (left >= right || top >= bottom || x0 >= x1 || y0 >= y1) return false;
+    if (left == x0 && top == y0 && right == x1 && bottom == y1) return true;
+    const int du = v[3].u - v[0].u, dv = v[3].v - v[0].v;
+    const auto lerp = [](int start, int delta, int offset, int extent) {
+        return static_cast<std::uint8_t>(start + (delta * offset + extent / 2) / extent);
+    };
+    const auto u0 = lerp(v[0].u, du, left - x0, x1 - x0);
+    const auto u1 = lerp(v[0].u, du, right - x0, x1 - x0);
+    const auto v0 = lerp(v[0].v, dv, top - y0, y1 - y0);
+    const auto v1 = lerp(v[0].v, dv, bottom - y0, y1 - y0);
+    v[0] = {static_cast<std::int16_t>(left), static_cast<std::int16_t>(top), u0, v0};
+    v[1] = {static_cast<std::int16_t>(right), static_cast<std::int16_t>(top), u1, v0};
+    v[2] = {static_cast<std::int16_t>(left), static_cast<std::int16_t>(bottom), u0, v1};
+    v[3] = {static_cast<std::int16_t>(right), static_cast<std::int16_t>(bottom), u1, v1};
+    return true;
+}
 
 /// Resolves normalized font metrics once so repeated glyphs do not redo the atlas arithmetic.
 inline bool TryResolveGlyphTexels(Ps1UiRectF sourceRect, Ps1UiSize textureSize, Ps1GlyphTexelRect& texels) {
@@ -227,7 +292,7 @@ inline bool TryBuildRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoin
     Ps1UiVertex transformedInner[4]{};
     for (unsigned i = 0; i < 4; ++i) {
         if (!transform(outer[i], transformedOuter[i]) ||
-            !transform(inner[i], transformedInner[i])) return false;
+            (borderThickness > 0.0f && !transform(inner[i], transformedInner[i]))) return false;
     }
 
     const unsigned needed = borderThickness > 0.0f ? 10u : 2u;

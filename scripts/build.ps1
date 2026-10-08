@@ -13,13 +13,17 @@ param(
 
     [string] $GeneratedCoreRoot,
 
+    [string] $NativeObjectCacheRoot,
+
     [switch] $Authored,
 
     [switch] $CpuProfile,
 
     [string] $AuthoredContentRoot,
 
-    [string] $AuthoredDeclarations
+    [string] $AuthoredDeclarations,
+
+    [string] $RunRoot
 )
 
 Set-StrictMode -Version Latest
@@ -66,8 +70,17 @@ if ($CoreBoot) {
 
 $sourceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $buildRoot = Join-Path (Split-Path $sourceRoot -Parent) 'builds\helengine-ps1'
-$runName = '{0}-{1}-{2}' -f (Get-Date -Format 'yyyyMMdd-HHmmss-fff'), $Configuration, ([guid]::NewGuid().ToString('N'))
-$runRoot = Join-Path $buildRoot $runName
+if ([string]::IsNullOrWhiteSpace($RunRoot)) { $RunRoot = $env:HELENGINE_PS1_BUILD_RUN_ROOT }
+if ([string]::IsNullOrWhiteSpace($RunRoot)) {
+    $runName = '{0}-{1}-{2}' -f (Get-Date -Format 'yyyyMMdd-HHmmss-fff'), $Configuration, ([guid]::NewGuid().ToString('N'))
+    $runRoot = Join-Path $buildRoot $runName
+} else {
+    $runRoot = [IO.Path]::GetFullPath($RunRoot)
+    $buildPrefix = [IO.Path]::GetFullPath($buildRoot).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    if (-not $runRoot.StartsWith($buildPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "RunRoot must be a child of $buildRoot"
+    }
+}
 $sdkPatchRelative = 'patches\nugget\0001-frame-completion.patch'
 $toolchainLockRelative = 'toolchain.lock.json'
 
@@ -172,6 +185,29 @@ function Get-RelativeInputPath {
     return [Uri]::UnescapeDataString($baseUri.MakeRelativeUri($fullUri).ToString()).Replace('/', '\')
 }
 
+function Sync-NativeBuildFiles {
+    param(
+        [Parameter(Mandatory = $true)][string] $SourceRoot,
+        [Parameter(Mandatory = $true)][string] $DestinationRoot
+    )
+
+    New-Item -ItemType Directory -Force -Path $DestinationRoot | Out-Null
+    $patchedSdkInputs = @(
+        'third_party/nugget/psyqo/gpu.hh',
+        'third_party/nugget/psyqo/psyqo.mk',
+        'third_party/nugget/psyqo/src/gpu.cpp',
+        'third_party/nugget/psyqo/src/ordering-table.cpp'
+    )
+    foreach ($file in Get-ChildItem -LiteralPath $SourceRoot -Recurse -File -Force) {
+        $relative = Get-RelativeInputPath -BasePath $SourceRoot -FullPath $file.FullName
+        if ($file.Extension -notin @('.o', '.dep', '.a') -and $relative.Replace('\', '/') -notin $patchedSdkInputs) { continue }
+        $destination = Join-Path $DestinationRoot $relative
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+        Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
+        (Get-Item -LiteralPath $destination).LastWriteTimeUtc = $file.LastWriteTimeUtc
+    }
+}
+
 function Copy-InputPath {
     param(
         [Parameter(Mandatory = $true)][string] $SourcePath,
@@ -207,10 +243,11 @@ function Get-InputHashes {
         'patch-apply.log', 'patch-apply.stdout.log', 'patch-apply.stderr.log',
         'build.log', 'docker.stdout.log', 'docker.stderr.log',
         'retail-memory-check.log', 'retail-memory-check.stdout.log',
-        'retail-memory-check.stderr.log', 'manifest.json'
+        'retail-memory-check.stderr.log', 'manifest.json', 'last-launch.json'
     )
     $items = @()
     foreach ($file in Get-ChildItem -LiteralPath $Root -Recurse -File -Force) {
+        if ($file.Name -match '^duckstation(?:[-.].*)?\.(?:log|json)$') { continue }
         $relative = Get-RelativeInputPath -BasePath $Root -FullPath $file.FullName
         $segments = $relative -split '[\\/]'
         if ($segments -contains '.git' -or $segments -contains 'out' -or $file.Name -in $ignoredGeneratedFiles -or $file.Extension -in $ignoredExtensions) { continue }
@@ -221,6 +258,9 @@ function Get-InputHashes {
 }
 
 New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
+if ($Authored -and $env:HELENGINE_MENU_GENERATED_AUDIT_SCRIPT) {
+    & $env:HELENGINE_MENU_GENERATED_AUDIT_SCRIPT -GeneratedCoreRoot $GeneratedCoreRoot
+}
 $failureExitCode = 1
 try {
     $toolchainLockPath = Join-Path $sourceRoot $toolchainLockRelative
@@ -235,6 +275,10 @@ try {
     if ($sdkStatus.Count -ne 0) {
         throw "SDK checkout is dirty at $sdkSource"
     }
+    if ([string]::IsNullOrWhiteSpace($NativeObjectCacheRoot)) {
+        $NativeObjectCacheRoot = Join-Path $buildRoot ('cache\ps1\' + $Configuration)
+    }
+    $NativeObjectCacheRoot = [IO.Path]::GetFullPath($NativeObjectCacheRoot)
     $sdkSubmoduleRevisions = [ordered]@{}
     foreach ($submodule in $toolchainLock.sdk.submodules.PSObject.Properties) {
         $submoduleRelative = ([string]$submodule.Name).Replace('/', '\')
@@ -303,6 +347,34 @@ try {
         throw ("SDK frame-completion patch application failed with exit code {0}{1}{2}" -f $patchApplyExit, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $patchApply.StdoutPath -StderrPath $patchApply.StderrPath))
     }
 
+    # The PSYQo SDK rules emit .o/.dep files beside sources and libpsyqo.a beside
+    # the SDK makefile. Keep those files in the disposable run tree during the build,
+    # then mirror only those compiler outputs into a separate profile/flags cache.
+    # Source files and final artifacts remain isolated in their immutable run folder.
+    $nativeFingerprintInput = @(
+        $dockerImage,
+        [string]$toolchainLock.sdk.commit,
+        $sdkRevision,
+        (Get-FileHash -LiteralPath $patchCopy -Algorithm SHA256).Hash.ToLowerInvariant(),
+        $Configuration,
+        $DemoMode,
+        [string][bool]$CoreBoot,
+        [string][bool]$Authored,
+        [string][bool]$CpuProfile,
+        ($SdkDefine -join ' ')
+    ) -join "`n"
+    $fingerprintBytes = [Text.Encoding]::UTF8.GetBytes($nativeFingerprintInput)
+    $fingerprintHasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $nativeFingerprint = ([BitConverter]::ToString($fingerprintHasher.ComputeHash($fingerprintBytes))).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $fingerprintHasher.Dispose()
+    }
+    $nativeCachePath = Join-Path $NativeObjectCacheRoot ('objects-' + $nativeFingerprint)
+    if (Test-Path -LiteralPath $nativeCachePath -PathType Container) {
+        Sync-NativeBuildFiles -SourceRoot $nativeCachePath -DestinationRoot $runRoot
+    }
+
     $inputHashes = @(Get-InputHashes -Root $runRoot)
     $buildLog = Join-Path $runRoot 'build.log'
     $dockerStdout = Join-Path $runRoot 'docker.stdout.log'
@@ -328,6 +400,7 @@ try {
         $failureExitCode = $dockerExit
         throw ("Docker build failed with exit code {0}{1}{2}" -f $dockerExit, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $dockerResult.StdoutPath -StderrPath $dockerResult.StderrPath))
     }
+    Sync-NativeBuildFiles -SourceRoot $runRoot -DestinationRoot $nativeCachePath
 
     $artifactDirectory = Join-Path $runRoot 'out'
     $elf = Join-Path $artifactDirectory 'helengine_ps1.elf'

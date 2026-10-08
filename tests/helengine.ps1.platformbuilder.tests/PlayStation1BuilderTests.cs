@@ -244,6 +244,77 @@ public sealed class PlayStation1BuilderTests : IDisposable {
         Assert.Throws<FileNotFoundException>(() => stager.Stage([new PlatformBuildArtifact("cooked/missing.hasset", "sha256:aa", "scene", "shared")], [], packageSource, staging, CancellationToken.None));
     }
 
+    [Theory]
+    [InlineData("equal")]
+    [InlineData("staging-parent")]
+    [InlineData("source-parent")]
+    public void ContentStager_RejectsOverlappingRootsWithoutDeletingInputs(string overlap) {
+        string source = Path.Combine(Root, "package-source");
+        string staging = overlap switch {
+            "equal" => source,
+            "staging-parent" => Root,
+            _ => Path.Combine(source, "staging")
+        };
+        WriteFile(Path.Combine(source, "input.hasset"), "original source");
+        WriteFile(Path.Combine(staging, "keep.txt"), "original staging");
+
+        Assert.Throws<InvalidOperationException>(() => new PlayStation1ContentStager().Stage(
+            [], [], source, staging, CancellationToken.None));
+
+        Assert.Equal("original source", File.ReadAllText(Path.Combine(source, "input.hasset")));
+        Assert.Equal("original staging", File.ReadAllText(Path.Combine(staging, "keep.txt")));
+    }
+
+    [Fact]
+    public void ContentStager_CancellationPreservesPreviousStaging() {
+        string source = Path.Combine(Root, "package-source");
+        Directory.CreateDirectory(source);
+        string staging = Path.Combine(Root, "staging");
+        WriteFile(Path.Combine(staging, "keep.txt"), "previous staging");
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+
+        Assert.ThrowsAny<OperationCanceledException>(() => new PlayStation1ContentStager().Stage(
+            [], [], source, staging, cancellation.Token));
+
+        Assert.Equal("previous staging", File.ReadAllText(Path.Combine(staging, "keep.txt")));
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("collision")]
+    [InlineData("traversal")]
+    [InlineData("trailing-dot")]
+    [InlineData("trailing-space")]
+    [InlineData("stream")]
+    public void ContentStager_InvalidDeclarationPreservesPreviousStaging(string failure) {
+        string source = Path.Combine(Root, "package-source");
+        WriteFile(Path.Combine(source, "cooked", "valid.hasset"), "valid");
+        string staging = Path.Combine(Root, "staging");
+        WriteFile(Path.Combine(staging, "keep.txt"), "previous staging");
+        string invalidPath = failure switch {
+            "collision" => "cooked\\valid.hasset",
+            "traversal" => "../invalid.hasset",
+            "trailing-dot" => "cooked/valid.hasset.",
+            "trailing-space" => "cooked/valid.hasset ",
+            "stream" => "cooked/valid.hasset:stream",
+            _ => "cooked/missing.hasset"
+        };
+        PlatformBuildArtifact[] artifacts = [
+            new("cooked/valid.hasset", "sha256:aa", "scene", "shared"),
+            new(invalidPath, "sha256:bb", "scene", "shared")
+        ];
+
+        Exception exception = Record.Exception(() => new PlayStation1ContentStager().Stage(
+            artifacts, [], source, staging, CancellationToken.None));
+        if (failure == "missing") Assert.IsType<FileNotFoundException>(exception);
+        else Assert.IsType<InvalidOperationException>(exception);
+
+        Assert.Equal("previous staging", File.ReadAllText(Path.Combine(staging, "keep.txt")));
+        Assert.False(File.Exists(Path.Combine(staging, "cooked", "valid.hasset")));
+        Assert.Equal("valid", File.ReadAllText(Path.Combine(source, "cooked", "valid.hasset")));
+    }
+
     [Fact]
     public void StartupManifestWriter_WritesCatalogForStartupScene() {
         string generatedCore = Path.Combine(Root, "generated-core");

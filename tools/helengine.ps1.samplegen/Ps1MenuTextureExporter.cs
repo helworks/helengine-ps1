@@ -190,7 +190,6 @@ public sealed class Ps1MenuTextureExporter {
 
     static SceneComponentAssetRecord CreateSpriteRecord(SceneAssetReference reference, int index, int2 size, float4 sourceRect) {
         SpriteComponent sprite = new() {
-            RenderOrder2D = 0,
             SourceRect = sourceRect,
             Size = size,
             Color = new byte4(255, 255, 255, 255)

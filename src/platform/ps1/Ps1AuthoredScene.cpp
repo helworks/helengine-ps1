@@ -18,6 +18,7 @@
 #include "platform/ps1/Ps1RenderManager3D.hpp"
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
 #include "platform/ps1/Ps1SceneBootstrap.hpp"
+#include "platform/ps1/Ps1SceneTransitionFrame.hpp"
 #if defined(PS1_CPU_PROFILE)
 #include "platform/ps1/profiling/Ps1CpuProfileSink.hpp"
 #endif
@@ -163,9 +164,19 @@ void Ps1AuthoredScene::frame() {
     const std::uint64_t updateEndUs = he_cpp_custom::MonotonicMicroseconds();
     m_core->CompleteFrameBoundary();
     const std::uint64_t boundaryEndUs = he_cpp_custom::MonotonicMicroseconds();
+    auto* cameras = m_core->get_ObjectManager()->get_Cameras();
+    const bool waitingForTransitionCamera = WaitForSceneTransitionCamera(
+        m_core->get_SceneManager()->get_IsSceneTransitionActive(), cameras == nullptr ? 0 : cameras->get_Count());
     // Core::Draw drives the render manager, which converts the loaded camera and drawable into GTE
     // poses and submits the frame through the shared renderer with the camera's clear color.
-    m_core->Draw();
+    // Keep both parity contexts' submission sequence advancing even while the old camera
+    // has been unloaded. Skipping a submission would return to a queued context one renderer
+    // sequence too early after the SDK flips the display parity.
+    if (waitingForTransitionCamera) {
+        psyqo::Kernel::assert(m_renderer.QueueClear(gpu()), "PS1_TRANSITION_CLEAR_FRAME_FAILED");
+    } else {
+        m_core->Draw();
+    }
     m_lastFrameEndUs = he_cpp_custom::MonotonicMicroseconds();
 #if defined(PS1_CPU_PROFILE)
     if (profileCapture) {
@@ -226,7 +237,7 @@ void Ps1AuthoredScene::frame() {
                           static_cast<unsigned>(m_frameSequence), static_cast<unsigned>(vblankFrame),
                           static_cast<unsigned>(m_missedVblanks), static_cast<unsigned>(m_worstVblankDelta), psyqo_heap_end());
     }
-    if (m_frameSequence == 1 || periodicReport || !m_render3D->LastFrameSubmitted()) {
+    if (m_frameSequence == 1 || periodicReport || (!waitingForTransitionCamera && !m_render3D->LastFrameSubmitted())) {
         ReportSceneState(m_frameSequence == 1 ? "PS1_AUTHORED_FIRST_FRAME" : "PS1_AUTHORED_FRAME");
         ramsyscall_printf(
             "PS1_AUTHORED_DRAW visited=%u submitted=%u backface=%u degenerate=%u invalid=%u flags=%08x packets=%u highwater=%u "
@@ -235,7 +246,8 @@ void Ps1AuthoredScene::frame() {
             static_cast<unsigned>(stats.backfaceRejected), static_cast<unsigned>(stats.degenerate), static_cast<unsigned>(stats.invalid),
             static_cast<unsigned>(stats.projectionFlags), static_cast<unsigned>(stats.packetCount),
             static_cast<unsigned>(stats.highWaterBytes), stats.guardsIntact ? 1u : 0u, static_cast<unsigned>(stats.failure));
-        ramsyscall_printf("PS1_AUTHORED_UI sprites=%u shapes=%u texts=%u glyph_quads=%u shape_triangles_requested=%u skipped_text=%u submitted_sprites=%u submitted_triangles=%u failure=%s\n",
+        const Ps1ScreenRect& viewport = m_render2D->LastViewport();
+        ramsyscall_printf("PS1_AUTHORED_UI sprites=%u shapes=%u texts=%u glyph_quads=%u shape_triangles_requested=%u skipped_text=%u submitted_sprites=%u submitted_triangles=%u viewport=%d,%d,%d,%d ui_y=%d,%d sprite_y=%d,%d shape_y=%d,%d text_y=%d,%d failure=%s\n",
                           static_cast<unsigned>(m_render2D->LastVisitedSprites()),
                           static_cast<unsigned>(m_render2D->LastVisitedShapes()),
                           static_cast<unsigned>(m_render2D->LastVisitedTexts()),
@@ -243,6 +255,16 @@ void Ps1AuthoredScene::frame() {
                           static_cast<unsigned>(m_render2D->LastRequestedShapeTriangles()),
                           static_cast<unsigned>(m_render2D->LastSkippedTexts()), static_cast<unsigned>(stats.uiSprites),
                           static_cast<unsigned>(stats.uiTriangles),
+                          static_cast<int>(viewport.x), static_cast<int>(viewport.y), static_cast<int>(viewport.width),
+                          static_cast<int>(viewport.height),
+                          m_render2D->HasLastUiBounds() ? static_cast<int>(m_render2D->LastUiMinY()) : -1,
+                          m_render2D->HasLastUiBounds() ? static_cast<int>(m_render2D->LastUiMaxY()) : -1,
+                          m_render2D->HasLastSpriteBounds() ? static_cast<int>(m_render2D->LastSpriteMinY()) : -1,
+                          m_render2D->HasLastSpriteBounds() ? static_cast<int>(m_render2D->LastSpriteMaxY()) : -1,
+                          m_render2D->HasLastShapeBounds() ? static_cast<int>(m_render2D->LastShapeMinY()) : -1,
+                          m_render2D->HasLastShapeBounds() ? static_cast<int>(m_render2D->LastShapeMaxY()) : -1,
+                          m_render2D->HasLastTextBounds() ? static_cast<int>(m_render2D->LastTextMinY()) : -1,
+                          m_render2D->HasLastTextBounds() ? static_cast<int>(m_render2D->LastTextMaxY()) : -1,
                           m_render2D->LastFailureMarker() == nullptr ? "none" : m_render2D->LastFailureMarker());
         // The pose proves the GTE inputs come from the loaded camera and cube transforms; the VBlank
         // frame count against the scene sequence shows cadence; the heap end shows steady-state allocation.
@@ -271,7 +293,7 @@ void Ps1AuthoredScene::frame() {
                           static_cast<unsigned>(stats.litVertexColors[0]), static_cast<unsigned>(stats.litVertexColors[1]),
                           static_cast<unsigned>(stats.litVertexColors[2]));
     }
-    if (!m_render3D->LastFrameSubmitted()) {
+    if (!waitingForTransitionCamera && !m_render3D->LastFrameSubmitted()) {
         const char* marker = m_render3D->LastFailureMarker();
         psyqo::Kernel::assert(false, marker == nullptr ? "PS1_RENDER_FRAME_REJECTED" : marker);
     }

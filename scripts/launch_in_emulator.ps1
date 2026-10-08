@@ -116,6 +116,8 @@ $requiredSettings = [ordered]@{
     'GPU/PGXPEnable' = 'false'
     'Console/Enable8MBRAM' = 'false'
     'CPU/OverclockEnable' = 'false'
+    'Display/CropMode' = 'Borders'
+    'Display/FineCropMode' = 'None'
 }
 foreach ($required in $requiredSettings.GetEnumerator()) {
     if (-not $settings.ContainsKey($required.Key)) {
@@ -126,9 +128,8 @@ foreach ($required in $requiredSettings.GetEnumerator()) {
     }
 }
 
-$launchStamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
-$launchLog = Join-Path $manifestDirectory ('duckstation-' + $launchStamp + '.log')
-$errorLog = Join-Path $manifestDirectory ('duckstation-' + $launchStamp + '.err.log')
+$launchLog = Join-Path $manifestDirectory 'duckstation.log'
+$errorLog = Join-Path $manifestDirectory 'duckstation.err.log'
 $quotedExecutablePath = Quote-ProcessArgument -Value $exePath
 $arguments = @('-batch')
 if (-not $ShowWindow) { $arguments += '-nogui' }

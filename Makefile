@@ -36,6 +36,9 @@ SRCS = src/main.cpp \
        src/platform/ps1/rendering/Ps1RotationClock.cpp
 
 ifeq ($(CORE_BOOT),1)
+# Retain SDK abort messages in platform RAM without modifying the pinned SDK checkout.
+LDFLAGS += -Wl,--wrap=_ZN5psyqo6Kernel8Internal5abortEPKcSt15source_location
+LDFLAGS += -Wl,--wrap=_ZN5psyqo6Kernel8Internal5abortEv
 ifeq ($(wildcard generated-core/helengine_core_unity.cpp),)
 $(error Core boot requires the final generated-core/helengine_core_unity.cpp)
 endif

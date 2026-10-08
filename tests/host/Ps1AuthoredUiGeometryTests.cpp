@@ -8,6 +8,32 @@
 using namespace helengine::ps1;
 
 int main() {
+    // The rotating authored backdrop previously crossed the GPU's vertical edge limit.
+    unsigned oversizedFrames = 0;
+    for (unsigned degrees = 0; degrees < 360; ++degrees) {
+        const float angle = degrees * 3.14159265358979323846f / 180.0f;
+        const float c = std::cos(angle), s = std::sin(angle);
+        Ps1UiVertex backdrop[4]{}, safe[16][4]{};
+        std::uint16_t count = 0;
+        assert(TryBuildSpriteQuad({160.0f - 192.0f*c + 256.0f*s, 120.0f - 192.0f*s - 256.0f*c},
+            {384.0f, 512.0f}, {1.0f, 1.0f}, angle, {0,0,1,1}, {256,256}, {0,0,320,240}, backdrop));
+        assert(TrySplitGpuSafeSpriteQuad(backdrop, safe, count));
+        if (count > 1) ++oversizedFrames;
+        assert(count == 1 || count == 4);
+        for (unsigned q = 0; q < count; ++q) for (unsigned a = 0; a < 4; ++a) for (unsigned b = a+1; b < 4; ++b) {
+            assert(std::abs(safe[q][a].x-safe[q][b].x) <= 1023);
+            assert(std::abs(safe[q][a].y-safe[q][b].y) <= 511);
+        }
+        assert(safe[0][0].x == backdrop[0].x && safe[0][0].y == backdrop[0].y);
+        assert(safe[count-1][3].x == backdrop[3].x && safe[count-1][3].y == backdrop[3].y);
+        assert(safe[0][0].u == 0 && safe[count-1][3].u == 255);
+        if (count == 4) {
+            assert(safe[0][1].x == safe[1][0].x && safe[0][1].y == safe[1][0].y);
+            assert(safe[0][1].u == safe[1][0].u && safe[0][1].v == safe[1][0].v);
+            assert(safe[0][2].x == safe[2][0].x && safe[0][2].v == safe[2][0].v);
+        }
+    }
+    assert(oversizedFrames > 0 && oversizedFrames < 360);
     Ps1VramAllocator allocator;
     std::uint16_t textureX = 0;
     std::uint16_t textureY = 0;
@@ -28,7 +54,13 @@ int main() {
     assert(pageAllocator.TryAllocateAligned(256, 1, 16, x, y) && x == 608);
     assert(pageAllocator.TryAllocateWithinHorizontalPage(64, 128, x, y));
     assert(x == 896 && y == 0 && x % 64 == 0);
-    assert(pageAllocator.TryAllocateAligned(16, 1, 16, x, y) && x == 960);
+    assert(pageAllocator.TryAllocateAligned(16, 1, 16, x, y) && x % 16 == 0);
+
+    Ps1VramAllocator fontAtlasAllocator;
+    assert(fontAtlasAllocator.TryAllocateWithinHorizontalPage(16, 64, x, y));
+    assert(fontAtlasAllocator.TryAllocateWithinHorizontalPage(16, 64, x, y));
+    assert(fontAtlasAllocator.TryAllocateWithinHorizontalPage(64, 256, x, y));
+    assert(x % 64 == 0 && y % 256 == 0);
 
     Ps1UiVertex quad[4]{};
     const Ps1ScreenRect full{0, 0, 320, 240};
@@ -52,7 +84,19 @@ int main() {
 
     assert(TryBuildSpriteQuad({10.0f, 10.0f}, {2.0f, 2.0f}, {1.0f, 1.0f}, 1.57079632679f,
                               {0.0f, 0.0f, 1.0f, 1.0f}, {2.0f, 2.0f}, full, quad));
-    assert(std::abs(quad[0].x - 12) <= 1 && std::abs(quad[0].y - 10) <= 1);
+    assert(quad[0].x == 10 && quad[0].y == 10);
+    assert(quad[1].x == 10 && quad[1].y == 12);
+    assert(quad[2].x == 8 && quad[2].y == 10);
+    // Parent center (640,360), child local (-768,-768), rotated 90 degrees.
+    assert(TryBuildSpriteQuad({1408.0f, -408.0f}, {1536.0f, 1536.0f}, {1.0f, 1.0f}, 1.57079632679f,
+                              {0.0f, 0.0f, 1.0f, 1.0f}, {256.0f, 256.0f}, full, quad));
+    assert((quad[0].x + quad[3].x) / 2 == 640);
+    assert((quad[0].y + quad[3].y) / 2 == 360);
+    assert(TryBuildGlyphQuadTexels({10, 20}, {10, 10}, {40, 50, 20, 20}, 256, 256, full, quad));
+    assert(ClipPs1GlyphQuad(quad, {12, 22, 6, 6}));
+    assert(quad[0].x == 12 && quad[0].y == 22 && quad[0].u == 44 && quad[0].v == 54);
+    assert(quad[3].x == 18 && quad[3].y == 28 && quad[3].u == 56 && quad[3].v == 66);
+    assert(!ClipPs1GlyphQuad(quad, {0, 0, 5, 5}));
 
     // The font's L occupies texels (41..45, 33..41). At 1:1 size, each
     // destination pixel must sample its matching texel, including the last row
