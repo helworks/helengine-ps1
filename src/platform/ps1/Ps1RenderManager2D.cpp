@@ -28,6 +28,7 @@
 #include "platform/ps1/profiling/Ps1CpuProfileSink.hpp"
 #endif
 #include "platform/ps1/rendering/Ps1RuntimeTexture.hpp"
+#include "platform/ps1/rendering/Ps1IndexedTextureUpload.hpp"
 #include "platform/ps1/rendering/Ps1VramDiagnostics.hpp"
 #include "platform/ps1/rendering/Ps1TextLayout.hpp"
 #include "runtime/array.hpp"
@@ -367,7 +368,6 @@ bool Ps1RenderManager2D::FlushPendingInVisitOrder() {
             const Ps1RuntimeTexture& texture = *pending.Texture;
             queued = Renderer.QueueAuthoredUiSprite(pending.Vertices, texture.VramX, texture.VramY, texture.ClutX,
                                                      texture.ClutY, texture.PixelsPerWord(),
-                                                     texture.PixelDepth == Ps1RuntimeTexture::Depth::FourBit,
                                                      pending.Color, pending.SemiTransparent, pending.Bucket,
                                                      pending.PacketRevision == 0 ? nullptr : &pending,
                                                      pending.PacketRevision);
@@ -436,7 +436,7 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     if (asset == nullptr) {
         he_cpp_custom::Fail("PS1 cooked texture asset has the wrong type");
     }
-    ::RuntimeTexture* texture = UploadPalettedTexture(asset);
+    ::RuntimeTexture* texture = UploadTexture(asset);
     asset->Dispose();
     delete asset;
     return texture;
@@ -446,27 +446,28 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     if (data == nullptr) {
         he_cpp_custom::Fail("PS1 texture creation received a null texture asset");
     }
-    return UploadPalettedTexture(data);
+    return UploadTexture(data);
 }
 
-::RuntimeTexture* Ps1RenderManager2D::UploadPalettedTexture(::TextureAsset* asset) {
+::RuntimeTexture* Ps1RenderManager2D::UploadTexture(::TextureAsset* asset) {
     const bool fourBit = asset->ColorFormat == ::TextureAssetColorFormat::Indexed4;
     const bool eightBit = asset->ColorFormat == ::TextureAssetColorFormat::Indexed8;
-    if (!fourBit && !eightBit) {
+    const bool directColor = asset->ColorFormat == ::TextureAssetColorFormat::Ps1Bgr555;
+    if (!fourBit && !eightBit && !directColor) {
         ramsyscall_printf("PS1_TEXTURE_UNSUPPORTED_FORMAT format=%d\n", static_cast<int>(asset->ColorFormat));
-        he_cpp_custom::Fail("PS1 textures must be cooked to Indexed4 or Indexed8");
+        he_cpp_custom::Fail("PS1 textures must be cooked to Indexed4, Indexed8 or Ps1Bgr555");
     }
-    if (asset->Colors == nullptr || asset->PaletteColors == nullptr) {
+    if (asset->Colors == nullptr || (!directColor && asset->PaletteColors == nullptr)) {
         he_cpp_custom::Fail("PS1 cooked texture is missing its pixels or its palette");
     }
 
-    const std::uint16_t pixelsPerWord = fourBit ? 4u : 2u;
+    const std::uint16_t pixelsPerWord = fourBit ? 4u : eightBit ? 2u : 1u;
     const std::uint16_t width = asset->Width;
     const std::uint16_t height = asset->Height;
-    if (width == 0 || height == 0) {
+    if (width == 0 || height == 0 || width > 256 || height > 256) {
         ramsyscall_printf("PS1_TEXTURE_UNSUPPORTED_SIZE width=%u height=%u\n", static_cast<unsigned>(width),
                           static_cast<unsigned>(height));
-        he_cpp_custom::Fail("PS1 textures must have positive dimensions");
+        he_cpp_custom::Fail("PS1 textures must have dimensions from 1 to 256 texels");
     }
 
     // Indexed rows are transferred as 16-bit VRAM words. Keep the authored logical width (which
@@ -487,10 +488,9 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     // Indexed pixels are stored row-major by the cook. Pad each row to a complete 16-bit VRAM
     // word for odd authored widths while keeping the runtime texture's logical width unchanged.
     const std::uint32_t expectedBytes = static_cast<std::uint32_t>(widthInWords) * height * 2u;
-    const std::uint32_t sourceRowBytes = fourBit
-        ? (static_cast<std::uint32_t>(width) + 1u) / 2u
-        : static_cast<std::uint32_t>(width);
-    const std::uint32_t sourceBytes = sourceRowBytes * height;
+    const std::uint32_t sourceRowBytes = static_cast<std::uint32_t>(width) * (directColor ? 2u : 1u);
+    const std::uint32_t pixelCount = static_cast<std::uint32_t>(width) * height;
+    const std::uint32_t sourceBytes = fourBit ? (pixelCount + 1u) / 2u : sourceRowBytes * height;
     if (static_cast<std::uint32_t>(asset->Colors->Length) != sourceBytes) {
         ramsyscall_printf("PS1_TEXTURE_PIXEL_LENGTH expected=%u actual=%u\n", static_cast<unsigned>(sourceBytes),
                           static_cast<unsigned>(asset->Colors->Length));
@@ -500,8 +500,13 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     __builtin_memset(uploadBytes, 0, expectedBytes);
     const std::uint32_t uploadRowBytes = static_cast<std::uint32_t>(widthInWords) * 2u;
     for (std::uint16_t row = 0; row < height; ++row) {
-        __builtin_memcpy(uploadBytes + static_cast<std::uint32_t>(row) * uploadRowBytes,
-                         &(*asset->Colors)[static_cast<std::uint32_t>(row) * sourceRowBytes], sourceRowBytes);
+        auto* destination = uploadBytes + static_cast<std::uint32_t>(row) * uploadRowBytes;
+        if (fourBit) {
+            // The shared Indexed4 payload is packed continuously, even across odd-width rows.
+            PackPs1Indexed4UploadRow(&(*asset->Colors)[0], static_cast<std::uint32_t>(row) * width, width, destination);
+        } else {
+            __builtin_memcpy(destination, &(*asset->Colors)[static_cast<std::uint32_t>(row) * sourceRowBytes], sourceRowBytes);
+        }
     }
     psyqo::Rect pixelRegion;
     pixelRegion.pos = {{.x = static_cast<std::int16_t>(vramX), .y = static_cast<std::int16_t>(vramY)}};
@@ -509,11 +514,11 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     Gpu.uploadToVRAM(reinterpret_cast<const std::uint16_t*>(uploadBytes), pixelRegion);
     delete[] uploadBytes;
 
-    const std::uint16_t paletteEntries = fourBit ? FourBitPaletteEntries : EightBitPaletteEntries;
-    const std::uint32_t suppliedEntries = static_cast<std::uint32_t>(asset->PaletteColors->Length) / 4u;
+    const std::uint16_t paletteEntries = directColor ? 0u : fourBit ? FourBitPaletteEntries : EightBitPaletteEntries;
+    const std::uint32_t suppliedEntries = directColor ? 0u : static_cast<std::uint32_t>(asset->PaletteColors->Length) / 4u;
     std::uint16_t clutX = 0;
     std::uint16_t clutY = 0;
-    if (!VramAllocator.TryAllocateAligned(paletteEntries, 1, Ps1VramAllocator::ClutXAlignment, clutX, clutY)) {
+    if (!directColor && !VramAllocator.TryAllocateAligned(paletteEntries, 1, Ps1VramAllocator::ClutXAlignment, clutX, clutY)) {
         VramAllocator.Release(vramX,vramY,widthInWords,height);
         helengine_ps1_vram_diagnostics.FailedWidth=paletteEntries;
         helengine_ps1_vram_diagnostics.FailedHeight=1;
@@ -533,7 +538,7 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     psyqo::Rect paletteRegion;
     paletteRegion.pos = {{.x = static_cast<std::int16_t>(clutX), .y = static_cast<std::int16_t>(clutY)}};
     paletteRegion.size = {{.w = static_cast<std::int16_t>(paletteEntries), .h = 1}};
-    Gpu.uploadToVRAM(palette, paletteRegion);
+    if (!directColor) Gpu.uploadToVRAM(palette, paletteRegion);
 
     Ps1RuntimeTexture* texture = new Ps1RuntimeTexture();
     texture->set_Width(width);
@@ -544,11 +549,11 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     texture->ClutY = clutY;
     texture->WidthInWords=widthInWords;
     texture->PaletteEntries=paletteEntries;
-    texture->PixelDepth = fourBit ? Ps1RuntimeTexture::Depth::FourBit : Ps1RuntimeTexture::Depth::EightBit;
+    texture->PixelDepth = fourBit ? Ps1RuntimeTexture::Depth::FourBit : eightBit ? Ps1RuntimeTexture::Depth::EightBit : Ps1RuntimeTexture::Depth::SixteenBit;
     ++UploadedTextures;
     publishVram(VramAllocator);
     ramsyscall_printf("PS1_TEXTURE_UPLOADED w=%u h=%u bpp=%u vram=%u,%u clut=%u,%u used_words=%u\n",
-                      static_cast<unsigned>(width), static_cast<unsigned>(height), fourBit ? 4u : 8u,
+                      static_cast<unsigned>(width), static_cast<unsigned>(height), fourBit ? 4u : eightBit ? 8u : 16u,
                       static_cast<unsigned>(vramX), static_cast<unsigned>(vramY), static_cast<unsigned>(clutX),
                       static_cast<unsigned>(clutY), static_cast<unsigned>(VramAllocator.UsedWords()));
     return texture;
@@ -565,7 +570,7 @@ void Ps1RenderManager2D::ReleaseTexture(::RuntimeTexture* texture) {
     auto& diagnostics=helengine_ps1_vram_diagnostics;
     diagnostics.BeforeReleaseWords=VramAllocator.UsedWords();
     if(!VramAllocator.Release(native->VramX,native->VramY,native->WidthInWords,native->get_Height()) ||
-       !VramAllocator.Release(native->ClutX,native->ClutY,native->PaletteEntries,1))
+       (native->PaletteEntries != 0 && !VramAllocator.Release(native->ClutX,native->ClutY,native->PaletteEntries,1)))
         he_cpp_custom::Fail("PS1 texture VRAM reservation ownership mismatch");
     diagnostics.AfterReleaseWords=VramAllocator.UsedWords();
     diagnostics.Releases=diagnostics.Releases+1;

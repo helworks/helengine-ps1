@@ -31,6 +31,11 @@ public sealed class PlayStation1SourceTextureDecoder {
             return DecodeEngineTextureAsset(sourceAssetPath);
         }
 
+        if (string.Equals(Path.GetExtension(sourceAssetPath), ".tim", StringComparison.OrdinalIgnoreCase)) {
+            using FileStream stream = File.OpenRead(sourceAssetPath);
+            return new helengine.editor.PlayStationTimTextureImporter().ImportTexture(stream);
+        }
+
         return DecodeImageFile(sourceAssetPath);
     }
 
@@ -83,7 +88,7 @@ public sealed class PlayStation1SourceTextureDecoder {
     }
 
     /// <summary>
-    /// Reads one serialized engine texture asset, which the editor already stored as straight RGBA pixel bytes.
+    /// Reads one serialized engine texture and expands its validated linear pixel storage into straight RGBA.
     /// </summary>
     /// <param name="sourceAssetPath">Absolute engine texture asset path.</param>
     /// <returns>Raw texture asset containing straight RGBA pixel bytes.</returns>
@@ -92,25 +97,19 @@ public sealed class PlayStation1SourceTextureDecoder {
         if (deserializedAsset is not TextureAsset sourceTexture) {
             throw new InvalidOperationException($"PS1 texture cook source '{sourceAssetPath}' did not contain a texture asset.");
         }
-        if (sourceTexture.ColorFormat != TextureAssetColorFormat.Rgba32) {
-            throw new InvalidOperationException($"PS1 texture cook source '{sourceAssetPath}' must be Rgba32; received '{sourceTexture.ColorFormat}'.");
-        }
         if (sourceTexture.Width < 1 || sourceTexture.Height < 1) {
             throw new InvalidOperationException("Source textures must have positive dimensions.");
         }
 
-        int expectedByteLength = sourceTexture.Width * sourceTexture.Height * 4;
-        if (sourceTexture.Colors == null || sourceTexture.Colors.Length != expectedByteLength) {
-            throw new InvalidOperationException($"PS1 texture cook source '{sourceAssetPath}' pixel bytes must match Width * Height * 4.");
-        }
+        byte[] decodedColors = TextureAssetPixelCodec.DecodeToRgba32(sourceTexture);
 
         return new TextureAsset {
             Width = sourceTexture.Width,
             Height = sourceTexture.Height,
-            Colors = sourceTexture.Colors,
+            Colors = decodedColors,
             PaletteColors = Array.Empty<byte>(),
             ColorFormat = TextureAssetColorFormat.Rgba32,
-            AlphaPrecision = sourceTexture.AlphaPrecision
+            AlphaPrecision = TextureAssetAlphaPrecision.A8
         };
     }
 }

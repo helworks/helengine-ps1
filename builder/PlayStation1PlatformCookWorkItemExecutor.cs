@@ -5,7 +5,7 @@ namespace helengine.ps1.builder;
 
 /// <summary>
 /// Executes builder-owned PS1 cook work items, writing cooked runtime payloads into the package source root.
-/// The image work is the engine's own <see cref="TextureAssetProcessor"/>, which resizes and quantises; this
+/// Image work uses <see cref="PlayStation1TextureCooker"/> for shared resizing and quantization plus native words; this
 /// type only resolves the settings, the source and the destination for one work item.
 /// </summary>
 public sealed class PlayStation1PlatformCookWorkItemExecutor {
@@ -13,7 +13,7 @@ public sealed class PlayStation1PlatformCookWorkItemExecutor {
     readonly PlayStation1SourceTextureDecoder SourceTextureDecoder = new();
 
     /// <summary>Resizes and quantises decoded textures into the cooked PS1 runtime form.</summary>
-    readonly TextureAssetProcessor TextureProcessor = new();
+    readonly PlayStation1TextureCooker TextureProcessor = new();
 
     /// <summary>Source asset kinds this executor cooks.</summary>
     static readonly string[] SupportedSourceKinds = ["texture", "font-atlas-texture"];

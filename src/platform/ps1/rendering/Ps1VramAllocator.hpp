@@ -14,9 +14,9 @@ public:
   return TryAllocateWithinHorizontalPage(w,h,4,x,y);
  }
  bool TryAllocateWithinHorizontalPage(std::uint16_t w,std::uint16_t h,std::uint16_t pixelsPerWord,std::uint16_t& x,std::uint16_t& y) {
-  if(pixelsPerWord!=4&&pixelsPerWord!=2) return false;
+  if(pixelsPerWord!=4&&pixelsPerWord!=2&&pixelsPerWord!=1) return false;
   // TPAGE bases remain 64-word aligned; 256 texels span 64 words at 4bpp,
-  // or 128 words at 8bpp. The latter may cross a 64-word base subdivision.
+  // 128 words at 8bpp, or 256 words at 16bpp. Wider pages cross base subdivisions.
   const std::uint16_t pageWidthWords=256/pixelsPerWord;
   if(w>pageWidthWords||h>256) return false;
   return Allocate(w,h,1,pageWidthWords,x,y);

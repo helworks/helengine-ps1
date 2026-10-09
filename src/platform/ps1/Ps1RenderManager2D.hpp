@@ -126,10 +126,10 @@ private:
     static constexpr std::uint16_t PendingUiCapacity = Ps1FramePacketLimits::UiTriangles +
                                                         Ps1FramePacketLimits::TexturedTriangles / 2u;
 
-    /// <summary>Uploads one decoded paletted texture asset into VRAM.</summary>
-    /// <param name="asset">Cooked texture asset carrying indexed pixels and a palette.</param>
-    /// <returns>Runtime texture naming the VRAM page and palette.</returns>
-    ::RuntimeTexture* UploadPalettedTexture(::TextureAsset* asset);
+    /// <summary>Uploads one indexed or direct-color texture asset into VRAM.</summary>
+    /// <param name="asset">Cooked pixels with a palette only when the format is indexed.</param>
+    /// <returns>Runtime texture naming the VRAM page and its optional CLUT.</returns>
+    ::RuntimeTexture* UploadTexture(::TextureAsset* asset);
 
     bool ResolveViewport(::ICamera* camera, Ps1ScreenRect& viewport) const;
     void Reject(const char* marker);

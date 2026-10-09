@@ -594,7 +594,7 @@ bool Ps1RasterRenderer::QueueAuthoredUiTriangle(const Ps1UiTriangle& triangle, p
 
 bool Ps1RasterRenderer::QueueAuthoredUiSprite(const Ps1UiVertex (&vertices)[4], std::uint16_t vramX,
                                               std::uint16_t vramY, std::uint16_t clutX, std::uint16_t clutY,
-                                              std::uint16_t pixelsPerWord, bool fourBit,
+                                              std::uint16_t pixelsPerWord,
                                               psyqo::Color modulation, bool semiTransparent, std::uint16_t bucket,
                                               const void* cacheSource, std::uint32_t cacheRevision) {
     Ps1FrameContext* context = m_authoredContext;
@@ -626,7 +626,8 @@ bool Ps1RasterRenderer::QueueAuthoredUiSprite(const Ps1UiVertex (&vertices)[4], 
         psyqo::PrimPieces::TPageAttr page;
         page.setPageX(static_cast<std::uint8_t>(vramX / 64u));
         page.setPageY(static_cast<std::uint8_t>(vramY / 256u));
-        page.set(fourBit ? psyqo::Prim::TPageAttr::Tex4Bits : psyqo::Prim::TPageAttr::Tex8Bits);
+        page.set(pixelsPerWord == 4u ? psyqo::Prim::TPageAttr::Tex4Bits :
+                 pixelsPerWord == 2u ? psyqo::Prim::TPageAttr::Tex8Bits : psyqo::Prim::TPageAttr::Tex16Bits);
         if (semiTransparent) page.set(psyqo::Prim::TPageAttr::HalfBackAndHalfFront);
         const psyqo::PrimPieces::ClutIndex clut(static_cast<std::uint16_t>(clutX / 16u), clutY);
         fragment->primitive = psyqo::Prim::TexturedQuad(modulation);

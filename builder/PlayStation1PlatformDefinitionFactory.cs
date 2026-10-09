@@ -39,13 +39,14 @@ public static class PlayStation1PlatformDefinitionFactory {
         });
     }
 
-    /// <summary>Texture formats the PS1 GPU can sample, which is paletted only.</summary>
+    /// <summary>Indexed and direct-color texture formats sampled by the PS1 GPU.</summary>
     /// <returns>Texture capability metadata for the PS1 builder-owned cook contracts.</returns>
     static PlatformTextureFormatCapabilityDefinition CreateTextureFormatCapabilities() {
         return new PlatformTextureFormatCapabilityDefinition(
             [
                 TextureAssetColorFormat.Indexed4.ToString(),
-                TextureAssetColorFormat.Indexed8.ToString()
+                TextureAssetColorFormat.Indexed8.ToString(),
+                TextureAssetColorFormat.Ps1Bgr555.ToString()
             ],
             [
                 TextureAssetAlphaPrecision.Binary,
@@ -55,7 +56,9 @@ public static class PlayStation1PlatformDefinitionFactory {
                 new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed4.ToString(), TextureAssetAlphaPrecision.Binary),
                 new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed4.ToString(), TextureAssetAlphaPrecision.Opaque),
                 new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed8.ToString(), TextureAssetAlphaPrecision.Binary),
-                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed8.ToString(), TextureAssetAlphaPrecision.Opaque)
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed8.ToString(), TextureAssetAlphaPrecision.Opaque),
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Ps1Bgr555.ToString(), TextureAssetAlphaPrecision.Binary),
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Ps1Bgr555.ToString(), TextureAssetAlphaPrecision.Opaque)
             ]);
     }
 

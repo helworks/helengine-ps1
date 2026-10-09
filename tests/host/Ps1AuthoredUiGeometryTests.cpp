@@ -1,6 +1,7 @@
 #include "platform/ps1/rendering/Ps1AuthoredUiGeometry.hpp"
 #include "platform/ps1/rendering/Ps1SpriteGeometryCache.hpp"
 #include "platform/ps1/rendering/Ps1VramAllocator.hpp"
+#include "platform/ps1/rendering/Ps1IndexedTextureUpload.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -8,6 +9,13 @@
 using namespace helengine::ps1;
 
 int main() {
+    // Three-pixel rows start on alternating nibble boundaries in the shared payload.
+    const std::uint8_t indices[] = {0x21, 0x43, 0x65};
+    std::uint8_t firstRow[2]{}, secondRow[2]{};
+    PackPs1Indexed4UploadRow(indices, 0, 3, firstRow);
+    PackPs1Indexed4UploadRow(indices, 3, 3, secondRow);
+    assert(firstRow[0] == 0x21 && firstRow[1] == 0x03);
+    assert(secondRow[0] == 0x54 && secondRow[1] == 0x06);
     // The rotating authored backdrop previously crossed the GPU's vertical edge limit.
     unsigned oversizedFrames = 0;
     for (unsigned degrees = 0; degrees < 360; ++degrees) {
@@ -57,6 +65,16 @@ int main() {
     assert(pageAllocator.TryAllocateAligned(16, 1, 16, x, y) && x % 16 == 0);
 
     Ps1VramAllocator fontAtlasAllocator;
+    // Direct-color pages reserve only their 16-bit words, without a CLUT.
+    Ps1VramAllocator directColorAllocator;
+    assert(directColorAllocator.TryAllocateWithinHorizontalPage(256, 256, 1, textureX, textureY));
+    assert(textureX == 320 && textureY == 0);
+    assert(directColorAllocator.UsedWords() == 256u * 256u && directColorAllocator.LiveCount() == 1);
+    assert(!directColorAllocator.TryAllocateWithinHorizontalPage(257, 1, 1, x, y));
+    assert(!directColorAllocator.TryAllocateWithinHorizontalPage(1, 257, 1, x, y));
+    assert(directColorAllocator.Release(textureX, textureY, 256, 256));
+    assert(directColorAllocator.UsedWords() == 0 && directColorAllocator.LiveCount() == 0);
+
     assert(fontAtlasAllocator.TryAllocateWithinHorizontalPage(16, 64, x, y));
     assert(fontAtlasAllocator.TryAllocateWithinHorizontalPage(16, 64, x, y));
     assert(fontAtlasAllocator.TryAllocateWithinHorizontalPage(64, 256, x, y));

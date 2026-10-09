@@ -19,7 +19,7 @@ public static class PlayStation1TextureCookSettingsSerializer {
 
         return JsonSerializer.Serialize(new Dictionary<string, object> {
             ["maxResolution"] = settings.MaxResolution,
-            ["colorFormat"] = settings.ColorFormat.ToString(),
+            ["colorFormat"] = settings.ColorFormatId,
             ["alphaPrecision"] = settings.AlphaPrecision.ToString()
         });
     }
@@ -53,6 +53,9 @@ public static class PlayStation1TextureCookSettingsSerializer {
         string colorFormatName = colorFormatElement.GetString();
         string alphaPrecisionName = alphaPrecisionElement.GetString();
 
+        if (maxResolution < 0) {
+            throw new InvalidOperationException("PS1 texture max resolution cannot be negative.");
+        }
         if (!Enum.TryParse(colorFormatName, true, out TextureAssetColorFormat colorFormat)) {
             throw new InvalidOperationException($"Unsupported PS1 texture color format '{colorFormatName}'.");
         }
@@ -68,12 +71,13 @@ public static class PlayStation1TextureCookSettingsSerializer {
             };
         }
 
-        // The GPU samples 4-bit and 8-bit paletted textures out of a texture page and nothing else.
-        if (colorFormat != TextureAssetColorFormat.Indexed4 && colorFormat != TextureAssetColorFormat.Indexed8) {
-            throw new InvalidOperationException($"PS1 textures must cook to Indexed4 or Indexed8; received '{colorFormatName}'.");
+        if (colorFormat != TextureAssetColorFormat.Indexed4 && colorFormat != TextureAssetColorFormat.Indexed8
+            && colorFormat != TextureAssetColorFormat.Ps1Bgr555) {
+            throw new InvalidOperationException($"PS1 textures must cook to Indexed4, Indexed8 or Ps1Bgr555; received '{colorFormatName}'.");
         }
-        if (!Enum.TryParse(alphaPrecisionName, true, out TextureAssetAlphaPrecision alphaPrecision)) {
-            throw new InvalidOperationException($"Unsupported PS1 texture alpha precision '{alphaPrecisionName}'.");
+        if (!Enum.TryParse(alphaPrecisionName, true, out TextureAssetAlphaPrecision alphaPrecision)
+            || (alphaPrecision != TextureAssetAlphaPrecision.Binary && alphaPrecision != TextureAssetAlphaPrecision.Opaque)) {
+            throw new InvalidOperationException($"Unsupported PS1 texture alpha precision '{alphaPrecisionName}'; use Binary or Opaque.");
         }
 
         return new TextureAssetProcessorSettings {
