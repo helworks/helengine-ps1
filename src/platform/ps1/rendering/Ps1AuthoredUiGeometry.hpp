@@ -263,12 +263,15 @@ inline bool TryBuildRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoin
     fillCount = 0;
     if (!ValidViewport(viewport) || triangles == nullptr || !Finite(position.x) || !Finite(position.y) ||
         !Finite(size.width) || !Finite(size.height) || !Finite(scale.x) || !Finite(scale.y) ||
-        !Finite(rotationRadians) || !Finite(borderThickness) || size.width <= 0.0f || size.height <= 0.0f ||
+        !Finite(rotationRadians) || !Finite(borderThickness) || size.width < 0.0f || size.height < 0.0f ||
         scale.x <= 0.0f || scale.y <= 0.0f || borderThickness < 0.0f) return false;
+    // Zero progress and collapsed layout are valid empty drawables, not invalid geometry.
+    if (size.width == 0.0f || size.height == 0.0f) return true;
     const float width = size.width * scale.x;
     const float height = size.height * scale.y;
-    if (!Finite(width) || !Finite(height) || width <= 0.0f || height <= 0.0f ||
-        borderThickness * 2.0f >= width || borderThickness * 2.0f >= height) return false;
+    if (!Finite(width) || !Finite(height) || width <= 0.0f || height <= 0.0f) return false;
+    const bool borderCoversInterior = borderThickness > 0.0f &&
+        (borderThickness * 2.0f >= width || borderThickness * 2.0f >= height);
 
     const Ps1UiPoint outer[4] = {{position.x, position.y}, {position.x + width, position.y},
                                  {position.x + width, position.y + height}, {position.x, position.y + height}};
@@ -292,9 +295,18 @@ inline bool TryBuildRectTriangles(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoin
     Ps1UiVertex transformedInner[4]{};
     for (unsigned i = 0; i < 4; ++i) {
         if (!transform(outer[i], transformedOuter[i]) ||
-            (borderThickness > 0.0f && !transform(inner[i], transformedInner[i]))) return false;
+            (borderThickness > 0.0f && !borderCoversInterior && !transform(inner[i], transformedInner[i]))) return false;
     }
 
+    // A thick border consumes the whole rectangle. Do not create an inverted interior or
+    // overlapping edge strips; the renderer colors these two triangles with BorderColor.
+    if (borderCoversInterior) {
+        if (capacity < 2u) return false;
+        triangles[0] = {transformedOuter[0], transformedOuter[1], transformedOuter[2]};
+        triangles[1] = {transformedOuter[0], transformedOuter[2], transformedOuter[3]};
+        count = 2;
+        return true;
+    }
     const unsigned needed = borderThickness > 0.0f ? 10u : 2u;
     if (needed > capacity) return false;
     const Ps1UiVertex* fill = borderThickness > 0.0f ? transformedInner : transformedOuter;

@@ -20,15 +20,19 @@
 #include "TextLayoutUtils.hpp"
 #include "byte4.hpp"
 #include "common/syscalls/syscalls.h"
+#include "psyqo/alloc.h"
 #include "float3.hpp"
 #include "float4.hpp"
 #include "int2.hpp"
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
+#include "platform/ps1/Ps1FrameDiagnostics.hpp"
+#include "platform/ps1/Ps1TextureUploadFence.hpp"
 #if defined(PS1_CPU_PROFILE)
 #include "platform/ps1/profiling/Ps1CpuProfileSink.hpp"
 #endif
 #include "platform/ps1/rendering/Ps1RuntimeTexture.hpp"
 #include "platform/ps1/rendering/Ps1IndexedTextureUpload.hpp"
+#include "platform/ps1/rendering/Ps1TextureTransportBuffer.hpp"
 #include "platform/ps1/rendering/Ps1VramDiagnostics.hpp"
 #include "platform/ps1/rendering/Ps1TextLayout.hpp"
 #include "runtime/array.hpp"
@@ -39,6 +43,7 @@
 namespace helengine::ps1 {
 extern "C" {
 volatile Ps1VramDiagnostics helengine_ps1_vram_diagnostics;
+volatile Ps1TextureTransportDiagnostics helengine_ps1_texture_transport_diagnostics{0x48455442u, 0, 0, 0, 0, 0, 0, 0};
 }
 namespace {
 
@@ -426,11 +431,15 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     if (contentStreamSource == nullptr) {
         he_cpp_custom::Fail("PS1 texture creation received a null content stream source");
     }
+    MarkFrameStage(Ps1FrameStage::TextureOpenBefore);
     ::Stream* stream = contentStreamSource->OpenRead(cookedAssetPath);
+    MarkFrameStage(Ps1FrameStage::TextureOpenAfter);
     if (stream == nullptr) {
         he_cpp_custom::Fail("PS1 content source returned a null stream for a cooked texture");
     }
+    MarkFrameStage(Ps1FrameStage::TextureDeserializeBefore);
     ::Asset* rawAsset = ::AssetSerializer::Deserialize(stream);
+    MarkFrameStage(Ps1FrameStage::TextureDeserializeAfter);
     delete stream;
     ::TextureAsset* asset = he_cpp_try_cast<::TextureAsset>(rawAsset);
     if (asset == nullptr) {
@@ -450,6 +459,7 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
 }
 
 ::RuntimeTexture* Ps1RenderManager2D::UploadTexture(::TextureAsset* asset) {
+    MarkFrameStage(Ps1FrameStage::TextureUploadEnter);
     const bool fourBit = asset->ColorFormat == ::TextureAssetColorFormat::Indexed4;
     const bool eightBit = asset->ColorFormat == ::TextureAssetColorFormat::Indexed8;
     const bool directColor = asset->ColorFormat == ::TextureAssetColorFormat::Ps1Bgr555;
@@ -475,6 +485,7 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     const std::uint16_t widthInWords = static_cast<std::uint16_t>((width + pixelsPerWord - 1u) / pixelsPerWord);
     std::uint16_t vramX = 0;
     std::uint16_t vramY = 0;
+    MarkFrameStage(Ps1FrameStage::TextureVramBefore, static_cast<std::uint32_t>(widthInWords) * height);
     if (!VramAllocator.TryAllocateWithinHorizontalPage(widthInWords, height, pixelsPerWord, vramX, vramY)) {
         helengine_ps1_vram_diagnostics.FailedWidth=widthInWords;
         helengine_ps1_vram_diagnostics.FailedHeight=height;
@@ -485,6 +496,7 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
         he_cpp_custom::Fail("PS1 ran out of VRAM for a cooked texture");
     }
 
+    MarkFrameStage(Ps1FrameStage::TextureVramAfter);
     // Indexed pixels are stored row-major by the cook. Pad each row to a complete 16-bit VRAM
     // word for odd authored widths while keeping the runtime texture's logical width unchanged.
     const std::uint32_t expectedBytes = static_cast<std::uint32_t>(widthInWords) * height * 2u;
@@ -496,23 +508,59 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
                           static_cast<unsigned>(asset->Colors->Length));
         he_cpp_custom::Fail("PS1 cooked texture pixel length does not match its declared size");
     }
-    std::uint8_t* uploadBytes = new std::uint8_t[expectedBytes];
-    __builtin_memset(uploadBytes, 0, expectedBytes);
+    MarkFrameStage(Ps1FrameStage::TextureBufferBefore, expectedBytes);
+    auto& transport = helengine_ps1_texture_transport_diagnostics;
+    transport.Sequence = transport.Sequence + 1;
+    transport.ExpectedBytes = expectedBytes;
+    transport.AssetAddress = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(asset));
+    transport.BufferAddress = 0;
+    transport.AllocationResult = static_cast<std::uint32_t>(Ps1TextureTransportAllocation::Pending);
+    transport.VramWordsBefore = VramAllocator.UsedWords();
+    transport.VramWordsAfter = transport.VramWordsBefore;
+    transport.Sequence = transport.Sequence + 1;
+    Ps1TextureTransportBuffer upload;
+    const auto allocation = PreparePs1TextureTransportBuffer(
+        VramAllocator, vramX, vramY, widthInWords, height, width, pixelsPerWord,
+        &(*asset->Colors)[0], sourceBytes, expectedBytes,
+        [](std::size_t bytes) { return static_cast<std::uint8_t*>(psyqo_malloc(bytes)); }, upload);
+    transport.Sequence = transport.Sequence + 1;
+    transport.BufferAddress = static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(upload.Data));
+    transport.AllocationResult = static_cast<std::uint32_t>(allocation);
+    transport.VramWordsAfter = VramAllocator.UsedWords();
+    transport.Sequence = transport.Sequence + 1;
+    MarkFrameStage(Ps1FrameStage::TextureBufferAfter, expectedBytes);
+    if (allocation != Ps1TextureTransportAllocation::Allocated && allocation != Ps1TextureTransportAllocation::Borrowed) {
+        publishVram(VramAllocator);
+        if (allocation == Ps1TextureTransportAllocation::RollbackFailed) {
+            he_cpp_custom::Fail("PS1 texture transport allocation rollback failed");
+        }
+        he_cpp_custom::Fail("PS1 texture transport buffer allocation failed");
+    }
+    std::uint8_t* uploadBytes = upload.Data;
     const std::uint32_t uploadRowBytes = static_cast<std::uint32_t>(widthInWords) * 2u;
-    for (std::uint16_t row = 0; row < height; ++row) {
-        auto* destination = uploadBytes + static_cast<std::uint32_t>(row) * uploadRowBytes;
-        if (fourBit) {
-            // The shared Indexed4 payload is packed continuously, even across odd-width rows.
-            PackPs1Indexed4UploadRow(&(*asset->Colors)[0], static_cast<std::uint32_t>(row) * width, width, destination);
-        } else {
-            __builtin_memcpy(destination, &(*asset->Colors)[static_cast<std::uint32_t>(row) * sourceRowBytes], sourceRowBytes);
+    if (upload.OwnsData) {
+        __builtin_memset(uploadBytes, 0, expectedBytes);
+        for (std::uint16_t row = 0; row < height; ++row) {
+            auto* destination = uploadBytes + static_cast<std::uint32_t>(row) * uploadRowBytes;
+            if (fourBit) {
+                // Indexed4 is packed continuously, even across odd-width rows.
+                PackPs1Indexed4UploadRow(&(*asset->Colors)[0], static_cast<std::uint32_t>(row) * width, width, destination);
+            } else {
+                __builtin_memcpy(destination, &(*asset->Colors)[static_cast<std::uint32_t>(row) * sourceRowBytes], sourceRowBytes);
+            }
         }
     }
+    MarkFrameStage(Ps1FrameStage::TexturePackAfter);
     psyqo::Rect pixelRegion;
     pixelRegion.pos = {{.x = static_cast<std::int16_t>(vramX), .y = static_cast<std::int16_t>(vramY)}};
     pixelRegion.size = {{.w = static_cast<std::int16_t>(widthInWords), .h = static_cast<std::int16_t>(height)}};
+    // flip() can still be transferring the previous frame when a newly loaded scene
+    // asks for textures. PSYQo permits only one GPU DMA callback at a time.
+    WaitForTextureUpload(Gpu);
+    MarkFrameStage(Ps1FrameStage::UploadBefore, 1);
     Gpu.uploadToVRAM(reinterpret_cast<const std::uint16_t*>(uploadBytes), pixelRegion);
-    delete[] uploadBytes;
+    MarkFrameStage(Ps1FrameStage::UploadAfter, 1);
+    ReleasePs1TextureTransportBuffer(upload, [](std::uint8_t* bytes) { psyqo_free(bytes); });
 
     const std::uint16_t paletteEntries = directColor ? 0u : fourBit ? FourBitPaletteEntries : EightBitPaletteEntries;
     const std::uint32_t suppliedEntries = directColor ? 0u : static_cast<std::uint32_t>(asset->PaletteColors->Length) / 4u;
@@ -538,7 +586,11 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     psyqo::Rect paletteRegion;
     paletteRegion.pos = {{.x = static_cast<std::int16_t>(clutX), .y = static_cast<std::int16_t>(clutY)}};
     paletteRegion.size = {{.w = static_cast<std::int16_t>(paletteEntries), .h = 1}};
-    if (!directColor) Gpu.uploadToVRAM(palette, paletteRegion);
+    if (!directColor) {
+        MarkFrameStage(Ps1FrameStage::UploadBefore, 2);
+        Gpu.uploadToVRAM(palette, paletteRegion);
+        MarkFrameStage(Ps1FrameStage::UploadAfter, 2);
+    }
 
     Ps1RuntimeTexture* texture = new Ps1RuntimeTexture();
     texture->set_Width(width);
@@ -565,8 +617,12 @@ void Ps1RenderManager2D::ReleaseTexture(::RuntimeTexture* texture) {
     if(native==nullptr || QueueOpen) he_cpp_custom::Fail("PS1 texture release outside safe frame boundary");
     // Complete prior DMA and GPU commands before another resource can upload
     // into these regions. This waits through PSYQo's normal callback pump.
+    MarkFrameStage(Ps1FrameStage::ReleaseChainBefore);
     Gpu.waitChainIdle();
+    MarkFrameStage(Ps1FrameStage::ReleaseChainAfter);
+    MarkFrameStage(Ps1FrameStage::ReleaseReadyBefore);
     Gpu.waitReady();
+    MarkFrameStage(Ps1FrameStage::ReleaseReadyAfter);
     auto& diagnostics=helengine_ps1_vram_diagnostics;
     diagnostics.BeforeReleaseWords=VramAllocator.UsedWords();
     if(!VramAllocator.Release(native->VramX,native->VramY,native->WidthInWords,native->get_Height()) ||
@@ -579,6 +635,7 @@ void Ps1RenderManager2D::ReleaseTexture(::RuntimeTexture* texture) {
     for (CachedText& cached : TextCache) if (cached.Texture == texture) cached.Drawable = nullptr;
     texture->Dispose();
     delete texture;
+    MarkFrameStage(Ps1FrameStage::ReleaseAfter);
 }
 
 void Ps1RenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D* shape) {
@@ -604,6 +661,7 @@ void Ps1RenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D* shape) {
         Reject("PS1_UI_SHAPE_GEOMETRY_REJECTED");
         return;
     }
+    if (count == 0) return;
     if (!HasLoggedFirstUiGeometry) {
         std::int16_t minimumY = 32767;
         std::int16_t maximumY = -32768;

@@ -15,6 +15,7 @@ public sealed class PlayStation1StartupManifestWriter {
     /// <returns>Path of the written header.</returns>
     public string Write(string generatedCoreCppRootPath, PlatformBuildManifest manifest) {
         if (manifest == null) throw new ArgumentNullException(nameof(manifest));
+        ValidateLoadingPolicy(manifest);
         PlatformBuildArtifact[] sceneArtifacts = manifest.CookedArtifacts
             .Where(artifact => string.Equals(artifact.ArtifactKind, "scene", StringComparison.OrdinalIgnoreCase))
             .ToArray();
@@ -24,11 +25,24 @@ public sealed class PlayStation1StartupManifestWriter {
                 string normalizedSourceIdentity = PlayStation1ContentStager.NormalizeRelativePath(scene.SourceIdentity);
                 artifact = sceneArtifacts.FirstOrDefault(candidate => string.Equals(PlayStation1ContentStager.NormalizeRelativePath(candidate.RelativePath), normalizedSourceIdentity, StringComparison.Ordinal));
             }
-            if (artifact == null && sceneArtifacts.Length == 1) artifact = sceneArtifacts[0];
+            // Preserve legacy single-scene manifests without assigning one scene's payload to another scene.
+            if (artifact == null && sceneArtifacts.Length == 1 && manifest.Scenes.Length == 1) artifact = sceneArtifacts[0];
             if (artifact == null) throw new InvalidOperationException($"PS1 startup scene '{scene.SceneId}' has no cooked scene artifact in the manifest.");
             return new KeyValuePair<string, string>(scene.SceneId, artifact.RelativePath);
         }).ToArray();
         return Write(generatedCoreCppRootPath, manifest.StartupSceneId, entries);
+    }
+
+    /// <summary>Rejects invalid budgets and loading scenes outside the packaged catalog before emitting native sources.</summary>
+    /// <param name="manifest">Final cooked manifest containing operational scene identifiers.</param>
+    static void ValidateLoadingPolicy(PlatformBuildManifest manifest) {
+        if (!double.IsFinite(manifest.SceneLoadingBudgetMilliseconds) || manifest.SceneLoadingBudgetMilliseconds <= 0d) {
+            throw new InvalidOperationException("PS1 scene loading requires a finite, positive millisecond budget.");
+        }
+        if (string.IsNullOrEmpty(manifest.LoadingScreenSceneId)) return;
+        if (manifest.Scenes.Count(scene => string.Equals(scene.SceneId, manifest.LoadingScreenSceneId, StringComparison.Ordinal)) != 1) {
+            throw new InvalidOperationException($"PS1 loading-screen scene '{manifest.LoadingScreenSceneId}' must identify exactly one packaged scene.");
+        }
     }
 
     /// <summary>Writes the catalog sources for explicit scene id to cooked path pairs.</summary>

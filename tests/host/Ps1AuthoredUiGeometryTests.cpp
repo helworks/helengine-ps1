@@ -231,8 +231,44 @@ int main() {
                                  full, triangles, 64, count, fillCount));
     assert(std::abs(triangles[0].a.x - 26) <= 1 && std::abs(triangles[0].a.y - 6) <= 1);
     assert(std::abs(triangles[0].b.x - 26) <= 1 && std::abs(triangles[0].b.y - 26) <= 1);
-    assert(!TryBuildRectTriangles({10.0f, 10.0f}, {0.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 0.0f,
-                                  full, triangles, 64, count, fillCount));
+    assert(TryBuildRectTriangles({10.0f, 10.0f}, {0.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 0.0f,
+                                 full, triangles, 64, count, fillCount));
+    assert(count == 0 && fillCount == 0);
+    // The persistent loading fill starts empty, then reaches one and two pixels with a
+    // visible one-pixel border. Every intermediate progress value is valid geometry.
+    for (unsigned progressWidth = 0; progressWidth <= 256; ++progressWidth) {
+        assert(TryBuildRectTriangles({32.0f, 224.0f}, {static_cast<float>(progressWidth), 7.0f},
+            {1.0f, 1.0f}, 0.0f, 1.0f, full, triangles, 64, count, fillCount));
+        assert(count == (progressWidth == 0 ? 0 : progressWidth <= 2 ? 2 : 10));
+        assert(fillCount == (progressWidth <= 2 ? 0 : 2));
+        if (progressWidth == 1 || progressWidth == 2) {
+            assert(triangles[0].a.x == 32 && triangles[0].a.y == 224);
+            assert(triangles[0].b.x == 32 + progressWidth && triangles[0].c.y == 231);
+            assert(triangles[1].a.x == triangles[0].a.x && triangles[1].c.x == 32);
+        }
+    }
+    assert(TryBuildRectTriangles({10, 10}, {12, 1}, {1, 1}, 0, 1,
+        full, triangles, 64, count, fillCount));
+    assert(count == 2 && fillCount == 0);
+    assert(TryBuildRectTriangles({10, 10}, {12, 0}, {1, 1}, 0, 1,
+        full, triangles, 64, count, fillCount));
+    assert(count == 0 && fillCount == 0);
+    // Empty shapes still reject bad parameters rather than bypassing validation.
+    assert(!TryBuildRectTriangles({10, 10}, {-1, 0}, {1, 1}, 0, 1,
+        full, triangles, 64, count, fillCount));
+    assert(!TryBuildRectTriangles({10, 10}, {0, 12}, {0, 1}, 0, 1,
+        full, triangles, 64, count, fillCount));
+    assert(!TryBuildRectTriangles({10, 10}, {0, 12}, {1, 1}, 0, -1,
+        full, triangles, 64, count, fillCount));
+    assert(!TryBuildRectTriangles({NAN, 10}, {0, 12}, {1, 1}, 0, 1,
+        full, triangles, 64, count, fillCount));
+    assert(!TryBuildRectTriangles({10, 10}, {0, 12}, {1, 1}, NAN, 1,
+        full, triangles, 64, count, fillCount));
+    assert(!TryBuildRectTriangles({10, 10}, {0, 12}, {1, 1}, 0, 1,
+        {0, 0, 0, 240}, triangles, 64, count, fillCount));
+    assert(!TryBuildRectTriangles({10, 10}, {1, 12}, {1, 1}, 0, 1,
+        full, triangles, 1, count, fillCount));
+    assert(count == 0 && fillCount == 0);
     assert(TryBuildRoundedRectTriangles({10.0f, 10.0f}, {20.0f, 12.0f}, {1.0f, 1.0f}, 0.0f, 0.0f, 0.0f, 0x0f,
                                         full, triangles, 64, count, fillCount));
     assert(count == 2);

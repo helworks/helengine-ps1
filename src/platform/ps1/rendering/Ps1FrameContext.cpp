@@ -26,6 +26,10 @@ bool Ps1FrameContext::Begin(std::uint32_t sceneSequence, std::uint32_t triangleC
     }
 
     m_table.clear();
+    m_cameraCount = 1;
+    m_cameraIndex = 0;
+    m_explicitCameras = false;
+    m_cameraClearEnabled[0] = true;
     m_budgetCapacity = triangleCapacity < TriangleCapacity ? triangleCapacity : TriangleCapacity;
     m_budget.Reset(m_budgetCapacity);
     m_reservedCount = 0;
@@ -42,6 +46,20 @@ bool Ps1FrameContext::Begin(std::uint32_t sceneSequence, std::uint32_t triangleC
     for (unsigned i = 0; i < TexturedQuadCapacity; ++i) m_texturedInserted[i] = 0;
     m_buildSequence = sceneSequence;
     m_state = State::Building;
+    return true;
+}
+
+bool Ps1FrameContext::BeginCamera(bool clearEnabled, psyqo::Color clearColor) {
+    if (m_state != State::Building) return false;
+    if (m_explicitCameras) {
+        if (m_cameraCount >= CameraCapacity) return false;
+        m_cameraIndex = m_cameraCount++;
+        CameraTable().clear();
+    } else {
+        m_explicitCameras = true;
+    }
+    m_cameraClearEnabled[m_cameraIndex] = clearEnabled;
+    m_cameraColors[m_cameraIndex] = clearColor;
     return true;
 }
 
@@ -70,7 +88,7 @@ bool Ps1FrameContext::Insert(TriangleFragment& fragment, std::uint16_t bucket) {
     const unsigned index = static_cast<unsigned>((address - first) / sizeof(TriangleFragment));
     if (index >= m_reservedCount || m_inserted[index] != 0) return false;
 
-    m_table.insert(fragment, Ps1DepthBucket::ToCombinedSceneBucket(bucket));
+    CameraTable().insert(fragment, Ps1DepthBucket::ToCombinedSceneBucket(bucket));
     m_inserted[index] = 1;
     ++m_insertedCount;
     return true;
@@ -99,7 +117,7 @@ bool Ps1FrameContext::Insert(GouraudFragment& fragment, std::uint16_t bucket) {
     const unsigned index = static_cast<unsigned>((address - first) / sizeof(GouraudFragment));
     if (index >= m_gouraudReservedCount || m_gouraudInserted[index] != 0) return false;
 
-    m_table.insert(fragment, Ps1DepthBucket::ToCombinedSceneBucket(bucket));
+    CameraTable().insert(fragment, Ps1DepthBucket::ToCombinedSceneBucket(bucket));
     m_gouraudInserted[index] = 1;
     ++m_gouraudInsertedCount;
     return true;
@@ -126,7 +144,7 @@ bool Ps1FrameContext::InsertUiTriangle(UiTriangleFragment& fragment, std::uint16
     if (address < first || address >= last || ((address - first) % sizeof(UiTriangleFragment)) != 0) return false;
     const unsigned index = static_cast<unsigned>((address - first) / sizeof(UiTriangleFragment));
     if (index >= m_uiReservedCount || m_uiInserted[index] != 0) return false;
-    m_table.insert(fragment, bucket);
+    CameraTable().insert(fragment, bucket);
     m_uiInserted[index] = 1;
     ++m_uiInsertedCount;
     return true;
@@ -140,7 +158,7 @@ Ps1FrameContext::UiTriangleFragment* Ps1FrameContext::TryAppendUiTriangle(std::u
     if (bucket >= 256u || m_uiReservedCount >= UiTriangleCapacity) return nullptr;
     const unsigned index = m_uiReservedCount++;
     UiTriangleFragment* fragment = &m_uiTriangles[index];
-    m_table.insert(*fragment, bucket);
+    CameraTable().insert(*fragment, bucket);
     m_uiInserted[index] = 1;
     ++m_uiInsertedCount;
     return fragment;
@@ -163,7 +181,7 @@ Ps1FrameContext::TexturedQuadFragment* Ps1FrameContext::TryAppendTexturedQuad(st
     if (bucket >= 256u || m_texturedReservedCount >= TexturedQuadCapacity) return nullptr;
     const unsigned index = m_texturedReservedCount++;
     TexturedQuadFragment* fragment = &m_texturedQuads[index];
-    m_table.insert(*fragment, bucket);
+    CameraTable().insert(*fragment, bucket);
     m_texturedInserted[index] = 1;
     ++m_texturedInsertedCount;
     return fragment;
@@ -211,7 +229,7 @@ bool Ps1FrameContext::Insert(TexturedQuadFragment& fragment, std::uint16_t bucke
         index = static_cast<unsigned>((address - first) / sizeof(TexturedQuadFragment));
     }
     if (index >= m_texturedReservedCount || m_texturedInserted[index] != 0) return false;
-    m_table.insert(fragment, bucket);
+    CameraTable().insert(fragment, bucket);
     m_texturedInserted[index] = 1;
     ++m_texturedInsertedCount;
     return true;
@@ -226,9 +244,15 @@ bool Ps1FrameContext::Submit(psyqo::GPU& gpu, psyqo::Color clearColor) {
         AssertState(false, "PS1_FRAME_GUARD_CORRUPTED");
         return false;
     }
-    gpu.getNextClear(m_clear.primitive, clearColor);
-    gpu.chain(m_clear);
-    gpu.chain(m_table);
+    if (!m_explicitCameras) m_cameraColors[0] = clearColor;
+    for (unsigned camera = 0; camera < m_cameraCount; ++camera) {
+        ClearFragment& clear = camera == 0 ? m_clear : m_extraClears[camera - 1];
+        if (m_cameraClearEnabled[camera]) {
+            gpu.getNextClear(clear.primitive, m_cameraColors[camera]);
+            gpu.chain(clear);
+        }
+        gpu.chain(camera == 0 ? m_table : m_extraTables[camera - 1]);
+    }
     m_lastSubmissionSequence = m_buildSequence;
     m_state = State::Queued;
     return true;

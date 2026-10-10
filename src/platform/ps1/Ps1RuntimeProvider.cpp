@@ -5,8 +5,22 @@
 #include "common/syscalls/syscalls.h"
 #include "common/hardware/counters.h"
 #include "platform/ps1/Ps1FailureDiagnostics.hpp"
+#include "platform/ps1/Ps1FrameDiagnostics.hpp"
+#include "platform/ps1/Ps1CheckedAllocation.hpp"
 
 extern "C" {
+// The pinned MIPS SDK defines both allocating operators as nullable malloc tail calls.
+// Link wrapping protects generated and native callers without changing the SDK allocator.
+static_assert(sizeof(unsigned int) == 4, "PS1 operator new request ABI must be 32-bit");
+void* __real__Znwj(unsigned int bytes);
+void* __real__Znaj(unsigned int bytes);
+void* __wrap__Znwj(unsigned int bytes) {
+    return helengine::ps1::RequireAllocatedStorage(__real__Znwj(bytes), bytes, "PS1 scalar allocation failed");
+}
+void* __wrap__Znaj(unsigned int bytes) {
+    return helengine::ps1::RequireAllocatedStorage(__real__Znaj(bytes), bytes, "PS1 array allocation failed");
+}
+volatile helengine::ps1::Ps1FrameDiagnostics helengine_ps1_frame_diagnostics{0x48454650u, 0, 1, 0, 0, 0, 0, 0};
 volatile helengine::ps1::Ps1FailureDiagnostics helengine_ps1_failure_diagnostics{0x48454644u, 0, 0, 0, {}, {}};
 void helengine_ps1_record_abort(const char* message) {
     helengine::ps1::CopyDiagnosticText(helengine_ps1_failure_diagnostics.AbortMessage, 192, message);
@@ -42,6 +56,9 @@ std::uint64_t he_cpp_custom::MonotonicMicroseconds() {
 }
 
 [[noreturn]] void he_cpp_custom::Fail(const char* message) {
+    helengine::ps1::CopyDiagnosticText(helengine_ps1_failure_diagnostics.AbortMessage, 192, message);
+    helengine::ps1::MarkFrameStage(helengine::ps1::Ps1FrameStage::FatalBeforeLog,
+                                  helengine_ps1_frame_diagnostics.Detail);
     ramsyscall_printf("PS1_CORE_FATAL %s\n", message);
     psyqo::Kernel::abort(message);
 }

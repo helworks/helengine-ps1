@@ -39,6 +39,8 @@ ifeq ($(CORE_BOOT),1)
 # Retain SDK abort messages in platform RAM without modifying the pinned SDK checkout.
 LDFLAGS += -Wl,--wrap=_ZN5psyqo6Kernel8Internal5abortEPKcSt15source_location
 LDFLAGS += -Wl,--wrap=_ZN5psyqo6Kernel8Internal5abortEv
+# The SDK's scalar/array new operators return nullptr on exhaustion; generated C++ requires fatal failure.
+LDFLAGS += -Wl,--wrap=_Znwj -Wl,--wrap=_Znaj
 ifeq ($(wildcard generated-core/helengine_core_unity.cpp),)
 $(error Core boot requires the final generated-core/helengine_core_unity.cpp)
 endif
@@ -51,6 +53,12 @@ ifeq ($(AUTHORED),1)
 ifeq ($(wildcard generated-core/ps1_runtime_scene_catalog.cpp),)
 $(error Authored mode requires generated-core/ps1_runtime_scene_catalog.cpp from the PS1 platform builder)
 endif
+ifeq ($(wildcard generated-core/runtime/runtime_startup_manifest.cpp),)
+$(error Authored mode requires the shared runtime loading policy manifest)
+endif
+ifeq ($(wildcard generated-core/runtime/runtime_startup_manifest.hpp),)
+$(error Authored mode requires the shared runtime loading policy manifest header)
+endif
 DEFINES += PS1_AUTHORED_SCENE=1
 AUTHORED_CORE_SRCS = src/platform/ps1/Ps1AuthoredScene.cpp \
                      src/platform/ps1/Ps1ContentStreamSource.cpp \
@@ -60,7 +68,8 @@ AUTHORED_CORE_SRCS = src/platform/ps1/Ps1AuthoredScene.cpp \
                      src/platform/ps1/Ps1RenderManager3D.cpp \
                      src/platform/ps1/rendering/Ps1RuntimeModel.cpp \
                      src/platform/ps1/rendering/Ps1RuntimeMaterial.cpp \
-                     generated-core/ps1_runtime_scene_catalog.cpp
+                     generated-core/ps1_runtime_scene_catalog.cpp \
+                     generated-core/runtime/runtime_startup_manifest.cpp
 ifeq ($(CPU_PROFILE),1)
 DEFINES += PS1_CPU_PROFILE=1
 AUTHORED_CORE_SRCS += src/platform/ps1/profiling/Ps1CpuProfileSink.cpp src/platform/ps1/profiling/Ps1CpuProfileWindow.cpp

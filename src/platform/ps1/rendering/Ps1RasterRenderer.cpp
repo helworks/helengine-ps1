@@ -377,6 +377,14 @@ bool Ps1RasterRenderer::BeginAuthoredFrame(psyqo::GPU& gpu) {
     return m_authoredContext != nullptr;
 }
 
+bool Ps1RasterRenderer::BeginAuthoredCamera(bool clearEnabled, psyqo::Color clearColor) {
+    if (m_authoredContext != nullptr && m_authoredContext->BeginCamera(clearEnabled, clearColor)) return true;
+    ++m_stats.capacityFailures;
+    m_stats.failure = Ps1RenderFailure::Capacity;
+    CancelAuthoredFrame();
+    return false;
+}
+
 void Ps1RasterRenderer::WriteAuthoredPose(const Ps1GtePose& pose) {
     psyqo::Matrix33 rotation;
     for (unsigned row = 0; row < 3; ++row) {

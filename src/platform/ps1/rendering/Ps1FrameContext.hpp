@@ -30,6 +30,8 @@ class Ps1FrameContext final {
     static constexpr unsigned GouraudCapacity = Ps1FramePacketLimits::GouraudTriangles;
     static constexpr unsigned UiTriangleCapacity = Ps1FramePacketLimits::UiTriangles;
     static constexpr unsigned TexturedQuadCapacity = Ps1FramePacketLimits::TexturedQuads;
+    /** Fixed pass capacity; overflowing it rejects the frame rather than dropping cameras. */
+    static constexpr unsigned CameraCapacity = 8;
 
     static constexpr std::uint32_t PacketBudgetBytes = Ps1FramePacketLimits::PacketBudgetBytes;
     static constexpr unsigned TriangleCapacity = Ps1FramePacketLimits::SceneTriangles;
@@ -42,12 +44,17 @@ class Ps1FrameContext final {
     static_assert(sizeof(UiTriangleFragment) == Ps1FramePacketLimits::UiFragmentBytes);
     static_assert(sizeof(ClearFragment) == Ps1FramePacketLimits::ClearFragmentBytes);
     static_assert(TriangleCapacity == 376);
+    static_assert(CameraCapacity * sizeof(ClearFragment) + TriangleCapacity * sizeof(TriangleFragment) +
+                  GouraudCapacity * sizeof(GouraudFragment) + UiTriangleCapacity * sizeof(UiTriangleFragment) +
+                  TexturedQuadCapacity * sizeof(TexturedQuadFragment) <= PacketBudgetBytes);
 #endif
 
     /** Clear color used by the diagnostic scenes; authored scenes pass the camera's clear color. */
     static constexpr psyqo::Color DefaultClearColor{{.r = 16, .g = 20, .b = 32}};
 
     bool Begin(std::uint32_t sceneSequence, std::uint32_t triangleCapacity = TriangleCapacity);
+    /** Starts the next camera segment, keeping prior packets alive until the GPU fence. */
+    bool BeginCamera(bool clearEnabled, psyqo::Color clearColor);
     TriangleFragment* TryReserveTriangle();
     bool Insert(TriangleFragment& fragment, std::uint16_t bucket);
     GouraudFragment* TryReserveGouraud();
@@ -64,10 +71,10 @@ class Ps1FrameContext final {
     void Cancel();
 
     std::uint32_t UsedPackets() const {
-        return 1u + m_insertedCount + m_gouraudInsertedCount + m_uiInsertedCount + m_texturedInsertedCount;
+        return m_cameraCount + m_insertedCount + m_gouraudInsertedCount + m_uiInsertedCount + m_texturedInsertedCount;
     }
     std::uint32_t HighWaterBytes() const {
-        return static_cast<std::uint32_t>(sizeof(ClearFragment) + m_reservedCount * sizeof(TriangleFragment) +
+        return static_cast<std::uint32_t>(m_cameraCount * sizeof(ClearFragment) + m_reservedCount * sizeof(TriangleFragment) +
                                           m_gouraudReservedCount * sizeof(GouraudFragment) +
                                           m_uiReservedCount * sizeof(UiTriangleFragment) +
                                           m_texturedReservedCount * sizeof(TexturedQuadFragment));
@@ -86,6 +93,8 @@ class Ps1FrameContext final {
     enum class State : std::uint8_t { Available, Building, Queued };
 
     void AssertState(bool condition, const char* message) const;
+    /** Selects the persistent ordering table belonging to the current camera pass. */
+    psyqo::OrderingTable<512>& CameraTable() { return m_cameraIndex == 0 ? m_table : m_extraTables[m_cameraIndex - 1]; }
 
     static constexpr std::uint32_t PacketGuardValue = 0x50534744;
 
@@ -98,6 +107,14 @@ class Ps1FrameContext final {
     Ps1PacketBudget m_budget{TriangleCapacity};
     ClearFragment m_clear;
     psyqo::OrderingTable<512> m_table;
+    /** Separate tables preserve camera order when cameras reuse depth/UI buckets. */
+    psyqo::OrderingTable<512> m_extraTables[CameraCapacity - 1];
+    ClearFragment m_extraClears[CameraCapacity - 1];
+    psyqo::Color m_cameraColors[CameraCapacity]{};
+    bool m_cameraClearEnabled[CameraCapacity]{};
+    unsigned m_cameraCount = 1;
+    unsigned m_cameraIndex = 0;
+    bool m_explicitCameras = false;
     std::uint32_t m_packetGuardBefore = PacketGuardValue;
     TriangleFragment m_triangles[TriangleCapacity];
     std::uint32_t m_packetGuardAfter = PacketGuardValue;

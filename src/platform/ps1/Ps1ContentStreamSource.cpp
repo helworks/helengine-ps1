@@ -4,6 +4,7 @@
 #include "platform/ps1/Ps1EmbeddedAssetStream.hpp"
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
 #include "platform/ps1/Ps1FailureDiagnostics.hpp"
+#include "platform/ps1/Ps1FrameDiagnostics.hpp"
 
 namespace helengine::ps1 {
 
@@ -26,8 +27,13 @@ Ps1ContentStreamSource::Ps1ContentStreamSource(const std::uint8_t* image, std::s
         he_cpp_custom::Fail("Embedded content archive does not contain the requested asset");
     }
     helengine_ps1_failure_diagnostics.AssetBytes = static_cast<std::uint32_t>(asset.Length);
+    MarkFrameStage(Ps1FrameStage::AssetLogBefore, static_cast<std::uint32_t>(asset.Length));
     ramsyscall_printf("PS1_AUTHORED_ASSET_OPEN %s bytes=%u\n", assetPath.c_str(), static_cast<unsigned>(asset.Length));
-    return new Ps1EmbeddedAssetStream(asset.Data, asset.Length);
+    MarkFrameStage(Ps1FrameStage::AssetLogAfter);
+    MarkFrameStage(Ps1FrameStage::AssetStreamBefore);
+    auto* stream = new Ps1EmbeddedAssetStream(asset.Data, asset.Length);
+    MarkFrameStage(Ps1FrameStage::AssetStreamAfter);
+    return stream;
 }
 
 }  // namespace helengine::ps1

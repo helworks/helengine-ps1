@@ -189,9 +189,6 @@ void Ps1RenderManager3D::Draw() {
     FrameOpen = false;
     FrameSubmitted = false;
     FailureMarker = nullptr;
-#if defined(PS1_CPU_PROFILE)
-    const std::uint64_t cameraSetupStartUs = CpuProfile == nullptr ? 0u : CpuProfile->ReadMicroseconds();
-#endif
     if (OwnerCore == nullptr || OwnerCore->get_ObjectManager() == nullptr) {
         Reject("PS1_RENDER_NO_CORE");
         return;
@@ -201,56 +198,74 @@ void Ps1RenderManager3D::Draw() {
         Reject("PS1_RENDER_NO_CAMERA");
         return;
     }
-    ::ICamera* camera = cameras->get_Item(0);
-    if (camera == nullptr || camera->get_Parent() == nullptr || camera->get_RenderQueue3D() == nullptr) {
-        Reject("PS1_RENDER_CAMERA_INCOMPLETE");
-        return;
-    }
-    if (camera->get_RenderTarget() != nullptr) {
-        Reject("PS1_RENDER_TARGET_UNSUPPORTED");
-        return;
-    }
-    CameraTransform = TransformOf(camera->get_Parent());
-    // The field of view belongs to the authored camera, so one scene frames the same way on every
-    // platform. TryBuildPose rejects values outside the range it can project.
-    CameraFieldOfViewRadians = camera->get_FieldOfView();
-    const ::CameraClearSettings clearSettings = camera->get_ClearSettings();
-    ClearColor = clearSettings.ClearColorEnabled
-        ? psyqo::Color{{.r = Channel(clearSettings.ClearColor.X), .g = Channel(clearSettings.ClearColor.Y), .b = Channel(clearSettings.ClearColor.Z)}}
-        : Ps1FrameContext::DefaultClearColor;
-    if (!TryBuildLighting()) {
-        Reject("PS1_RENDER_LIGHTING_REJECTED");
-        return;
-    }
     if (!Renderer.BeginAuthoredFrame(Gpu)) {
         Reject("PS1_RENDER_FRAME_BEGIN_FAILED");
         return;
     }
     FrameOpen = true;
+    // ObjectManager keeps this live list sorted by CameraDrawOrder. Each camera gets its
+    // own OT segment; overlays cannot be interleaved into an earlier camera's depth buckets.
+    for (int cameraIndex = 0; cameraIndex < cameras->get_Count(); ++cameraIndex) {
 #if defined(PS1_CPU_PROFILE)
-    if (CpuProfile != nullptr) {
-        const std::uint64_t cameraSetupEndUs = CpuProfile->ReadMicroseconds();
-        if (cameraSetupEndUs >= cameraSetupStartUs) CpuProfile->RecordNativeStage(Ps1CpuProfileSink::CameraSetup, cameraSetupEndUs - cameraSetupStartUs);
-        else CpuProfile->ClockFault();
-    }
-    const std::uint64_t meshStartUs = CpuProfile == nullptr ? 0u : CpuProfile->ReadMicroseconds();
+        const std::uint64_t cameraSetupStartUs = CpuProfile == nullptr ? 0u : CpuProfile->ReadMicroseconds();
 #endif
-    camera->get_RenderQueue3D()->VisitOrdered(this);
+        ::ICamera* camera = cameras->get_Item(cameraIndex);
+        if (camera == nullptr || camera->get_Parent() == nullptr || camera->get_RenderQueue3D() == nullptr) {
+            Reject("PS1_RENDER_CAMERA_INCOMPLETE");
+            Renderer.CancelAuthoredFrame();
+            FrameOpen = false;
+            return;
+        }
+        if (camera->get_RenderTarget() != nullptr) {
+            Reject("PS1_RENDER_TARGET_UNSUPPORTED");
+            Renderer.CancelAuthoredFrame();
+            FrameOpen = false;
+            return;
+        }
+        CameraTransform = TransformOf(camera->get_Parent());
+        // The field of view belongs to the authored camera, so one scene frames the same way on every
+        // platform. TryBuildPose rejects values outside the range it can project.
+        CameraFieldOfViewRadians = camera->get_FieldOfView();
+        const ::CameraClearSettings clearSettings = camera->get_ClearSettings();
+        ClearColor = clearSettings.ClearColorEnabled
+            ? psyqo::Color{{.r = Channel(clearSettings.ClearColor.X), .g = Channel(clearSettings.ClearColor.Y), .b = Channel(clearSettings.ClearColor.Z)}}
+            : Ps1FrameContext::DefaultClearColor;
+        if (!TryBuildLighting()) {
+            Reject("PS1_RENDER_LIGHTING_REJECTED");
+            Renderer.CancelAuthoredFrame();
+            FrameOpen = false;
+            return;
+        }
+        if (!Renderer.BeginAuthoredCamera(clearSettings.ClearColorEnabled, ClearColor)) {
+            Reject("PS1_RENDER_CAMERA_CAPACITY_EXCEEDED");
+            FrameOpen = false;
+            return;
+        }
 #if defined(PS1_CPU_PROFILE)
-    if (CpuProfile != nullptr) {
-        const std::uint64_t meshEndUs = CpuProfile->ReadMicroseconds();
-        if (meshEndUs >= meshStartUs) CpuProfile->RecordNativeStage(Ps1CpuProfileSink::Mesh3D, meshEndUs - meshStartUs);
-        else CpuProfile->ClockFault();
-    }
+        if (CpuProfile != nullptr) {
+            const std::uint64_t cameraSetupEndUs = CpuProfile->ReadMicroseconds();
+            if (cameraSetupEndUs >= cameraSetupStartUs) CpuProfile->RecordNativeStage(Ps1CpuProfileSink::CameraSetup, cameraSetupEndUs - cameraSetupStartUs);
+            else CpuProfile->ClockFault();
+        }
+        const std::uint64_t meshStartUs = CpuProfile == nullptr ? 0u : CpuProfile->ReadMicroseconds();
 #endif
-    if (!FrameOpen) {
-        return;
-    }
-    if (!Render2D.DrawQueue(camera)) {
-        Reject(Render2D.LastFailureMarker() == nullptr ? "PS1_UI_QUEUE_REJECTED" : Render2D.LastFailureMarker());
-        Renderer.CancelAuthoredFrame();
-        FrameOpen = false;
-        return;
+        camera->get_RenderQueue3D()->VisitOrdered(this);
+#if defined(PS1_CPU_PROFILE)
+        if (CpuProfile != nullptr) {
+            const std::uint64_t meshEndUs = CpuProfile->ReadMicroseconds();
+            if (meshEndUs >= meshStartUs) CpuProfile->RecordNativeStage(Ps1CpuProfileSink::Mesh3D, meshEndUs - meshStartUs);
+            else CpuProfile->ClockFault();
+        }
+#endif
+        if (!FrameOpen) {
+            return;
+        }
+        if (!Render2D.DrawQueue(camera)) {
+            Reject(Render2D.LastFailureMarker() == nullptr ? "PS1_UI_QUEUE_REJECTED" : Render2D.LastFailureMarker());
+            Renderer.CancelAuthoredFrame();
+            FrameOpen = false;
+            return;
+        }
     }
     FrameOpen = false;
 #if defined(PS1_CPU_PROFILE)

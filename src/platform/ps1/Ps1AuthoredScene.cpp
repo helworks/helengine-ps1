@@ -19,6 +19,9 @@
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
 #include "platform/ps1/Ps1SceneBootstrap.hpp"
 #include "platform/ps1/Ps1SceneTransitionFrame.hpp"
+#include "platform/ps1/Ps1SceneStartup.hpp"
+#include "platform/ps1/Ps1FrameDiagnostics.hpp"
+#include "runtime/runtime_startup_manifest.hpp"
 #if defined(PS1_CPU_PROFILE)
 #include "platform/ps1/profiling/Ps1CpuProfileSink.hpp"
 #endif
@@ -74,6 +77,7 @@ void Ps1AuthoredScene::InitializeCore() {
     m_options->set_RenderList3DInitialCapacity(16);
     m_options->set_CommitPendingSceneOperationsDuringDraw(false);
     m_options->set_DefaultUpdateDeltaSeconds(1.0 / 60.0);
+    m_options->set_SceneLoadingBudgetMilliseconds(he_get_runtime_scene_loading_budget_milliseconds());
 #if defined(PS1_CPU_PROFILE)
     m_cpuProfileSink = new Ps1CpuProfileSink();
     m_options->set_CpuProfileSink(m_cpuProfileSink);
@@ -102,9 +106,11 @@ void Ps1AuthoredScene::InitializeCore() {
         he_cpp_custom::Fail("Generated catalog has no startup scene");
     }
     ramsyscall_printf("PS1_AUTHORED_SCENE_LOADING id=%s\n", startupSceneId);
-    m_core->get_SceneManager()->LoadScene(startupSceneId, ::SceneLoadMode::Single);
-    m_core->get_SceneManager()->CommitPendingOperationsAtFrameBoundary();
-    ReportSceneState("PS1_AUTHORED_SCENE_READY");
+    MarkFrameStage(Ps1FrameStage::StartupBefore);
+    const bool asynchronousStartup = StartAuthoredScenes(*m_core->get_SceneManager(), startupSceneId,
+                                                         he_get_runtime_loading_screen_scene_id());
+    MarkFrameStage(Ps1FrameStage::StartupAfter);
+    ReportSceneState(asynchronousStartup ? "PS1_AUTHORED_TRANSITION_QUEUED" : "PS1_AUTHORED_SCENE_READY");
 
     ::ObjectManager* objectManager = m_core->get_ObjectManager();
     const int32_t cameraCount = objectManager->get_Cameras() == nullptr ? 0 : objectManager->get_Cameras()->get_Count();
@@ -160,13 +166,24 @@ void Ps1AuthoredScene::frame() {
     if (deltaSeconds > kMaxDeltaSeconds) {
         deltaSeconds = kMaxDeltaSeconds;
     }
+    helengine_ps1_frame_diagnostics.VBlank = vblankFrame;
+    helengine_ps1_frame_diagnostics.TransitionActive = m_core->get_SceneManager()->get_IsSceneTransitionActive() ? 1u : 0u;
+    auto* diagnosticCameras = m_core->get_ObjectManager()->get_Cameras();
+    helengine_ps1_frame_diagnostics.CameraCount = diagnosticCameras == nullptr ? 0u : diagnosticCameras->get_Count();
+    MarkFrameStage(Ps1FrameStage::UpdateBefore);
     m_core->Update(deltaSeconds);
+    MarkFrameStage(Ps1FrameStage::UpdateAfter);
     const std::uint64_t updateEndUs = he_cpp_custom::MonotonicMicroseconds();
+    MarkFrameStage(Ps1FrameStage::BoundaryBefore);
     m_core->CompleteFrameBoundary();
+    MarkFrameStage(Ps1FrameStage::BoundaryAfter);
     const std::uint64_t boundaryEndUs = he_cpp_custom::MonotonicMicroseconds();
     auto* cameras = m_core->get_ObjectManager()->get_Cameras();
     const bool waitingForTransitionCamera = WaitForSceneTransitionCamera(
         m_core->get_SceneManager()->get_IsSceneTransitionActive(), cameras == nullptr ? 0 : cameras->get_Count());
+    helengine_ps1_frame_diagnostics.TransitionActive = m_core->get_SceneManager()->get_IsSceneTransitionActive() ? 1u : 0u;
+    helengine_ps1_frame_diagnostics.CameraCount = cameras == nullptr ? 0u : cameras->get_Count();
+    MarkFrameStage(Ps1FrameStage::DrawBefore);
     // Core::Draw drives the render manager, which converts the loaded camera and drawable into GTE
     // poses and submits the frame through the shared renderer with the camera's clear color.
     // Keep both parity contexts' submission sequence advancing even while the old camera
@@ -177,6 +194,7 @@ void Ps1AuthoredScene::frame() {
     } else {
         m_core->Draw();
     }
+    MarkFrameStage(Ps1FrameStage::DrawAfter);
     m_lastFrameEndUs = he_cpp_custom::MonotonicMicroseconds();
 #if defined(PS1_CPU_PROFILE)
     if (profileCapture) {
@@ -208,6 +226,8 @@ void Ps1AuthoredScene::frame() {
     }
     ++m_profileFrames;
     ++m_frameSequence;
+    helengine_ps1_frame_diagnostics.CompletedFrames = m_frameSequence;
+    MarkFrameStage(Ps1FrameStage::FrameCompleted);
     if (m_frameSequence == 1800) m_steadyStartVblank = vblankFrame;
     if (m_frameSequence == 2400) {
         ramsyscall_printf("PS1_AUTHORED_STEADY_CADENCE frames=600 vblanks=%u\n",

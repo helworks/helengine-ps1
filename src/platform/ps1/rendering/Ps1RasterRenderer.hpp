@@ -74,6 +74,8 @@ class Ps1RasterRenderer final {
      * color. Any failure cancels the context and records the failure kind in the stats.
      */
     bool BeginAuthoredFrame(psyqo::GPU& gpu);
+    /** Separates camera buckets and applies the authored clear policy within one frame. */
+    bool BeginAuthoredCamera(bool clearEnabled, psyqo::Color clearColor);
     bool QueueAuthoredMesh(const Ps1GtePose& pose, const std::int16_t* vertices, std::uint32_t vertexCount,
                            const std::uint16_t* indices, std::uint32_t indexCount, psyqo::Color color, bool doubleSided,
                            const std::int16_t* normals = nullptr, const Ps1GteLighting* lighting = nullptr);
