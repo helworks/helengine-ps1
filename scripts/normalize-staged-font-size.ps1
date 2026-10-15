@@ -59,6 +59,31 @@ function Get-ContainedPath([string]$root,[string]$relativePath) {
 }
 $changes=[Collections.Generic.List[object]]::new()
 $fontRatios=@{}
+$fontWrappers=[helengine.editor.ComponentPlatformOverridePayloadService]::new()
+# A baseline rewrite must not replace a newer native-pixel scene already staged.
+# Inspect common and scoped text policies without changing any target record.
+function Test-NativeTextScene($entities) {
+    foreach($entity in $entities){
+        foreach($component in $entity.Components){
+            if($component.ComponentTypeId -ne 'helengine.TextComponent'){continue}
+            $payloads=[Collections.Generic.List[byte[]]]::new()
+            $payloads.Add($fontWrappers.UnwrapBaseRecord($component).Payload)
+            foreach($override in $fontWrappers.ReadOverrideStates($component)){
+                if($override.Payload.Length -gt 0){$payloads.Add($override.Payload)}
+            }
+            foreach($payload in $payloads){
+                $fields=[StagedFontFields]::Read($payload)
+                if($fields.ContainsKey('UseNativeFontPixels')){
+                    $field=$fields['UseNativeFontPixels']
+                    if($field[1] -ne 1){throw 'UseNativeFontPixels must be one boolean byte.'}
+                    if($payload[$field[0]] -eq 1){return $true}
+                }
+            }
+        }
+        if(Test-NativeTextScene $entity.Children){return $true}
+    }
+    return $false
+}
 function Get-FontRatio([string]$relativePath) {
     if($fontRatios.ContainsKey($relativePath)){return $fontRatios[$relativePath]}
     $sidecar=Get-ContainedPath $sourceRoot ('assets/'+$relativePath+'.hasset')
@@ -111,6 +136,12 @@ foreach($scenePath in $SceneRelativePaths){
     $targetPath=Get-ContainedPath $stageRoot $relative
     if(!(Test-Path -LiteralPath $targetPath)){continue}
     $sourceHash=(Get-FileHash -LiteralPath $sourcePath.FullName).Hash
+    $targetStream=[IO.File]::OpenRead($targetPath)
+    try {$currentStageScene=[helengine.files.AssetSerializer]::Deserialize($targetStream)} finally {$targetStream.Dispose()}
+    if(Test-NativeTextScene $currentStageScene.RootEntities){
+        $sceneHashes.Add([ordered]@{path=$relative;sourceSha256=$sourceHash;stagedSha256=(Get-FileHash -LiteralPath $targetPath).Hash;skippedNativePixelScene=$true})
+        continue
+    }
     $stream=[IO.File]::OpenRead($sourcePath.FullName)
     try {$scene=[helengine.files.AssetSerializer]::Deserialize($stream)} finally {$stream.Dispose()}
     $beforeCount=$changes.Count
@@ -122,5 +153,5 @@ foreach($scenePath in $SceneRelativePaths){
     if((Get-FileHash -LiteralPath $sourcePath.FullName).Hash -ne $sourceHash){throw 'Immutable scene baseline changed.'}
     $sceneHashes.Add([ordered]@{path=$relative;sourceSha256=$sourceHash;stagedSha256=(Get-FileHash -LiteralPath $targetPath).Hash})
 }
-[ordered]@{platform=$PlatformId;sourceRoot=$sourceRoot;stagedRoot=$stageRoot;scenes=$sceneHashes;changes=$changes;onlyFontScaleChanged=$true}|ConvertTo-Json -Depth 8|Set-Content -LiteralPath $ReceiptPath
+[ordered]@{platform=$PlatformId;sourceRoot=$sourceRoot;stagedRoot=$stageRoot;scenes=$sceneHashes;changes=$changes;onlyFontScaleChanged=$true;nativePixelScenesPreserved=$true}|ConvertTo-Json -Depth 8|Set-Content -LiteralPath $ReceiptPath
 Write-Output "Normalized $($changes.Count) text components from immutable baseline ($PlatformId)."

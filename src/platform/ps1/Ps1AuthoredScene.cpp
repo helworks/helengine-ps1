@@ -3,6 +3,7 @@
 #include "Core.hpp"
 #include "CoreInitializationOptions.hpp"
 #include "Entity.hpp"
+#include "GeneratedRuntimeModuleRegistration.hpp"
 #include "ICamera.hpp"
 #include "IDrawable3D.hpp"
 #include "ObjectManager.hpp"
@@ -29,9 +30,18 @@
 #include "psyqo/alloc.h"
 #include "psyqo/kernel.hh"
 #include "runtime/native_list.hpp"
+#if defined(PS1_SCENE_MODULES)
+#include "ps1_scene_module_metadata.hpp"
+#include "platform/ps1/modules/Ps1SdkDiscSectorReader.hpp"
+#include "platform/ps1/modules/Ps1ModuleGpuFence.hpp"
+#include "platform/ps1/modules/Ps1ModuleFramePolicy.hpp"
+#include "psyqo/cdrom-device.hh"
+#endif
 
+#if !defined(PS1_SCENE_MODULES)
 extern "C" const std::uint8_t he_ps1_authored_archive[];
 extern "C" const std::uint8_t he_ps1_authored_archive_end[];
+#endif
 
 namespace helengine::ps1 {
 namespace {
@@ -45,6 +55,11 @@ int Milli(float value) {
 constexpr double kMaxDeltaSeconds = 0.1;
 
 }  // namespace
+
+Ps1AuthoredScene::~Ps1AuthoredScene() {
+    if (m_core != nullptr) { m_core->Dispose(); delete m_core; m_core = nullptr; }
+    if (m_sceneCatalog != nullptr) { m_sceneCatalog->Dispose(); delete m_sceneCatalog; m_sceneCatalog = nullptr; }
+}
 
 void Ps1AuthoredScene::start(StartReason) {
     if (m_initialized) {
@@ -61,8 +76,28 @@ void Ps1AuthoredScene::start(StartReason) {
 void Ps1AuthoredScene::InitializeCore() {
     InitializeRuntimeClock(gpu());
     ramsyscall_printf("PS1_CORE_INITIALIZING\n");
+#if defined(PS1_SCENE_MODULES)
+    // The permanent driver owns asynchronous callbacks; no content stream performs disc I/O.
+    auto* device = new psyqo::CDRomDevice();
+    device->prepare();
+    m_discReader = new Ps1SdkDiscSectorReader(*device);
+    std::size_t moduleCount = 0;
+    const auto* bindings = Ps1GeneratedModules(&moduleCount);
+    std::size_t pinCount = 0;
+    auto* pins = Ps1GeneratedPins(&pinCount);
+    InstallCodeModulePinTable(pins, pinCount);
+    m_moduleProvider = new Ps1CodeModuleProvider(*m_discReader, *m_discReader, gpu(), bindings, moduleCount);
+    std::uint32_t assetCount = 0, dependencyCount = 0;
+    const auto* assets = Ps1GeneratedAssets(&assetCount);
+    const auto* dependencies = Ps1GeneratedScenes(&dependencyCount);
+    m_discContent = new Ps1DiscContent(*m_discReader, *m_discReader,
+        assets, assetCount, dependencies, dependencyCount, Ps1GeneratedArchiveBytes(),
+        Ps1GeneratedCacheBudgetBytes());
+    m_contentSource = m_discContent;
+#else
     const std::size_t archiveLength = static_cast<std::size_t>(he_ps1_authored_archive_end - he_ps1_authored_archive);
     m_contentSource = new Ps1ContentStreamSource(he_ps1_authored_archive, archiveLength);
+#endif
     m_sceneCatalog = BuildPs1RuntimeSceneCatalog();
     if (m_sceneCatalog == nullptr) {
         he_cpp_custom::Fail("Generated scene catalog is empty");
@@ -70,6 +105,11 @@ void Ps1AuthoredScene::InitializeCore() {
     m_options = new ::CoreInitializationOptions();
     m_options->set_ContentStreamSource(m_contentSource);
     m_options->set_SceneCatalog(m_sceneCatalog);
+#if defined(PS1_SCENE_MODULES)
+    m_options->set_CodeModuleManifest(Ps1GeneratedModuleManifest());
+    m_options->set_CodeModuleProvider(m_moduleProvider);
+    m_options->set_SceneContentProvider(m_discContent);
+#endif
     m_options->set_UpdateOrderLayers(4);
     m_options->set_RenderOrderLayers3D(4);
     m_options->set_UpdateListInitialCapacity(16);
@@ -99,6 +139,8 @@ void Ps1AuthoredScene::InitializeCore() {
     if (m_core->get_ObjectManager() == nullptr || m_core->get_SceneManager() == nullptr) {
         he_cpp_custom::Fail("Core initialization did not create required managers");
     }
+    ::RegisterGeneratedRuntimeModules(m_core);
+    ramsyscall_printf("PS1_RUNTIME_MODULES_REGISTERED\n");
     ramsyscall_printf("PS1_CORE_READY core=%p\n", m_core);
 
     const char* startupSceneId = Ps1StartupSceneId();
@@ -107,8 +149,16 @@ void Ps1AuthoredScene::InitializeCore() {
     }
     ramsyscall_printf("PS1_AUTHORED_SCENE_LOADING id=%s\n", startupSceneId);
     MarkFrameStage(Ps1FrameStage::StartupBefore);
+#if defined(PS1_SCENE_MODULES)
+    // A native clear/splash is asset-free. The authored loading scene is preloaded asynchronously
+    // too, so boot never waits for CD inside the synchronous LoadScene path.
+    m_core->get_SceneManager()->RequestSceneTransition(
+        m_discStartup.Begin(startupSceneId, he_get_runtime_loading_screen_scene_id()));
+    const bool asynchronousStartup = true;
+#else
     const bool asynchronousStartup = StartAuthoredScenes(*m_core->get_SceneManager(), startupSceneId,
                                                          he_get_runtime_loading_screen_scene_id());
+#endif
     MarkFrameStage(Ps1FrameStage::StartupAfter);
     ReportSceneState(asynchronousStartup ? "PS1_AUTHORED_TRANSITION_QUEUED" : "PS1_AUTHORED_SCENE_READY");
 
@@ -116,7 +166,7 @@ void Ps1AuthoredScene::InitializeCore() {
     const int32_t cameraCount = objectManager->get_Cameras() == nullptr ? 0 : objectManager->get_Cameras()->get_Count();
     // A 2D authored scene may have no 3D drawables, but it still needs a camera
     // to drive its viewport and UI render queue.
-    if (cameraCount == 0) {
+    if (cameraCount == 0 && !asynchronousStartup) {
         he_cpp_custom::Fail("Authored scene registered no camera");
     }
 }
@@ -175,11 +225,27 @@ void Ps1AuthoredScene::frame() {
     MarkFrameStage(Ps1FrameStage::UpdateAfter);
     const std::uint64_t updateEndUs = he_cpp_custom::MonotonicMicroseconds();
     MarkFrameStage(Ps1FrameStage::BoundaryBefore);
+#if defined(PS1_SCENE_MODULES)
+    // flip() dispatches the previous frame after frame() returns. Poll here, before queuing
+    // another chain; a busy GPU delays scene mutation but not Update or presentation.
+    auto* sceneManager = m_core->get_SceneManager();
+    const bool boundaryDeferred = ShouldDeferModuleBoundary(sceneManager->get_IsSceneTransitionActive(),
+        sceneManager->get_HasPendingSceneOperations(), IsModuleGpuIdle(gpu()));
+    if (!boundaryDeferred) m_core->CompleteFrameBoundary();
+    if (m_discStartup.IsWaitingForLoading()) {
+        const char* target = m_discStartup.TakeTargetIfLoadingReady(
+            sceneManager->IsSceneLoaded(m_discStartup.GetLoadingSceneId()),
+            sceneManager->get_IsSceneTransitionActive());
+        if (target != nullptr) sceneManager->RequestSceneTransition(target);
+    }
+#else
+    const bool boundaryDeferred = false;
     m_core->CompleteFrameBoundary();
+#endif
     MarkFrameStage(Ps1FrameStage::BoundaryAfter);
     const std::uint64_t boundaryEndUs = he_cpp_custom::MonotonicMicroseconds();
     auto* cameras = m_core->get_ObjectManager()->get_Cameras();
-    const bool waitingForTransitionCamera = WaitForSceneTransitionCamera(
+    const bool waitingForTransitionCamera = boundaryDeferred || WaitForSceneTransitionCamera(
         m_core->get_SceneManager()->get_IsSceneTransitionActive(), cameras == nullptr ? 0 : cameras->get_Count());
     helengine_ps1_frame_diagnostics.TransitionActive = m_core->get_SceneManager()->get_IsSceneTransitionActive() ? 1u : 0u;
     helengine_ps1_frame_diagnostics.CameraCount = cameras == nullptr ? 0u : cameras->get_Count();
@@ -189,7 +255,11 @@ void Ps1AuthoredScene::frame() {
     // Keep both parity contexts' submission sequence advancing even while the old camera
     // has been unloaded. Skipping a submission would return to a queued context one renderer
     // sequence too early after the SDK flips the display parity.
-    if (waitingForTransitionCamera) {
+    if (boundaryDeferred) {
+        // Do not restart DMA on this flip: the previous chain drains and the following
+        // frame can retire a module. Updates and the display flip remain live throughout.
+        m_renderer.AdvanceUnsubmittedFrame();
+    } else if (waitingForTransitionCamera) {
         psyqo::Kernel::assert(m_renderer.QueueClear(gpu()), "PS1_TRANSITION_CLEAR_FRAME_FAILED");
     } else {
         m_core->Draw();

@@ -15,7 +15,16 @@ struct Ps1TextGlyph {
     std::int16_t sourceWidth = 0;
     std::int16_t sourceHeight = 0;
     bool sourceValid = false;
+    float bearingX = 0.0f;
 };
+
+/// Geometry must match before a cached text quad can change only its atlas UVs.
+inline bool CanReusePs1TextGlyphGeometry(const Ps1TextGlyph& original, const Ps1TextGlyph& replacement) {
+    return original.width == replacement.width && original.height == replacement.height &&
+           original.offsetY == replacement.offsetY && original.advance == replacement.advance &&
+           original.bearingX == replacement.bearingX &&
+           replacement.sourceValid;
+}
 
 /// Reuses cooked font metrics across frames until their texture is released.
 class Ps1TextGlyphCache {
@@ -75,7 +84,8 @@ bool LayoutPs1Text(const char* content, std::size_t length, float baseX, float b
             Ps1TextGlyph glyph{};
             if (!lookup(content[i], glyph)) continue;
             const float width = glyph.width * scale;
-            if (cursor + width > visibleWidth) visibleWidth = cursor + width;
+            const float rightEdge = cursor + glyph.bearingX * scale + width;
+            if (rightEdge > visibleWidth) visibleWidth = rightEdge;
             cursor += (glyph.advance > 0.0f ? glyph.advance : glyph.width) * scale;
         }
         float lineX = baseX;
@@ -91,7 +101,8 @@ bool LayoutPs1Text(const char* content, std::size_t length, float baseX, float b
             }
             Ps1TextGlyph glyph{};
             if (!lookup(content[i], glyph)) continue;
-            if (!emit(content[i], glyph, lineX + cursor, baseY + lineY + glyph.offsetY * scale)) return false;
+            if (!emit(content[i], glyph, lineX + cursor + glyph.bearingX * scale,
+                      baseY + lineY + glyph.offsetY * scale)) return false;
             cursor += (glyph.advance > 0.0f ? glyph.advance : glyph.width) * scale;
         }
         lineStart = lineEnd + 1u;

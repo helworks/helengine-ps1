@@ -9,6 +9,12 @@ EXTRA_LDSCRIPT = linker/retail-memory.ld
 DEMO_MODE ?= Clear
 CORE_BOOT ?= 0
 AUTHORED ?= 0
+SCENE_MODULES ?= 0
+ifeq ($(SCENE_MODULES),1)
+# Keep the executable output local to this makefile. A command-line BINDIR would
+# propagate into the SDK's recursive make and relocate its canonical libpsyqo.a.
+BINDIR := scene-modules/build-out/
+endif
 CPU_PROFILE ?= 0
 ifeq ($(CPU_PROFILE),1)
 ifneq ($(AUTHORED),1)
@@ -47,8 +53,21 @@ endif
 DEFINES += PS1_CORE_BOOT=1
 CPPFLAGS += -Igenerated-core -Isrc/platform/ps1
 CPPFLAGS_$(BUILD) += -msoft-float
-SRCS += generated-core/helengine_core_unity.cpp \
-        src/platform/ps1/Ps1RuntimeProvider.cpp
+ifeq ($(SCENE_MODULES),1)
+include scene-modules/resident-sources.mk
+PS1_RESIDENT_CORE_SRCS := $(filter-out generated-core/runtime/runtime_startup_manifest.cpp generated-core/ps1_runtime_scene_catalog.cpp,$(PS1_RESIDENT_CORE_SRCS))
+SRCS += $(PS1_RESIDENT_CORE_SRCS)
+DEFINES += PS1_SCENE_MODULES=1
+CPPFLAGS += -Iscene-modules/metadata
+LDFLAGS += $(PS1_MODULE_IMPORT_FLAGS)
+CXXFLAGS += -mlong-calls -fno-use-cxa-atexit
+else
+SRCS += generated-core/helengine_core_unity.cpp
+endif
+SRCS += src/platform/ps1/Ps1RuntimeProvider.cpp \
+        src/platform/ps1/modules/Ps1CodeModuleLifetime.cpp
+# Every resident object, including legacy builds, has an empty ownership ID.
+DEFINES += HELENGINE_CODE_MODULE_ID=\"\"
 ifeq ($(AUTHORED),1)
 ifeq ($(wildcard generated-core/ps1_runtime_scene_catalog.cpp),)
 $(error Authored mode requires generated-core/ps1_runtime_scene_catalog.cpp from the PS1 platform builder)
@@ -74,7 +93,15 @@ ifeq ($(CPU_PROFILE),1)
 DEFINES += PS1_CPU_PROFILE=1
 AUTHORED_CORE_SRCS += src/platform/ps1/profiling/Ps1CpuProfileSink.cpp src/platform/ps1/profiling/Ps1CpuProfileWindow.cpp
 endif
-SRCS += $(AUTHORED_CORE_SRCS) authored/authored_assets.s
+SRCS += $(AUTHORED_CORE_SRCS)
+ifeq ($(SCENE_MODULES),1)
+SRCS += src/platform/ps1/modules/Ps1CodeModuleProvider.cpp \
+        src/platform/ps1/modules/Ps1DiscContent.cpp \
+        src/platform/ps1/modules/Ps1SceneModuleMetadata.cpp \
+        scene-modules/metadata/ps1_scene_module_metadata.cpp
+else
+SRCS += authored/authored_assets.s
+endif
 CORE_RTTI_OBJS = $(AUTHORED_CORE_SRCS:.cpp=.o)
 else
 SRCS += src/platform/ps1/Ps1CoreBoot.cpp
@@ -91,6 +118,11 @@ endif
 
 include third_party/nugget/psyqo/psyqo.mk
 
+ifeq ($(SCENE_MODULES),1)
+# INSERT scripts precede the primary script; nooverlay must set the heap base first.
+LDSCRIPTS = $(OVERLAYSCRIPT) scene-modules/arenas.ld $(LDSCRIPT) $(EXTRA_LDSCRIPT)
+endif
+
 ifeq ($(AUTHORED),1)
 # The packer validates the declared list and emits the archive plus the incbin stub that
 # exposes he_ps1_authored_archive/_end to the content stream source.
@@ -104,10 +136,19 @@ endif
 
 ifeq ($(CORE_BOOT),1)
 generated-core/helengine_core_unity.o $(CORE_RTTI_OBJS): CXXFLAGS += -frtti
+ifeq ($(SCENE_MODULES),1)
+$(PS1_RESIDENT_CORE_SRCS:.cpp=.o) src/platform/ps1/modules/Ps1CodeModuleProvider.o src/platform/ps1/modules/Ps1DiscContent.o src/platform/ps1/modules/Ps1SceneModuleMetadata.o scene-modules/metadata/ps1_scene_module_metadata.o: CXXFLAGS += -frtti
+endif
 ifeq ($(AUTHORED),1)
 ifeq ($(BUILD),Release)
 # The authored frame path uses measured throughput optimization instead of the SDK size default.
 generated-core/helengine_core_unity.o: CPPFLAGS += -O3
+ifeq ($(SCENE_MODULES),1)
+# These hot Core units replace the unity object in the resident module build.
+# Preserve its throughput optimization without expanding every resident unit.
+PS1_RUNTIME_HOT_SRCS := $(filter generated-core/ViewportComponent.cpp generated-core/Entity.cpp generated-core/ViewportLayoutSnapshot.cpp generated-core/AuthoredLayoutScaleUtils.cpp,$(PS1_RESIDENT_CORE_SRCS))
+$(PS1_RUNTIME_HOT_SRCS:.cpp=.o): CPPFLAGS += -O3
+endif
 src/platform/ps1/Ps1RenderManager2D.o src/platform/ps1/Ps1RenderManager3D.o: CPPFLAGS += -O3
 src/platform/ps1/rendering/Ps1RasterRenderer.o src/platform/ps1/rendering/Ps1FrameContext.o: CPPFLAGS += -O3
 endif

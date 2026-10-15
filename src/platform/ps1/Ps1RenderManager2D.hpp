@@ -130,6 +130,10 @@ private:
     /// <param name="asset">Cooked pixels with a palette only when the format is indexed.</param>
     /// <returns>Runtime texture naming the VRAM page and its optional CLUT.</returns>
     ::RuntimeTexture* UploadTexture(::TextureAsset* asset);
+    /// <summary>Builds direct-color VRAM and a compact retained shadow from raw RGBA32 pixels.</summary>
+    /// <param name="asset">Exact 1..256 texel source with opaque, binary or A8 coverage metadata.</param>
+    /// <returns>Owned mutable texture with coverage quantized to the PS1 binary sampler.</returns>
+    ::RuntimeTexture* BuildMutableRgbaTexture(::TextureAsset* asset);
 
     bool ResolveViewport(::ICamera* camera, Ps1ScreenRect& viewport) const;
     void Reject(const char* marker);

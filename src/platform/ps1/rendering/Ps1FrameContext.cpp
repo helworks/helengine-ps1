@@ -4,6 +4,7 @@
 #include "psyqo/kernel.hh"
 
 #include <cstdint>
+#include <new>
 
 namespace helengine::ps1 {
 
@@ -170,7 +171,38 @@ Ps1FrameContext::TexturedQuadFragment* Ps1FrameContext::TryReserveTexturedQuad()
         return nullptr;
     }
     if (m_texturedReservedCount >= TexturedQuadCapacity) return nullptr;
-    return &m_texturedQuads[m_texturedReservedCount++];
+    const unsigned index = m_texturedReservedCount++;
+    if (m_texturedTriangleKind[index]) {
+        new (&m_texturedSlots[index].Quad) TexturedQuadFragment();
+        m_texturedTriangleKind[index] = false;
+        m_texturedCacheSources[index] = nullptr;
+        m_texturedCacheRevisions[index] = 0;
+    }
+    return &m_texturedSlots[index].Quad;
+}
+
+Ps1FrameContext::TexturedTriangleFragment* Ps1FrameContext::TryReserveTexturedTriangle() {
+    if (m_state != State::Building || m_texturedReservedCount >= TexturedQuadCapacity) return nullptr;
+    const unsigned index = m_texturedReservedCount++;
+    if (!m_texturedTriangleKind[index]) new (&m_texturedSlots[index].Triangle) TexturedTriangleFragment();
+    m_texturedTriangleKind[index] = true;
+    m_texturedCacheSources[index] = nullptr;
+    m_texturedCacheRevisions[index] = 0;
+    return &m_texturedSlots[index].Triangle;
+}
+
+bool Ps1FrameContext::Insert(TexturedTriangleFragment& fragment, std::uint16_t bucket) {
+    if (m_state != State::Building || bucket >= 256u) return false;
+    const auto first = reinterpret_cast<std::uintptr_t>(&m_texturedSlots[0]);
+    const auto address = reinterpret_cast<std::uintptr_t>(&fragment);
+    if (address < first || address >= reinterpret_cast<std::uintptr_t>(&m_texturedSlots[TexturedQuadCapacity]) ||
+        (address - first) % sizeof(TexturedSlot) != 0) return false;
+    const unsigned index = static_cast<unsigned>((address - first) / sizeof(TexturedSlot));
+    if (index >= m_texturedReservedCount || !m_texturedTriangleKind[index] || m_texturedInserted[index] != 0) return false;
+    CameraTable().insert(fragment, Ps1DepthBucket::ToCombinedSceneBucket(bucket));
+    m_texturedInserted[index] = 1;
+    ++m_texturedInsertedCount;
+    return true;
 }
 
 Ps1FrameContext::TexturedQuadFragment* Ps1FrameContext::TryAppendTexturedQuad(std::uint16_t bucket) {
@@ -179,8 +211,8 @@ Ps1FrameContext::TexturedQuadFragment* Ps1FrameContext::TryAppendTexturedQuad(st
         return nullptr;
     }
     if (bucket >= 256u || m_texturedReservedCount >= TexturedQuadCapacity) return nullptr;
-    const unsigned index = m_texturedReservedCount++;
-    TexturedQuadFragment* fragment = &m_texturedQuads[index];
+    const unsigned index = m_texturedReservedCount;
+    TexturedQuadFragment* fragment = TryReserveTexturedQuad();
     CameraTable().insert(*fragment, bucket);
     m_texturedInserted[index] = 1;
     ++m_texturedInsertedCount;
@@ -191,7 +223,7 @@ bool Ps1FrameContext::ReuseTexturedQuad(const TexturedQuadFragment& fragment, co
                                         std::uint32_t revision) const {
     if (source == nullptr || revision == 0 || m_state != State::Building || m_texturedReservedCount == 0) return false;
     const unsigned index = m_texturedReservedCount - 1u;
-    return &m_texturedQuads[index] == &fragment && m_texturedCacheSources[index] == source &&
+    return !m_texturedTriangleKind[index] && &m_texturedSlots[index].Quad == &fragment && m_texturedCacheSources[index] == source &&
            m_texturedCacheRevisions[index] == revision;
 }
 
@@ -202,7 +234,7 @@ void Ps1FrameContext::RememberTexturedQuad(const TexturedQuadFragment& fragment,
         return;
     }
     const unsigned index = m_texturedReservedCount - 1u;
-    if (&m_texturedQuads[index] != &fragment) {
+    if (m_texturedTriangleKind[index] || &m_texturedSlots[index].Quad != &fragment) {
         AssertState(false, "PS1_TEXTURED_QUAD_CACHE_NOT_LAST_RESERVED");
         return;
     }
@@ -219,16 +251,16 @@ bool Ps1FrameContext::Insert(TexturedQuadFragment& fragment, std::uint16_t bucke
     unsigned index = 0;
     // The authored UI path inserts the slot it just reserved. Avoid per-packet address division
     // there, while retaining the full ownership check for other insertion orders.
-    if (m_texturedReservedCount != 0u && &m_texturedQuads[m_texturedReservedCount - 1u] == &fragment) {
+    if (m_texturedReservedCount != 0u && &m_texturedSlots[m_texturedReservedCount - 1u].Quad == &fragment) {
         index = m_texturedReservedCount - 1u;
     } else {
-        const auto first = reinterpret_cast<std::uintptr_t>(&m_texturedQuads[0]);
-        const auto last = reinterpret_cast<std::uintptr_t>(&m_texturedQuads[TexturedQuadCapacity]);
+        const auto first = reinterpret_cast<std::uintptr_t>(&m_texturedSlots[0]);
+        const auto last = reinterpret_cast<std::uintptr_t>(&m_texturedSlots[TexturedQuadCapacity]);
         const auto address = reinterpret_cast<std::uintptr_t>(&fragment);
-        if (address < first || address >= last || ((address - first) % sizeof(TexturedQuadFragment)) != 0) return false;
-        index = static_cast<unsigned>((address - first) / sizeof(TexturedQuadFragment));
+        if (address < first || address >= last || ((address - first) % sizeof(TexturedSlot)) != 0) return false;
+        index = static_cast<unsigned>((address - first) / sizeof(TexturedSlot));
     }
-    if (index >= m_texturedReservedCount || m_texturedInserted[index] != 0) return false;
+    if (index >= m_texturedReservedCount || m_texturedTriangleKind[index] || m_texturedInserted[index] != 0) return false;
     CameraTable().insert(fragment, bucket);
     m_texturedInserted[index] = 1;
     ++m_texturedInsertedCount;

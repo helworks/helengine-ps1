@@ -5,6 +5,7 @@
 #include "platform/ps1/rendering/Ps1AuthoredUiGeometry.hpp"
 #include "platform/ps1/rendering/Ps1CubeMesh.hpp"
 #include "platform/ps1/rendering/Ps1FrameContext.hpp"
+#include "platform/ps1/rendering/Ps1TexturedMesh.hpp"
 #include "psyqo/gpu.hh"
 #include "psyqo/primitives/common.hh"
 #include "psyqo/trigonometry.hh"
@@ -61,6 +62,8 @@ struct Ps1RenderStats {
 class Ps1RasterRenderer final {
   public:
     void Initialize();
+    /** Advances parity ownership when a nonblocking module fence deliberately queues no DMA chain. */
+    void AdvanceUnsubmittedFrame();
     bool QueueClear(psyqo::GPU& gpu);
     bool QueueCube(psyqo::GPU& gpu, std::uint16_t phaseX, std::uint16_t phaseY);
     bool QueueInvalidPose(psyqo::GPU& gpu);
@@ -78,7 +81,8 @@ class Ps1RasterRenderer final {
     bool BeginAuthoredCamera(bool clearEnabled, psyqo::Color clearColor);
     bool QueueAuthoredMesh(const Ps1GtePose& pose, const std::int16_t* vertices, std::uint32_t vertexCount,
                            const std::uint16_t* indices, std::uint32_t indexCount, psyqo::Color color, bool doubleSided,
-                           const std::int16_t* normals = nullptr, const Ps1GteLighting* lighting = nullptr);
+                           const std::int16_t* normals = nullptr, const Ps1GteLighting* lighting = nullptr,
+                           const Ps1MeshUv* uvs = nullptr, const Ps1MeshTexture* texture = nullptr);
     bool QueueAuthoredUiTriangle(const Ps1UiTriangle& triangle, psyqo::Color color, bool semiTransparent,
                                  std::uint16_t bucket);
     bool QueueAuthoredUiSprite(const Ps1UiVertex (&vertices)[4], std::uint16_t vramX, std::uint16_t vramY,

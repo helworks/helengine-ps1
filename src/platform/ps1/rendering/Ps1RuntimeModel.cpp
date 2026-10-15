@@ -2,6 +2,7 @@
 
 #include "ModelAsset.hpp"
 #include "float3.hpp"
+#include "float2.hpp"
 #include "platform/ps1/Ps1Math.hpp"
 #include "platform/ps1/rendering/Ps1AuthoredLighting.hpp"
 #include "platform/ps1/rendering/Ps1AuthoredProjection.hpp"
@@ -29,6 +30,12 @@ bool Ps1RuntimeModel::Initialize(const ::ModelAsset* asset) {
     for (int32_t index = 0; index < indexCount; ++index) {
         if (asset->Indices16->Data[index] >= static_cast<std::uint16_t>(vertexCount)) {
             return false;
+        }
+    }
+    if (asset->TexCoords != nullptr && asset->TexCoords->Length != 0 && asset->TexCoords->Length != vertexCount) return false;
+    if (asset->TexCoords != nullptr) {
+        for (int32_t index = 0; index < asset->TexCoords->Length; ++index) {
+            if (!__builtin_isfinite(asset->TexCoords->Data[index].X) || !__builtin_isfinite(asset->TexCoords->Data[index].Y)) return false;
         }
     }
     std::int16_t* vertices = new std::int16_t[static_cast<std::uint32_t>(vertexCount) * 3u];
@@ -68,6 +75,12 @@ bool Ps1RuntimeModel::Initialize(const ::ModelAsset* asset) {
     }
     VerticesValue = vertices;
     NormalsValue = normals;
+    if (asset->TexCoords != nullptr && asset->TexCoords->Length == vertexCount) {
+        TextureCoordinatesValue = new Ps1MeshUv[static_cast<std::uint32_t>(vertexCount)];
+        for (int32_t index = 0; index < vertexCount; ++index) {
+            TextureCoordinatesValue[index] = Ps1MeshUv{asset->TexCoords->Data[index].X, asset->TexCoords->Data[index].Y};
+        }
+    }
     VertexCountValue = static_cast<std::uint32_t>(vertexCount);
     IndexCountValue = static_cast<std::uint32_t>(indexCount);
     BoundingRadiusValue = radius;
@@ -78,9 +91,11 @@ void Ps1RuntimeModel::Dispose() {
     delete[] VerticesValue;
     delete[] NormalsValue;
     delete[] IndicesValue;
+    delete[] TextureCoordinatesValue;
     VerticesValue = nullptr;
     NormalsValue = nullptr;
     IndicesValue = nullptr;
+    TextureCoordinatesValue = nullptr;
     VertexCountValue = 0;
     IndexCountValue = 0;
     BoundingRadiusValue = 0.0f;

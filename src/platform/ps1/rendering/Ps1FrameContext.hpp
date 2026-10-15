@@ -25,6 +25,13 @@ class Ps1FrameContext final {
     using GouraudFragment = psyqo::Fragments::SimpleFragment<psyqo::Prim::GouraudTriangle>;
     using UiTriangleFragment = TriangleFragment;
     using TexturedQuadFragment = psyqo::Fragments::SimpleFragment<psyqo::Prim::TexturedQuad>;
+    using TexturedTriangleFragment = psyqo::Fragments::SimpleFragment<psyqo::Prim::GouraudTexturedTriangle>;
+    /** One DMA slot shared by 3D triangles and UI quads; no second packet arena is allocated. */
+    union TexturedSlot {
+        TexturedQuadFragment Quad;
+        TexturedTriangleFragment Triangle;
+        TexturedSlot() : Quad() {}
+    };
 
     /** Authored scenes submit far fewer triangles than the diagnostic stress modes. */
     static constexpr unsigned GouraudCapacity = Ps1FramePacketLimits::GouraudTriangles;
@@ -40,6 +47,8 @@ class Ps1FrameContext final {
     static_assert(sizeof(TriangleFragment) == 20);
     static_assert(sizeof(psyqo::OrderingTable<512>) == 2052);
     static_assert(sizeof(TexturedQuadFragment) == Ps1FramePacketLimits::TexturedFragmentBytes);
+    static_assert(sizeof(TexturedTriangleFragment) <= sizeof(TexturedQuadFragment));
+    static_assert(sizeof(TexturedSlot) == sizeof(TexturedQuadFragment));
     static_assert(sizeof(GouraudFragment) == Ps1FramePacketLimits::GouraudFragmentBytes);
     static_assert(sizeof(UiTriangleFragment) == Ps1FramePacketLimits::UiFragmentBytes);
     static_assert(sizeof(ClearFragment) == Ps1FramePacketLimits::ClearFragmentBytes);
@@ -63,6 +72,8 @@ class Ps1FrameContext final {
     bool InsertUiTriangle(UiTriangleFragment& fragment, std::uint16_t bucket);
     UiTriangleFragment* TryAppendUiTriangle(std::uint16_t bucket);
     TexturedQuadFragment* TryReserveTexturedQuad();
+    TexturedTriangleFragment* TryReserveTexturedTriangle();
+    bool Insert(TexturedTriangleFragment& fragment, std::uint16_t bucket);
     TexturedQuadFragment* TryAppendTexturedQuad(std::uint16_t bucket);
     bool ReuseTexturedQuad(const TexturedQuadFragment& fragment, const void* source, std::uint32_t revision) const;
     void RememberTexturedQuad(const TexturedQuadFragment& fragment, const void* source, std::uint32_t revision);
@@ -128,7 +139,8 @@ class Ps1FrameContext final {
     std::uint16_t m_uiReservedCount = 0;
     std::uint16_t m_uiInsertedCount = 0;
     std::uint32_t m_texturedGuardBefore = PacketGuardValue;
-    TexturedQuadFragment m_texturedQuads[TexturedQuadCapacity];
+    TexturedSlot m_texturedSlots[TexturedQuadCapacity];
+    bool m_texturedTriangleKind[TexturedQuadCapacity]{};
     std::uint32_t m_texturedGuardAfter = PacketGuardValue;
     std::uint16_t m_texturedReservedCount = 0;
     std::uint16_t m_texturedInsertedCount = 0;

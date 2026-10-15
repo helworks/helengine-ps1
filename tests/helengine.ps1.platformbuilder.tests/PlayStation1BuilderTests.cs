@@ -99,7 +99,7 @@ public sealed class PlayStation1BuilderTests : IDisposable {
     [InlineData("texture-relative-path", "textures/cube.png", "texture")]
     [InlineData("lighting-mode", "lit", "vertex-lit")]
     [InlineData("transparency", "blend", "opaque")]
-    [InlineData("base-color", "#3F7FBF80", "alpha")]
+    [InlineData("alpha-mode", "alpha-blend", "opaque")]
     public void MaterialCooker_RejectsUnsupportedFields(string fieldId, string value, string expectedMessageFragment) {
         Dictionary<string, string> fields = UnlitFields();
         fields[fieldId] = value;

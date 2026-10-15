@@ -6,7 +6,9 @@ namespace helengine.ps1.builder;
 public sealed class PlayStation1SceneCompatibilityValidator {
     /// <summary>Runtime feature ids the PS1 authored runtime implements.</summary>
     static readonly HashSet<string> SupportedFeatures = new(StringComparer.OrdinalIgnoreCase) {
-        "scene", "mesh", "camera", "material", "light", "render2d", "sprites", "text2d", "animation"
+        "scene", "mesh", "camera", "material", "light", "render2d", "sprites", "text2d", "animation",
+        "physics3d.kinematic_motion", "physics3d.character_controller", "physics3d.character_controller_body_support",
+        "physics3d.box_box_contact", "physics3d.sphere_sphere_contact", "physics3d.sphere_box_contact"
     };
 
     /// <summary>Throws when the manifest has no scenes, an unknown startup scene, or unsupported features.</summary>

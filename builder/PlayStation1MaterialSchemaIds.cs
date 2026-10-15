@@ -11,7 +11,7 @@ public static class PlayStation1MaterialSchemaIds {
     /// <summary>Field carrying the #RRGGBB or #RRGGBBAA base color.</summary>
     public const string BaseColorFieldId = "base-color";
 
-    /// <summary>Field carrying a texture path; any value is rejected because textures are unsupported.</summary>
+    /// <summary>Field carrying the optional content-relative cooked texture artifact selected by the shared material packager.</summary>
     public const string TextureRelativePathFieldId = "texture-relative-path";
 
     /// <summary>Field selecting the lighting model; "unlit" and "vertex-lit" are accepted.</summary>
@@ -32,4 +32,7 @@ public static class PlayStation1MaterialSchemaIds {
 
     /// <summary>Field selecting transparency; only "opaque" is accepted.</summary>
     public const string TransparencyFieldId = "transparency";
+
+    /// <summary>Common material alpha-mode field preserved during schema projection so unsupported blend or mask requests cannot become opaque defaults.</summary>
+    public const string AlphaModeFieldId = "alpha-mode";
 }

@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "RuntimeModel.hpp"
+#include "platform/ps1/rendering/Ps1TexturedMesh.hpp"
 
 class ModelAsset;
 
@@ -30,6 +31,8 @@ public:
     /// <summary>Interleaved local-space normals in 4.12, three per vertex, or null when the model has none.</summary>
     const std::int16_t* GteNormals() const { return NormalsValue; }
     const std::uint16_t* Indices() const { return IndicesValue; }
+    /** Per-vertex normalized UVs, or null when the authored model has no UV stream. */
+    const Ps1MeshUv* TextureCoordinates() const { return TextureCoordinatesValue; }
     std::uint32_t VertexCount() const { return VertexCountValue; }
     std::uint32_t IndexCount() const { return IndexCountValue; }
 
@@ -46,6 +49,7 @@ private:
     std::int16_t* VerticesValue = nullptr;
     std::int16_t* NormalsValue = nullptr;
     std::uint16_t* IndicesValue = nullptr;
+    Ps1MeshUv* TextureCoordinatesValue = nullptr;
     std::uint32_t VertexCountValue = 0;
     std::uint32_t IndexCountValue = 0;
     float BoundingRadiusValue = 0.0f;

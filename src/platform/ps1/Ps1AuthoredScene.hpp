@@ -5,11 +5,15 @@
 #include "psyqo/simplepad.hh"
 #include "psyqo/scene.hh"
 #include "platform/ps1/rendering/Ps1RasterRenderer.hpp"
+#if defined(PS1_SCENE_MODULES)
+#include "platform/ps1/modules/Ps1DiscSceneStartup.hpp"
+#endif
 
 class Core;
 class CoreInitializationOptions;
 class PlatformInfo;
 class RuntimeSceneCatalog;
+class IContentStreamSource;
 
 namespace helengine::ps1 {
 
@@ -20,6 +24,11 @@ class Ps1CpuProfileSink;
 class Ps1InputBackend;
 class Ps1RenderManager2D;
 class Ps1RenderManager3D;
+#if defined(PS1_SCENE_MODULES)
+class Ps1SdkDiscSectorReader;
+class Ps1CodeModuleProvider;
+class Ps1DiscContent;
+#endif
 
 /**
  * Root PSYQo scene that owns generated Core for the authored cube_test milestone. On start it
@@ -28,6 +37,9 @@ class Ps1RenderManager3D;
  * the measured GPU time, draws through the render manager, and keeps the presentation loop alive.
  */
 class Ps1AuthoredScene final : public psyqo::Scene {
+  public:
+    /** Disposes the Core's borrowers before releasing the catalog's copied dependency metadata. */
+    ~Ps1AuthoredScene() override;
   private:
     void start(StartReason reason) override;
     void frame() override;
@@ -37,7 +49,13 @@ class Ps1AuthoredScene final : public psyqo::Scene {
 
     Ps1RasterRenderer m_renderer;
     psyqo::SimplePad m_pad;
-    Ps1ContentStreamSource* m_contentSource = nullptr;
+    ::IContentStreamSource* m_contentSource = nullptr;
+#if defined(PS1_SCENE_MODULES)
+    Ps1SdkDiscSectorReader* m_discReader = nullptr;
+    Ps1CodeModuleProvider* m_moduleProvider = nullptr;
+    Ps1DiscContent* m_discContent = nullptr;
+    Ps1DiscSceneStartup m_discStartup;
+#endif
     ::RuntimeSceneCatalog* m_sceneCatalog = nullptr;
     ::CoreInitializationOptions* m_options = nullptr;
     Ps1RenderManager3D* m_render3D = nullptr;

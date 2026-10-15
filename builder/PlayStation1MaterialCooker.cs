@@ -5,15 +5,15 @@ using helengine.baseplatform.Results;
 namespace helengine.ps1.builder;
 
 /// <summary>
-/// Cooks the opaque base-color material subset into the engine's platform material payload. The
-/// lighting mode selects between the flat unlit path and the GTE per-vertex directional path.
-/// Anything the PS1 milestone cannot represent (textures, transparency, translucent alpha) is
-/// rejected explicitly instead of being approximated.
+/// Cooks opaque base-color materials with an optional packaged texture into the engine's platform
+/// material payload. Lighting selects the unlit or GTE per-vertex directional path. Texture work
+/// items remain owned by the shared packaging graph. Both common and legacy transparency fields
+/// must select opaque rendering; tint alpha is preserved without enabling alpha blending.
 /// </summary>
 public sealed class PlayStation1MaterialCooker {
     /// <summary>Validates the requested material against the schema and serializes the cooked payload.</summary>
     /// <param name="request">Material identity, schema id and resolved field values supplied by the editor.</param>
-    /// <returns>The serialized platform material bytes with no shader dependencies.</returns>
+    /// <returns>The serialized material with its cooked texture path and no programmable shader dependencies.</returns>
     public PlatformMaterialCookResult Cook(PlatformMaterialCookRequest request) {
         if (request == null) throw new ArgumentNullException(nameof(request));
         if (!string.Equals(request.TargetPlatformId, "ps1", StringComparison.OrdinalIgnoreCase)) {
@@ -25,7 +25,7 @@ public sealed class PlayStation1MaterialCooker {
 
         string texture = Resolve(request.FieldValues, PlayStation1MaterialSchemaIds.TextureRelativePathFieldId);
         if (!string.IsNullOrWhiteSpace(texture)) {
-            throw new InvalidOperationException($"PS1 {PlayStation1MaterialSchemaIds.OpaqueSchemaId} does not support texture bindings ('{request.MaterialRelativePath}').");
+            texture = NormalizeCookedTexturePath(texture);
         }
         string lighting = Resolve(request.FieldValues, PlayStation1MaterialSchemaIds.LightingModeFieldId, PlayStation1MaterialSchemaIds.DefaultLightingMode);
         bool lit = string.Equals(lighting, PlayStation1MaterialSchemaIds.VertexLitLightingMode, StringComparison.OrdinalIgnoreCase);
@@ -36,16 +36,17 @@ public sealed class PlayStation1MaterialCooker {
         if (!string.Equals(transparency, "opaque", StringComparison.OrdinalIgnoreCase)) {
             throw new InvalidOperationException($"PS1 {PlayStation1MaterialSchemaIds.OpaqueSchemaId} requires opaque materials; '{request.MaterialRelativePath}' requested '{transparency}'.");
         }
+        string alphaMode = Resolve(request.FieldValues, PlayStation1MaterialSchemaIds.AlphaModeFieldId, "opaque");
+        if (!string.Equals(alphaMode, "opaque", StringComparison.OrdinalIgnoreCase)) {
+            throw new InvalidOperationException($"PS1 {PlayStation1MaterialSchemaIds.OpaqueSchemaId} requires opaque materials; '{request.MaterialRelativePath}' requested alpha mode '{alphaMode}'.");
+        }
 
         ParseColor(Resolve(request.FieldValues, PlayStation1MaterialSchemaIds.BaseColorFieldId, "#FFFFFFFF"), out byte r, out byte g, out byte b, out byte a);
-        if (a != 255) {
-            throw new InvalidOperationException($"PS1 {PlayStation1MaterialSchemaIds.OpaqueSchemaId} requires an opaque base color alpha of FF; '{request.MaterialRelativePath}' has alpha {a:X2}.");
-        }
 
         helengine.PlatformMaterialAsset cooked = new() {
             Id = request.MaterialAssetId,
             RendererFamilyId = PlayStation1MaterialSchemaIds.RendererFamilyId,
-            TextureRelativePath = string.Empty,
+            TextureRelativePath = texture,
             DoubleSided = false,
             UseVertexColor = false,
             Lit = lit,
@@ -55,6 +56,17 @@ public sealed class PlayStation1MaterialCooker {
             BaseColorA = a
         };
         return new PlatformMaterialCookResult(helengine.files.AssetSerializer.SerializeToBytes(cooked), []);
+    }
+
+    /// <summary>Validates the shared packager's content-relative texture artifact path without inventing a source importer or another texture payload.</summary>
+    /// <param name="texturePath">Resolved texture dependency supplied by the material packaging graph.</param>
+    /// <returns>The canonical path opened by the PS1 texture loader under the packaged content root.</returns>
+    static string NormalizeCookedTexturePath(string texturePath) {
+        string normalized = PlayStation1ContentStager.NormalizeRelativePath(texturePath);
+        if (!normalized.StartsWith("cooked/", StringComparison.Ordinal)) {
+            throw new InvalidOperationException($"PS1 texture binding must identify a cooked content-relative artifact, not an authored source: '{texturePath}'.");
+        }
+        return normalized;
     }
 
     /// <summary>Returns the trimmed field value or the fallback when the field is absent or blank.</summary>

@@ -67,7 +67,7 @@ private:
     bool TryBuildLighting();
 
     /// <summary>Validates the cooked material and creates the runtime material.</summary>
-    ::RuntimeMaterial* BuildMaterialAsset(::PlatformMaterialAsset* materialAsset);
+    ::RuntimeMaterial* BuildMaterialAsset(::PlatformMaterialAsset* materialAsset, ::IContentStreamSource* source);
 
     /// <summary>Records a frame rejection once; the first failure wins.</summary>
     void Reject(const char* marker);

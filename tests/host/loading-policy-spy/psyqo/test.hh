@@ -7,7 +7,7 @@ inline void assert(bool value) { if (!value) std::abort(); }
 #include <vector>
 namespace psyqo {
 union Color { struct { std::uint8_t r,g,b,pad; }; std::uint32_t packed; };
-namespace Prim { struct Triangle {}; struct GouraudTriangle {}; struct TexturedQuad {}; struct FastFill { Color ColorValue{}; }; }
+namespace Prim { struct Triangle {}; struct GouraudTriangle {}; struct GouraudTexturedTriangle {}; struct TexturedQuad {}; struct FastFill { Color ColorValue{}; }; }
 namespace Fragments { template<class T> struct SimpleFragment { T primitive; }; }
 template<unsigned N> struct OrderingTable {
     std::vector<const void*> Packets;

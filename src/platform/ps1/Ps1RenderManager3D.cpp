@@ -4,6 +4,7 @@
 #include "AssetSerializer.hpp"
 #include "CameraClearSettings.hpp"
 #include "Core.hpp"
+#include "CoreInitializationOptions.hpp"
 #include "DirectionalLightComponent.hpp"
 #include "Entity.hpp"
 #include "ICamera.hpp"
@@ -28,6 +29,7 @@
 #include "platform/ps1/rendering/Ps1AuthoredProjection.hpp"
 #include "platform/ps1/rendering/Ps1RuntimeMaterial.hpp"
 #include "platform/ps1/rendering/Ps1RuntimeModel.hpp"
+#include "platform/ps1/rendering/Ps1RuntimeTexture.hpp"
 #include "runtime/array.hpp"
 #include "runtime/native_cast.hpp"
 #include "runtime/native_list.hpp"
@@ -80,24 +82,32 @@ std::uint8_t Channel(float value) {
 Ps1RenderManager3D::Ps1RenderManager3D(psyqo::GPU& gpu, Ps1RasterRenderer& renderer, Ps1RenderManager2D& render2D)
     : Gpu(gpu), Renderer(renderer), Render2D(render2D) {}
 
-::RuntimeMaterial* Ps1RenderManager3D::BuildMaterialAsset(::PlatformMaterialAsset* materialAsset) {
+::RuntimeMaterial* Ps1RenderManager3D::BuildMaterialAsset(::PlatformMaterialAsset* materialAsset, ::IContentStreamSource* source) {
     if (materialAsset == nullptr) {
         he_cpp_custom::Fail("PS1 cooked material is null");
     }
-    if (!materialAsset->TextureRelativePath.empty() || materialAsset->RendererFamilyId != kRendererFamilyId) {
+    if (materialAsset->RendererFamilyId != kRendererFamilyId) {
         ramsyscall_printf("PS1_AUTHORED_MATERIAL_UNSUPPORTED family=%s lit=%u textured=%u\n", materialAsset->RendererFamilyId.c_str(),
                           materialAsset->Lit ? 1u : 0u, materialAsset->TextureRelativePath.empty() ? 0u : 1u);
-        he_cpp_custom::Fail("PS1 authored scenes require opaque ps1-opaque materials without textures");
+        he_cpp_custom::Fail("PS1 authored scenes require the opaque ps1-opaque material family");
     }
     ramsyscall_printf("PS1_AUTHORED_MATERIAL id=%s color=%02X%02X%02X lit=%u\n", materialAsset->get_Id().c_str(),
                       static_cast<unsigned>(materialAsset->BaseColorR), static_cast<unsigned>(materialAsset->BaseColorG),
                       static_cast<unsigned>(materialAsset->BaseColorB), materialAsset->Lit ? 1u : 0u);
-    return new Ps1RuntimeMaterial(materialAsset->BaseColorR, materialAsset->BaseColorG, materialAsset->BaseColorB, materialAsset->DoubleSided,
-                                  materialAsset->Lit);
+    auto* material = new Ps1RuntimeMaterial(materialAsset->BaseColorR, materialAsset->BaseColorG, materialAsset->BaseColorB,
+                                            materialAsset->DoubleSided, materialAsset->Lit);
+    if (!materialAsset->TextureRelativePath.empty()) {
+        ::RuntimeTexture* uploaded = Render2D.BuildTextureFromCooked(materialAsset->TextureRelativePath, source);
+        auto* texture = dynamic_cast<Ps1RuntimeTexture*>(uploaded);
+        if (texture == nullptr) he_cpp_custom::Fail("PS1 material texture has an incompatible runtime type");
+        material->SetTexture(Render2D, texture);
+    }
+    return material;
 }
 
 ::RuntimeMaterial* Ps1RenderManager3D::BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset) {
-    return BuildMaterialAsset(materialAsset);
+    return BuildMaterialAsset(materialAsset, OwnerCore == nullptr || OwnerCore->get_InitializationOptions() == nullptr
+        ? nullptr : OwnerCore->get_InitializationOptions()->ContentStreamSource);
 }
 
 ::RuntimeMaterial* Ps1RenderManager3D::BuildMaterialFromCooked(HeCppString cookedAssetPath, ::IContentStreamSource* contentStreamSource) {
@@ -106,7 +116,7 @@ Ps1RenderManager3D::Ps1RenderManager3D(psyqo::GPU& gpu, Ps1RasterRenderer& rende
     if (material == nullptr) {
         he_cpp_custom::Fail("PS1 cooked material asset has the wrong type");
     }
-    ::RuntimeMaterial* runtimeMaterial = BuildMaterialAsset(material);
+    ::RuntimeMaterial* runtimeMaterial = BuildMaterialAsset(material, contentStreamSource);
     delete material;
     return runtimeMaterial;
 }
@@ -332,8 +342,18 @@ void Ps1RenderManager3D::Visit(::IDrawable3D* drawable) {
         }
         lighting = &objectLighting;
     }
+    ::RuntimeTexture* primaryTexture = material->ResolvePrimaryTexture();
+    auto* texture = dynamic_cast<Ps1RuntimeTexture*>(primaryTexture);
+    if (primaryTexture != nullptr && (texture == nullptr || texture->get_IsDisposed())) {
+        he_cpp_custom::Fail("PS1 material references an incompatible or disposed texture");
+    }
+    Ps1MeshTexture sampling{};
+    if (texture != nullptr) {
+        sampling = Ps1MeshTexture{texture->get_Width(), texture->get_Height(), texture->VramX, texture->VramY,
+                                  texture->ClutX, texture->ClutY, texture->PixelsPerWord()};
+    }
     if (!Renderer.QueueAuthoredMesh(pose, model->GteVertices(), model->VertexCount(), model->Indices(), model->IndexCount(), color,
-                                    material->DoubleSided(), normals, lighting)) {
+                                    material->DoubleSided(), normals, lighting, model->TextureCoordinates(), texture == nullptr ? nullptr : &sampling)) {
         Reject("PS1_RENDER_MESH_REJECTED");
         FrameOpen = false;
     }

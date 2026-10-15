@@ -66,7 +66,12 @@ public static class PlayStation1PlatformDefinitionFactory {
     /// <returns>Platform definition consumed by the editor build graph.</returns>
     public static PlatformDefinition Create() {
         PlatformSettingDefinition[] buildSettings = [
-            new("game-name", "Game Name", PlatformSettingKind.Text, "helengine", true, [])
+            new("game-name", "Game Name", PlatformSettingKind.Text, "helengine", true, []),
+            new("gpu-model-reduction", "Reduce GPU Models", PlatformSettingKind.Boolean, "false", true, []),
+            new("gpu-model-maximum-vertices", "GPU Model Vertex Limit", PlatformSettingKind.Text, "256", true, []),
+            new("gpu-model-maximum-indices", "GPU Model Index Limit", PlatformSettingKind.Text, "768", true, []),
+            new("gpu-sphere-rings", "GPU Sphere Rings", PlatformSettingKind.Text, "6", true, []),
+            new("gpu-sphere-sectors", "GPU Sphere Sectors", PlatformSettingKind.Text, "12", true, [])
         ];
         PlatformCodegenProfileDefinition codegen = new(
             "default",
@@ -79,6 +84,9 @@ public static class PlayStation1PlatformDefinitionFactory {
                 new("generated-math-convention", "Generated Math Convention", PlatformSettingKind.Text, "engine-row-vector", true, []),
                 new("pointer-size-bytes", "Pointer Size (Bytes)", PlatformSettingKind.Text, "4", true, []),
                 new("load-native-runtime-metadata", "Load Native Runtime Metadata", PlatformSettingKind.Boolean, "false", true, []),
+                new("scene-code-modules", "Load Scene Code Modules", PlatformSettingKind.Boolean, "true", true, []),
+                new("codegen-header-template-definitions", "Emit Header Template Definitions", PlatformSettingKind.Boolean, "true", true, []),
+                new("codegen-module-lifetime-pins", "Protect Escaping Module Objects", PlatformSettingKind.Boolean, "true", true, []),
                 new("codegen-use-std-string", "Use std::string", PlatformSettingKind.Boolean, "false", true, []),
                 new("codegen-use-std-vector", "Use std::vector", PlatformSettingKind.Boolean, "false", true, []),
                 new("codegen-use-std-unordered-map", "Use std::unordered_map", PlatformSettingKind.Boolean, "false", true, []),
@@ -103,7 +111,8 @@ public static class PlayStation1PlatformDefinitionFactory {
                 new(PlayStation1MaterialSchemaIds.TextureRelativePathFieldId, "Texture", PlatformMaterialFieldKind.Text, string.Empty, false, []),
                 new(PlayStation1MaterialSchemaIds.LightingModeFieldId, "Lighting", PlatformMaterialFieldKind.Choice, PlayStation1MaterialSchemaIds.DefaultLightingMode, true,
                     [PlayStation1MaterialSchemaIds.UnlitLightingMode, PlayStation1MaterialSchemaIds.VertexLitLightingMode]),
-                new(PlayStation1MaterialSchemaIds.TransparencyFieldId, "Transparency", PlatformMaterialFieldKind.Choice, "opaque", true, ["opaque"])
+                new(PlayStation1MaterialSchemaIds.TransparencyFieldId, "Transparency", PlatformMaterialFieldKind.Choice, "opaque", true, ["opaque"]),
+                new(PlayStation1MaterialSchemaIds.AlphaModeFieldId, "Alpha Mode", PlatformMaterialFieldKind.Choice, "opaque", true, ["opaque"])
             ]);
         PlatformBuildProfileDefinition[] profiles = [
             new("release", "Release", "PS1 retail-memory release build", PlayStation1MaterialSchemaIds.RendererFamilyId, "default", buildSettings)
@@ -125,7 +134,7 @@ public static class PlayStation1PlatformDefinitionFactory {
             [new PlatformStorageProfileDefinition("embedded-archive", "Embedded Archive", PlatformStorageProfileKind.LooseFiles, "ps1-embedded-archive", false)],
             [new PlatformMediaProfileDefinition("ps1-exe", "PS-X EXE", PlatformMediaLayoutKind.InstallTree, false, true)],
             new RuntimeGenerationContract(RuntimeMaterialResolutionMode.CookedPlatformOwned, true, PackagedPathPolicy.ContentRelativeOnly,
-                ["HELENGINE_CODEGEN_FATAL_ONLY"]),
+                ["HELENGINE_CODEGEN_FATAL_ONLY"], supportsSceneCodeModules: true),
             null,
             assetCookCapabilities: [
                 new PlatformAssetCookCapabilityDefinition(

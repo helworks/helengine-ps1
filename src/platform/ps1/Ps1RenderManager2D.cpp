@@ -17,6 +17,7 @@
 #include "ITextDrawable2D.hpp"
 #include "TextureAsset.hpp"
 #include "TextureAssetColorFormat.hpp"
+#include "TextureAssetAlphaPrecision.hpp"
 #include "TextLayoutUtils.hpp"
 #include "byte4.hpp"
 #include "common/syscalls/syscalls.h"
@@ -33,6 +34,7 @@
 #include "platform/ps1/rendering/Ps1RuntimeTexture.hpp"
 #include "platform/ps1/rendering/Ps1IndexedTextureUpload.hpp"
 #include "platform/ps1/rendering/Ps1TextureTransportBuffer.hpp"
+#include "platform/ps1/rendering/Ps1MutableTexture.hpp"
 #include "platform/ps1/rendering/Ps1VramDiagnostics.hpp"
 #include "platform/ps1/rendering/Ps1TextLayout.hpp"
 #include "runtime/array.hpp"
@@ -46,6 +48,15 @@ volatile Ps1VramDiagnostics helengine_ps1_vram_diagnostics;
 volatile Ps1TextureTransportDiagnostics helengine_ps1_texture_transport_diagnostics{0x48455442u, 0, 0, 0, 0, 0, 0, 0};
 }
 namespace {
+
+/// <summary>Allocates an eight-byte aligned retained shadow through PSYQo's nullable allocator.</summary>
+/// <param name="bytes">Packed direct-color storage size validated before allocation.</param>
+/// <returns>Owned storage, or null so the caller can roll back its VRAM reservation.</returns>
+void* AllocateMutableTexturePixels(std::size_t bytes) { return psyqo_malloc(bytes); }
+
+/// <summary>Releases the retained shadow after its synchronous upload has finished.</summary>
+/// <param name="pixels">Storage allocated by AllocateMutableTexturePixels.</param>
+void ReleaseMutableTexturePixels(void* pixels) { psyqo_free(pixels); }
 
 void publishVram(const Ps1VramAllocator& allocator) {
     auto& d=helengine_ps1_vram_diagnostics;
@@ -455,7 +466,45 @@ void Ps1RenderManager2D::Visit(::IDrawable2D* drawable) {
     if (data == nullptr) {
         he_cpp_custom::Fail("PS1 texture creation received a null texture asset");
     }
+    if (data->ColorFormat == ::TextureAssetColorFormat::Rgba32) return BuildMutableRgbaTexture(data);
     return UploadTexture(data);
+}
+
+::RuntimeTexture* Ps1RenderManager2D::BuildMutableRgbaTexture(::TextureAsset* asset) {
+    MarkFrameStage(Ps1FrameStage::TextureUploadEnter);
+    const unsigned width = asset->Width;
+    const unsigned height = asset->Height;
+    const bool opaque = asset->AlphaPrecision == ::TextureAssetAlphaPrecision::Opaque;
+    if (!width || !height || width > 256u || height > 256u || asset->Colors == nullptr ||
+        asset->Colors->Length != static_cast<int32_t>(width * height * 4u) ||
+        (!opaque && asset->AlphaPrecision != ::TextureAssetAlphaPrecision::Binary &&
+         asset->AlphaPrecision != ::TextureAssetAlphaPrecision::A8)) {
+        he_cpp_custom::Fail("PS1 mutable RGBA texture requires 1..256 texels and exact RGBA32 opaque/binary/A8 pixels");
+    }
+    auto* texture = new Ps1RuntimeTexture();
+    std::uint16_t* pixels = nullptr;
+    std::uint16_t stride = 0, vramX = 0, vramY = 0;
+    if (!AllocatePs1MutableTexture(VramAllocator, width, height,
+            AllocateMutableTexturePixels, pixels, stride, vramX, vramY)) {
+        delete texture;
+        publishVram(VramAllocator);
+        he_cpp_custom::Fail("PS1 mutable texture allocation failed");
+    }
+    texture->set_Width(static_cast<std::uint16_t>(width));
+    texture->set_Height(static_cast<std::uint16_t>(height));
+    texture->VramX = vramX;
+    texture->VramY = vramY;
+    texture->WidthInWords = stride;
+    texture->PixelDepth = Ps1RuntimeTexture::Depth::SixteenBit;
+    texture->MutablePixels = pixels;
+    texture->MutableOwner = this;
+    texture->MutableOpaque = opaque;
+    texture->ReleaseMutablePixels = ReleaseMutableTexturePixels;
+    UpdatePs1MutableTexture(Gpu, pixels, stride, vramX, vramY, 0, 0, static_cast<int>(width),
+                           static_cast<int>(height), asset->Colors->Data, static_cast<int>(width * 4u), opaque);
+    ++UploadedTextures;
+    publishVram(VramAllocator);
+    return texture;
 }
 
 ::RuntimeTexture* Ps1RenderManager2D::UploadTexture(::TextureAsset* asset) {
@@ -1020,7 +1069,8 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
             const bool sourceValid = TryResolveGlyphTexels({source.X, source.Y, source.Z, source.W},
                                                            {static_cast<float>(width), static_cast<float>(height)}, texels);
             cached = {source.Z * font->get_AtlasWidth(), source.W * font->get_AtlasHeight(),
-                      glyph.OffsetY, glyph.AdvanceWidth, texels.x, texels.y, texels.width, texels.height, sourceValid};
+                      glyph.OffsetY, glyph.AdvanceWidth, texels.x, texels.y, texels.width, texels.height, sourceValid,
+                      glyph.BearingX};
             return true;
         });
     };
@@ -1096,8 +1146,7 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
             }
             Ps1TextGlyph oldGlyph{}, newGlyph{};
             if (!lookup(oldChar, oldGlyph) || !lookup(newChar, newGlyph)) { compatible = false; break; }
-            if (oldChar != newChar && (oldGlyph.width != newGlyph.width || oldGlyph.height != newGlyph.height ||
-                oldGlyph.offsetY != newGlyph.offsetY || oldGlyph.advance != newGlyph.advance || !newGlyph.sourceValid)) {
+            if (oldChar != newChar && !CanReusePs1TextGlyphGeometry(oldGlyph, newGlyph)) {
                 compatible = false;
                 break;
             }
@@ -1216,8 +1265,18 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
     }
 }
 
-void Ps1RenderManager2D::UpdateTextureRegionCore(::RuntimeTexture*, int32_t, int32_t, int32_t, int32_t, Array<uint8_t>*, int32_t) {
-    he_cpp_custom::Fail("PS1 does not update textures after upload");
+void Ps1RenderManager2D::UpdateTextureRegionCore(::RuntimeTexture* texture, int32_t x, int32_t y, int32_t width,
+                                              int32_t height, Array<uint8_t>* rgba8, int32_t sourceRowPitch) {
+    auto* native = dynamic_cast<Ps1RuntimeTexture*>(texture);
+    if (native == nullptr || !native->CanUpdatePixels(this) ||
+        rgba8 == nullptr || rgba8->Length < 0 ||
+        !IsPs1MutableRegionValid(native->get_Width(), native->get_Height(), native->WidthInWords,
+                                x, y, width, height, rgba8->Data, static_cast<std::size_t>(rgba8->Length), sourceRowPitch)) {
+        he_cpp_custom::Fail("PS1 RGBA region update requires a live mutable texture and valid source/destination bounds");
+    }
+    MarkFrameStage(Ps1FrameStage::TextureUploadEnter);
+    UpdatePs1MutableTexture(Gpu, native->MutablePixels, native->WidthInWords, native->VramX, native->VramY,
+                           x, y, width, height, rgba8->Data, sourceRowPitch, native->MutableOpaque);
 }
 
 }  // namespace helengine::ps1

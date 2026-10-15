@@ -23,11 +23,18 @@ param(
 
     [string] $AuthoredDeclarations,
 
-    [string] $RunRoot
+    [string] $RunRoot,
+
+    [string] $SceneModulePlan
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$sceneModules = -not [string]::IsNullOrWhiteSpace($SceneModulePlan)
+if ($sceneModules) {
+    if (-not $Authored -or [string]::IsNullOrWhiteSpace($RunRoot)) { throw 'SceneModulePlan requires Authored and an explicit fixed RunRoot.' }
+    $SceneModulePlan = (Resolve-Path -LiteralPath $SceneModulePlan).Path
+}
 
 if ($CpuProfile -and (-not $Authored -or $Configuration -ne 'Release')) {
     throw 'CpuProfile requires authored Release.'
@@ -85,9 +92,11 @@ $sdkPatchRelative = 'patches\nugget\0001-frame-completion.patch'
 $toolchainLockRelative = 'toolchain.lock.json'
 
 function Quote-ProcessArgument {
-    param([Parameter(Mandatory = $true)][string] $Value)
-    if ($Value -notmatch '[\s"]') { return $Value }
-    return '"' + $Value.Replace('"', '\"') + '"'
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string] $Value)
+    # Windows CRT escaping: double backslashes before quotes and the closing quote.
+    $escaped = [regex]::Replace($Value, '(\\*)"', '$1$1\"')
+    $escaped = [regex]::Replace($escaped, '(\\+)$', '$1$1')
+    return '"' + $escaped + '"'
 }
 
 function Read-ToolchainLock {
@@ -128,22 +137,45 @@ function Get-GitRevision {
 function Invoke-CapturedProcess {
     param(
         [Parameter(Mandatory = $true)][string] $FilePath,
-        [Parameter(Mandatory = $true)][string[]] $ArgumentList,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][AllowEmptyString()][string[]] $ArgumentList,
         [Parameter(Mandatory = $true)][string] $WorkingDirectory,
         [Parameter(Mandatory = $true)][string] $StdoutPath,
         [Parameter(Mandatory = $true)][string] $StderrPath
     )
 
-    $quotedArguments = @($ArgumentList | ForEach-Object { Quote-ProcessArgument -Value ([string]$_) })
+    # Preserve each argument, including empty values and paths with quotes or spaces.
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.WorkingDirectory = $WorkingDirectory
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    if ($startInfo.PSObject.Properties.Name -contains 'ArgumentList') {
+        foreach ($argument in $ArgumentList) { $startInfo.ArgumentList.Add($argument) }
+    } else {
+        # The platform builder supports Windows PowerShell 5 as its fallback host.
+        $startInfo.Arguments = (@($ArgumentList | ForEach-Object { Quote-ProcessArgument -Value $_ }) -join ' ')
+    }
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
     try {
-        $process = Start-Process -FilePath $FilePath -ArgumentList $quotedArguments -WorkingDirectory $WorkingDirectory -RedirectStandardOutput $StdoutPath -RedirectStandardError $StderrPath -NoNewWindow -Wait -PassThru
+        if (-not $process.Start()) { throw 'Process did not start.' }
+        # Read both pipes concurrently so a verbose child cannot block on a full pipe.
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        [IO.File]::WriteAllText($StdoutPath, $stdoutTask.GetAwaiter().GetResult())
+        [IO.File]::WriteAllText($StderrPath, $stderrTask.GetAwaiter().GetResult())
+        return [pscustomobject]@{
+            ExitCode = $process.ExitCode
+            StdoutPath = $StdoutPath
+            StderrPath = $StderrPath
+        }
     } catch {
         throw ("Failed to start {0}: {1}" -f $FilePath, $_.Exception.Message)
-    }
-    return [pscustomobject]@{
-        ExitCode = $process.ExitCode
-        StdoutPath = $StdoutPath
-        StderrPath = $StderrPath
+    } finally {
+        $process.Dispose()
     }
 }
 
@@ -346,6 +378,19 @@ try {
         $failureExitCode = $patchApplyExit
         throw ("SDK frame-completion patch application failed with exit code {0}{1}{2}" -f $patchApplyExit, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $patchApply.StdoutPath -StderrPath $patchApply.StderrPath))
     }
+    if ($sceneModules) {
+        foreach ($relativeHeader in @('helcpp_config.hpp', 'runtime/feature_config.hpp')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $runRoot ('generated-core/' + $relativeHeader)) -PathType Leaf)) {
+                throw "Scene modules require the composed native configuration header: $relativeHeader"
+            }
+        }
+        foreach ($scriptName in @('build-scene-modules.py', 'pack-scene-module.py', 'pack-scene-module-disc.py', 'write-scene-module-metadata.py')) {
+            Copy-InputPath -SourcePath (Join-Path $sourceRoot ('scripts\' + $scriptName)) -DestinationRoot $runRoot -RelativeRoot 'scripts'
+        }
+        $moduleTask = Join-Path $runRoot 'scene-modules'
+        New-Item -ItemType Directory -Path $moduleTask -Force | Out-Null
+        Copy-Item -LiteralPath $SceneModulePlan -Destination (Join-Path $moduleTask 'partition-plan.json') -Force
+    }
 
     # The PSYQo SDK rules emit .o/.dep files beside sources and libpsyqo.a beside
     # the SDK makefile. Keep those files in the disposable run tree during the build,
@@ -361,6 +406,11 @@ try {
         [string][bool]$CoreBoot,
         [string][bool]$Authored,
         [string][bool]$CpuProfile,
+        [string][bool]$sceneModules,
+        (Get-FileHash -LiteralPath (Join-Path $runRoot 'Makefile') -Algorithm SHA256).Hash.ToLowerInvariant(),
+        $(if ($sceneModules) { (Get-FileHash -LiteralPath $SceneModulePlan -Algorithm SHA256).Hash.ToLowerInvariant() } else { '' }),
+        $(if ($sceneModules) { (Get-FileHash -LiteralPath (Join-Path $runRoot 'generated-core/helcpp_config.hpp') -Algorithm SHA256).Hash.ToLowerInvariant() } else { '' }),
+        $(if ($sceneModules) { (Get-FileHash -LiteralPath (Join-Path $runRoot 'generated-core/runtime/feature_config.hpp') -Algorithm SHA256).Hash.ToLowerInvariant() } else { '' }),
         ($SdkDefine -join ' ')
     ) -join "`n"
     $fingerprintBytes = [Text.Encoding]::UTF8.GetBytes($nativeFingerprintInput)
@@ -393,6 +443,12 @@ try {
         "SDK_DEFINES=$($SdkDefine -join ' ')",
         'all'
     )
+    if ($sceneModules) {
+        $dockerArgs = @('run', '--rm', '--mount', "type=bind,source=$runRoot,target=/work", '--workdir', '/work',
+            $dockerImage, 'python3', '-B', '/work/scripts/build-scene-modules.py',
+            '--plan', '/work/scene-modules/partition-plan.json', '--configuration', $Configuration,
+            '--sdk-defines', ($SdkDefine -join ' '))
+    }
     $dockerResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $dockerArgs -WorkingDirectory $runRoot -StdoutPath $dockerStdout -StderrPath $dockerStderr
     Merge-ProcessLogs -StdoutPath $dockerResult.StdoutPath -StderrPath $dockerResult.StderrPath -CombinedPath $buildLog
     $dockerExit = $dockerResult.ExitCode
@@ -401,6 +457,30 @@ try {
         throw ("Docker build failed with exit code {0}{1}{2}" -f $dockerExit, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $dockerResult.StdoutPath -StderrPath $dockerResult.StderrPath))
     }
     Sync-NativeBuildFiles -SourceRoot $runRoot -DestinationRoot $nativeCachePath
+
+    if ($sceneModules) {
+        $moduleReceipt = Get-Content -LiteralPath (Join-Path $runRoot 'out\scene-modules-receipt.json') -Raw | ConvertFrom-Json
+        if (-not $moduleReceipt.passed) { throw 'Scene-module artifact receipt did not pass.' }
+        $moduleArtifactRecords = @()
+        foreach ($name in @('helengine_ps1.bin', 'helengine_ps1.cue', 'helengine_ps1.json', 'helengine_ps1.elf', 'helengine_ps1.ps-exe', 'helengine_ps1.map', 'scene-modules-receipt.json')) {
+            $artifact = Join-Path $runRoot ('out\' + $name)
+            if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) { throw "Expected scene-module artifact is missing: $artifact" }
+            $moduleArtifactRecords += [ordered]@{ path = $artifact; sha256 = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant(); bytes = (Get-Item -LiteralPath $artifact).Length }
+        }
+        $moduleManifest = [ordered]@{
+            schema = 1; configuration = $Configuration; core_boot = $true; authored = $true; scene_modules = $true
+            entry_point = (Join-Path $runRoot 'out\helengine_ps1.cue')
+            scene_module_plan = $SceneModulePlan; scene_module_validation = $moduleReceipt
+            source = [ordered]@{ revision = $revision; dirty = $dirty }; docker_image = $dockerImage
+            sdk = [ordered]@{ revision = $sdkRevision; submodules = $sdkSubmoduleRevisions }
+            generated_core_root = $GeneratedCoreRoot; authored_content_root = $AuthoredContentRoot
+            copied_inputs = $inputHashes; artifacts = $moduleArtifactRecords; build_directory = $runRoot
+        }
+        $moduleManifestPath = Join-Path $runRoot 'manifest.json'
+        $moduleManifest | ConvertTo-Json -Depth 20 | Out-File -LiteralPath $moduleManifestPath -Encoding utf8
+        Write-Output $moduleManifestPath
+        return
+    }
 
     $artifactDirectory = Join-Path $runRoot 'out'
     $elf = Join-Path $artifactDirectory 'helengine_ps1.elf'

@@ -7,6 +7,9 @@
 #include "RuntimeSceneCatalogEntry.hpp"
 #include "ps1_runtime_scene_catalog.hpp"
 #include "runtime/array.hpp"
+#if defined(PS1_SCENE_MODULES)
+#include "ps1_scene_module_metadata.hpp"
+#endif
 
 namespace helengine::ps1 {
 
@@ -19,9 +22,22 @@ namespace helengine::ps1 {
     Array<::RuntimeSceneCatalogEntry*>* catalogEntries = new Array<::RuntimeSceneCatalogEntry*>(static_cast<int32_t>(sceneCount));
     for (std::size_t index = 0; index < sceneCount; ++index) {
         const HEPs1RuntimeSceneCatalogEntry& sourceEntry = entries[index];
+#if defined(PS1_SCENE_MODULES)
+        auto* requiredIds = Ps1GeneratedRequiredModules(sourceEntry.SceneId);
+        (*catalogEntries)[static_cast<int32_t>(index)] = new ::RuntimeSceneCatalogEntry(sourceEntry.SceneId,
+            sourceEntry.CookedRelativePath, requiredIds);
+        delete requiredIds;
+#else
         (*catalogEntries)[static_cast<int32_t>(index)] = new ::RuntimeSceneCatalogEntry(sourceEntry.SceneId, sourceEntry.CookedRelativePath);
+#endif
     }
-    return new ::RuntimeSceneCatalog(catalogEntries);
+    auto* catalog = new ::RuntimeSceneCatalog(catalogEntries);
+    for (std::size_t index = 0; index < sceneCount; ++index) {
+        (*catalogEntries)[static_cast<int32_t>(index)]->Dispose();
+        delete (*catalogEntries)[static_cast<int32_t>(index)];
+    }
+    delete catalogEntries;
+    return catalog;
 }
 
 const char* Ps1StartupSceneId() {

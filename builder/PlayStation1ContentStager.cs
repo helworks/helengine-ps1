@@ -25,11 +25,30 @@ public sealed class PlayStation1ContentStager {
         string sourceRootPath,
         string stagingRootPath,
         CancellationToken cancellationToken) {
+        return StageSelected(artifacts, cookWorkItems, sourceRootPath, stagingRootPath, cancellationToken, null);
+    }
+
+    /// <summary>Stages declared artifacts and only work-item outputs reached by effective scene dependencies; null retains the legacy control-platform policy.</summary>
+    /// <param name="artifacts">Declared cooked artifacts.</param>
+    /// <param name="cookWorkItems">Builder-owned output producers.</param>
+    /// <param name="sourceRootPath">Actual package source containing the output bytes.</param>
+    /// <param name="stagingRootPath">Destination archive content tree.</param>
+    /// <param name="cancellationToken">Cancellation for preflight and copies.</param>
+    /// <param name="selectedRuntimePaths">Exact final scene dependency paths, or null for older manifests without dependency metadata.</param>
+    /// <returns>The exact declared staged paths used by the archive writer.</returns>
+    public IReadOnlyList<PlayStation1StagedAsset> StageSelected(
+        IReadOnlyList<PlatformBuildArtifact> artifacts,
+        IReadOnlyList<PlatformCookWorkItem> cookWorkItems,
+        string sourceRootPath,
+        string stagingRootPath,
+        CancellationToken cancellationToken,
+        IReadOnlyCollection<string> selectedRuntimePaths) {
         if (artifacts == null) throw new ArgumentNullException(nameof(artifacts));
         if (cookWorkItems == null) throw new ArgumentNullException(nameof(cookWorkItems));
         if (string.IsNullOrWhiteSpace(sourceRootPath)) throw new ArgumentException("Source root is required.", nameof(sourceRootPath));
         if (string.IsNullOrWhiteSpace(stagingRootPath)) throw new ArgumentException("Staging root is required.", nameof(stagingRootPath));
         cancellationToken.ThrowIfCancellationRequested();
+        HashSet<string> selectedPaths = selectedRuntimePaths == null ? null : new(selectedRuntimePaths.Select(NormalizeRelativePath), StringComparer.Ordinal);
 
         string sourceRoot = Path.GetFullPath(sourceRootPath);
         string stagingRoot = Path.GetFullPath(stagingRootPath);
@@ -54,7 +73,12 @@ public sealed class PlayStation1ContentStager {
 
         foreach (PlatformCookWorkItem workItem in cookWorkItems) {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!ShouldStageCookWorkItem(workItem)) continue;
+            if (workItem == null) throw new ArgumentNullException(nameof(cookWorkItems));
+            if (selectedPaths == null) {
+                if (!ShouldStageCookWorkItem(workItem)) continue;
+            } else if (!selectedPaths.Contains(NormalizeRelativePath(workItem.OutputRelativePath))) {
+                continue;
+            }
             string relativePath = NormalizeRelativePath(workItem.OutputRelativePath);
             // A cook work item that also appears as a manifest artifact is already staged; staging it
             // twice would be a path collision rather than a duplicate copy.

@@ -1,4 +1,5 @@
 #include "platform/ps1/rendering/Ps1RasterRenderer.hpp"
+#include "platform/ps1/rendering/Ps1TexturedPrimitive.hpp"
 #include "platform/ps1/rendering/Ps1CubeMesh.hpp"
 #include "platform/ps1/rendering/Ps1DepthBucket.hpp"
 #include "psyqo/fixed-point.hh"
@@ -385,6 +386,12 @@ bool Ps1RasterRenderer::BeginAuthoredCamera(bool clearEnabled, psyqo::Color clea
     return false;
 }
 
+void Ps1RasterRenderer::AdvanceUnsubmittedFrame() {
+    // GPU::flip still changes parity. Advancing this sequence prevents the next reuse of a
+    // queued context from being mistaken for the immediately following submitted frame.
+    ResetStats(0, 0);
+}
+
 void Ps1RasterRenderer::WriteAuthoredPose(const Ps1GtePose& pose) {
     psyqo::Matrix33 rotation;
     for (unsigned row = 0; row < 3; ++row) {
@@ -430,14 +437,16 @@ void Ps1RasterRenderer::WriteAuthoredLighting(const Ps1GteLighting& lighting, ps
 
 bool Ps1RasterRenderer::QueueAuthoredMesh(const Ps1GtePose& pose, const std::int16_t* vertices, std::uint32_t vertexCount,
                                           const std::uint16_t* indices, std::uint32_t indexCount, psyqo::Color color,
-                                          bool doubleSided, const std::int16_t* normals, const Ps1GteLighting* lighting) {
+                                          bool doubleSided, const std::int16_t* normals, const Ps1GteLighting* lighting,
+                                          const Ps1MeshUv* uvs, const Ps1MeshTexture* texture) {
     Ps1FrameContext* context = m_authoredContext;
     if (context == nullptr) {
         ++m_stats.ownershipFailures;
         m_stats.failure = Ps1RenderFailure::Ownership;
         return false;
     }
-    if (vertices == nullptr || indices == nullptr || vertexCount == 0 || indexCount == 0 || indexCount % 3u != 0) {
+    if (vertices == nullptr || indices == nullptr || vertexCount == 0 || indexCount == 0 || indexCount % 3u != 0 ||
+        (texture != nullptr && (uvs == nullptr || !IsPs1MeshTextureValid(*texture)))) {
         ++m_stats.invalid;
         m_stats.failure = Ps1RenderFailure::Projection;
         context->Cancel();
@@ -508,6 +517,9 @@ bool Ps1RasterRenderer::QueueAuthoredMesh(const Ps1GtePose& pose, const std::int
             m_authoredContext = nullptr;
             return false;
         }
+        std::uint32_t rgb0 = color.packed;
+        std::uint32_t rgb1 = color.packed;
+        std::uint32_t rgb2 = color.packed;
         if (lit) {
             // Second GTE pass over the same triangle: local normals in, per-vertex colours out.
             const Ps1CubeMesh::Position n0{normals[i0 * 3], normals[i0 * 3 + 1], normals[i0 * 3 + 2]};
@@ -517,9 +529,6 @@ bool Ps1RasterRenderer::QueueAuthoredMesh(const Ps1GtePose& pose, const std::int
             WriteVertex1(n1);
             WriteVertex2(n2);
             psyqo::GTE::Kernels::ncct();
-            std::uint32_t rgb0 = 0;
-            std::uint32_t rgb1 = 0;
-            std::uint32_t rgb2 = 0;
             psyqo::GTE::read<psyqo::GTE::Register::RGB0>(&rgb0);
             psyqo::GTE::read<psyqo::GTE::Register::RGB1>(&rgb1);
             psyqo::GTE::read<psyqo::GTE::Register::RGB2>(&rgb2);
@@ -531,6 +540,26 @@ bool Ps1RasterRenderer::QueueAuthoredMesh(const Ps1GtePose& pose, const std::int
                 m_stats.litVertexColors[2] = rgb2 & 0x00ffffffu;
                 m_stats.litSampled = true;
             }
+        }
+        if (texture != nullptr) {
+            auto* fragment = context->TryReserveTexturedTriangle();
+            if (fragment == nullptr) {
+                ++m_stats.capacityFailures;
+                m_stats.failure = Ps1RenderFailure::Capacity;
+                context->Cancel(); m_authoredContext = nullptr;
+                return false;
+            }
+            const psyqo::Vertex points[3] = {a, b, c};
+            const Ps1MeshUv triangleUvs[3] = {uvs[i0], uvs[i1], uvs[i2]};
+            const psyqo::Color colors[3] = {{.packed = rgb0 & 0x00ffffffu}, {.packed = rgb1 & 0x00ffffffu}, {.packed = rgb2 & 0x00ffffffu}};
+            if (!BuildPs1TexturedTriangle(fragment->primitive, points, triangleUvs, colors, *texture) ||
+                !context->Insert(*fragment, bucket)) {
+                ++m_stats.invalid;
+                m_stats.failure = Ps1RenderFailure::Projection;
+                context->Cancel(); m_authoredContext = nullptr;
+                return false;
+            }
+        } else if (lit) {
             auto* fragment = context->TryReserveGouraud();
             if (fragment == nullptr) {
                 ++m_stats.capacityFailures;
