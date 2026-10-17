@@ -9,6 +9,24 @@
 using namespace helengine::ps1;
 
 int main() {
+    // A mirrored, sheared quad keeps UVs on authored corners and the viewport offset.
+    Ps1UiPoint affineCorners[4]{{30,20},{10,25},{38,60},{18,65}};
+    Ps1UiVertex affineVertices[4]{};
+    assert(TryBuildSpriteQuadFromCorners(affineCorners, {0,0,1,1}, {64,64}, {5,7,320,240}, affineVertices));
+    assert(affineVertices[0].x == 35 && affineVertices[0].y == 27);
+    assert(affineVertices[1].x == 15 && affineVertices[1].y == 32);
+    assert(affineVertices[2].x == 43 && affineVertices[2].y == 67);
+    assert(affineVertices[3].x == 23 && affineVertices[3].y == 72);
+    assert(affineVertices[0].u == 0 && affineVertices[1].u == 63);
+    assert(affineVertices[2].u == 0 && affineVertices[2].v == 63);
+    Ps1SpriteGeometryCache affineCache;
+    Ps1SpriteGeometryKey affineKey{};
+    affineKey.Drawable = &affineKey;
+    for (unsigned i = 0; i < 4; ++i) affineKey.Corners[i] = affineCorners[i];
+    affineCache.Remember(affineKey, affineVertices);
+    assert(affineCache.TryGet(affineKey, affineVertices));
+    affineKey.Corners[1].y += 1;
+    assert(!affineCache.TryGet(affineKey, affineVertices));
     // Three-pixel rows start on alternating nibble boundaries in the shared payload.
     const std::uint8_t indices[] = {0x21, 0x43, 0x65};
     std::uint8_t firstRow[2]{}, secondRow[2]{};

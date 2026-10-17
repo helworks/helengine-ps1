@@ -22,6 +22,8 @@ public sealed class CubeTestSubsetTests {
 
         Assert.True(File.Exists(result.SubsetScenePath));
         Assert.True(File.Exists(result.ReportPath));
+        Ps1EngineAssemblyReport managedAssembly = Assert.Single(result.Report.EngineAssemblies.Where(assembly => assembly.FileName == "helengine.managed.dll"));
+        Assert.Equal(ComputeHash(managedAssembly.FullPath), managedAssembly.Sha256);
         Assert.Equal("scenes/rendering/cube_test.helen", result.SceneId);
         Assert.Equal(source.AuthoringAssetId, LoadScene(result.SubsetScenePath).AuthoringAssetId);
         Assert.Equal(sourceCamera.Id, result.Report.RetainedEntities.Single(entity => entity.Name == "CubeTestCamera").EntityId);
@@ -56,7 +58,13 @@ public sealed class CubeTestSubsetTests {
             cube.Components.Select(component => component.ComponentTypeId));
 
         Assert.DoesNotContain(scene.RootEntities, entity => entity.Name.Contains("Ui", StringComparison.OrdinalIgnoreCase));
-        Assert.DoesNotContain(scene.RootEntities, entity => entity.Name.Contains("Sun", StringComparison.OrdinalIgnoreCase));
+        SceneEntityAsset sourceSun = source.RootEntities.Single(entity => entity.Components.Any(component => component.ComponentTypeId == Ps1SceneSubsetExporter.DirectionalLightComponentTypeId));
+        SceneEntityAsset exportedSun = Assert.Single(scene.RootEntities.Where(entity => entity.Components.Any(component => component.ComponentTypeId == Ps1SceneSubsetExporter.DirectionalLightComponentTypeId)));
+        Assert.Equal(sourceSun.Id, exportedSun.Id);
+        Assert.Equal(sourceSun.LocalOrientation, exportedSun.LocalOrientation);
+        Assert.Equal(
+            sourceSun.Components.Single(component => component.ComponentTypeId == Ps1SceneSubsetExporter.DirectionalLightComponentTypeId).Payload,
+            Assert.Single(exportedSun.Components).Payload);
         Assert.DoesNotContain(result.Report.ExcludedComponentTypeIds, componentTypeId => componentTypeId == Ps1SceneSubsetExporter.CameraComponentTypeId);
         Assert.Contains(result.Report.ExcludedComponentTypeIds, componentTypeId => componentTypeId.Contains("Orbit", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(

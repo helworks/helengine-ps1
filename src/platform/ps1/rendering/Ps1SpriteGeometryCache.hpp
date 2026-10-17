@@ -20,6 +20,8 @@ struct Ps1SpriteGeometryKey {
     std::uint16_t TextureWidth = 0;
     std::uint16_t TextureHeight = 0;
     Ps1ScreenRect Viewport{};
+    // Resolved positions include pivot, local rotation, and the exact ancestor matrix.
+    Ps1UiPoint Corners[4]{};
 };
 
 // Keeps static sprite geometry without retaining generated-Core objects or allocating per frame.
@@ -70,6 +72,7 @@ private:
             && a.SizeX == b.SizeX && a.SizeY == b.SizeY
             && __builtin_memcmp(&a.Source, &b.Source, sizeof(a.Source)) == 0
             && a.TextureWidth == b.TextureWidth && a.TextureHeight == b.TextureHeight
+            && __builtin_memcmp(a.Corners, b.Corners, sizeof(a.Corners)) == 0
             && a.Viewport.x == b.Viewport.x && a.Viewport.y == b.Viewport.y
             && a.Viewport.width == b.Viewport.width && a.Viewport.height == b.Viewport.height;
     }

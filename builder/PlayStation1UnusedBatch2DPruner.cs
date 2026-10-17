@@ -3,10 +3,13 @@ using System.Text.RegularExpressions;
 namespace helengine.ps1.builder;
 
 /// <summary>
-/// Omits the shared 2D batching implementation from a PS1 unity build until a generated
-/// runtime source actually uses it. The renderer still submits its own PS1 GPU packets.
+/// Retains shared sprite geometry and value types while omitting unused batch submission
+/// implementations from the PS1 unity build. The renderer submits its own PS1 GPU packets.
 /// </summary>
 public static class PlayStation1UnusedBatch2DPruner {
+    /// <summary>Removes only proven-unused batch implementations from the generated unity source.</summary>
+    /// <param name="generatedCoreRootPath">Generated runtime tree whose unity includes are checked.</param>
+    /// <returns>Number of unused batching source includes omitted.</returns>
     public static int Prune(string generatedCoreRootPath) {
         if (string.IsNullOrWhiteSpace(generatedCoreRootPath)) {
             throw new ArgumentException("Generated Core root is required.", nameof(generatedCoreRootPath));
@@ -17,7 +20,8 @@ public static class PlayStation1UnusedBatch2DPruner {
             throw new FileNotFoundException("Generated Core unity source is missing.", unityPath);
         }
 
-        string[] batchSources = Directory.GetFiles(generatedCoreRootPath, "Batch2D*.cpp", SearchOption.AllDirectories);
+        string[] batchSources = Directory.GetFiles(generatedCoreRootPath, "Batch2D*.cpp", SearchOption.AllDirectories)
+            .Where(IsPrunableBatchSource).ToArray();
         if (batchSources.Length == 0) {
             return 0;
         }
@@ -66,5 +70,15 @@ public static class PlayStation1UnusedBatch2DPruner {
 
         File.WriteAllLines(unityPath, retained);
         return removed;
+    }
+
+    /// <summary>Identifies unused batching implementations while retaining shared sprite geometry and its vertex value type.</summary>
+    /// <param name="sourcePath">Generated source path examined by unity and scene-module builds.</param>
+    /// <returns>True only for batching sources that the PS1 packet renderer does not call.</returns>
+    public static bool IsPrunableBatchSource(string sourcePath) {
+        string name = Path.GetFileName(sourcePath);
+        return name.StartsWith("Batch2D", StringComparison.Ordinal)
+            && name.EndsWith(".cpp", StringComparison.Ordinal)
+            && name != "Batch2DGeometry.cpp" && name != "Batch2DVertex.cpp";
     }
 }

@@ -1,4 +1,6 @@
 #include "platform/ps1/Ps1RenderManager2D.hpp"
+#include "Batch2DGeometry.hpp"
+#include "SpriteQuad2D.hpp"
 
 #include "Asset.hpp"
 #include "AssetSerializer.hpp"
@@ -774,34 +776,26 @@ void Ps1RenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
     }
     const std::uint16_t width = static_cast<std::uint16_t>(texture->get_Width());
     const std::uint16_t height = static_cast<std::uint16_t>(texture->get_Height());
-    ::int2 size = sprite->get_Size();
-    if (size.X <= 0 || size.Y <= 0) size = ::int2(width, height);
 #if defined(PS1_CPU_PROFILE)
     const std::uint64_t geometryStartUs = CpuProfile == nullptr ? 0u : CpuProfile->ReadMicroseconds();
 #endif
-    const ::float3 parentPosition = parent->get_Position();
-    const ::float3 parentScale = parent->get_Scale();
-    const ::float4 parentOrientation = parent->get_Orientation();
+    const ::SpriteQuad2D quad = ::Batch2DGeometry::ResolveSpriteQuad(sprite);
     const ::float4 source = sprite->get_SourceRect();
-    const Ps1SpriteGeometryKey geometryKey{
-        sprite, texture,
-        {parentPosition.X, parentPosition.Y, parentPosition.Z},
-        {parentScale.X, parentScale.Y, parentScale.Z},
-        {parentOrientation.X, parentOrientation.Y, parentOrientation.Z, parentOrientation.W},
-        size.X, size.Y, {source.X, source.Y, source.Z, source.W}, width, height, ActiveViewport
-    };
+    Ps1SpriteGeometryKey geometryKey{};
+    geometryKey.Drawable = sprite;
+    geometryKey.Texture = texture;
+    geometryKey.Source = {source.X, source.Y, source.Z, source.W};
+    geometryKey.TextureWidth = width;
+    geometryKey.TextureHeight = height;
+    geometryKey.Viewport = ActiveViewport;
+    geometryKey.Corners[0] = {quad.TopLeft.X, quad.TopLeft.Y};
+    geometryKey.Corners[1] = {quad.TopRight.X, quad.TopRight.Y};
+    geometryKey.Corners[2] = {quad.BottomLeft.X, quad.BottomLeft.Y};
+    geometryKey.Corners[3] = {quad.BottomRight.X, quad.BottomRight.Y};
     Ps1UiVertex vertices[4]{};
     if (!SpriteGeometryCache.TryGet(geometryKey, vertices)) {
-        Ps1UiPoint position{};
-        Ps1UiPoint scale{};
-        float rotation = 0.0f;
-        if (!TryScreenTransform(parentPosition, parentScale, parentOrientation, position, scale, rotation)) {
-            Reject("PS1_UI_SPRITE_TRANSFORM_REJECTED");
-            return;
-        }
-        if (!TryBuildSpriteQuad(position, {static_cast<float>(size.X), static_cast<float>(size.Y)}, scale, rotation,
-                                geometryKey.Source, {static_cast<float>(width), static_cast<float>(height)},
-                                ActiveViewport, vertices)) {
+        if (!TryBuildSpriteQuadFromCorners(geometryKey.Corners, geometryKey.Source,
+            {static_cast<float>(width), static_cast<float>(height)}, ActiveViewport, vertices)) {
             Reject("PS1_UI_SPRITE_GEOMETRY_REJECTED");
             return;
         }

@@ -14,6 +14,7 @@
     <Reference Include="helengine.editor" HintPath="$(EngineBinaryRoot)\helengine.editor.dll" />
     <Reference Include="helengine.files" HintPath="$(EngineBinaryRoot)\helengine.files.dll" />
     <Reference Include="helengine.core" HintPath="$(EngineBinaryRoot)\helengine.core.dll" />
+    <Reference Include="helengine.managed" HintPath="$(EngineBinaryRoot)\helengine.managed.dll" />
     <Reference Include="helengine.baseplatform" HintPath="$(EngineBinaryRoot)\helengine.baseplatform.dll" />
     <Reference Include="helengine.shader" HintPath="$(EngineBinaryRoot)\helengine.shader.dll" />
     <Reference Include="helengine.shader.compilation" HintPath="$(EngineBinaryRoot)\helengine.shader.compilation.dll" />

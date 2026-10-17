@@ -153,6 +153,7 @@ public sealed class PlayStation1NativeBuildExecutor : IPlayStation1NativeBuildEx
         Directory.CreateDirectory(candidatesRoot);
         JsonObject sourcePlan = JsonNode.Parse(File.ReadAllText(sourcePlanPath)).AsObject();
         HashSet<string> omitted = Directory.EnumerateFiles(generatedRoot, "Batch2D*.cpp", SearchOption.AllDirectories)
+            .Where(PlayStation1UnusedBatch2DPruner.IsPrunableBatchSource)
             .Select(Path.GetFileName).ToHashSet(StringComparer.Ordinal);
         sourcePlan["provenUnusedBatchSourceNames"] = new JsonArray(omitted.OrderBy(value => value, StringComparer.Ordinal).Select(value => JsonValue.Create(value)).ToArray());
         foreach (string key in new[] { "candidates", "residentRoots" }) {

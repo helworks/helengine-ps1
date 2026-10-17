@@ -77,6 +77,33 @@ inline bool ValidViewport(const Ps1ScreenRect& viewport) {
 
 }  // namespace ui_geometry_detail
 
+/// Converts resolved TL/TR/BL/BR corners to PS1 pixels without reconstructing a transform.
+inline bool TryBuildSpriteQuadFromCorners(const Ps1UiPoint (&corners)[4], Ps1UiRectF sourceRect,
+    Ps1UiSize textureSize, Ps1ScreenRect viewport, Ps1UiVertex (&vertices)[4]) {
+    using namespace ui_geometry_detail;
+    if (!ValidViewport(viewport) || !Finite(sourceRect.x) || !Finite(sourceRect.y) ||
+        !Finite(sourceRect.width) || !Finite(sourceRect.height) || !Finite(textureSize.width) ||
+        !Finite(textureSize.height) || textureSize.width <= 0.0f || textureSize.height <= 0.0f ||
+        sourceRect.x < 0.0f || sourceRect.y < 0.0f || sourceRect.width <= 0.0f ||
+        sourceRect.height <= 0.0f || sourceRect.x + sourceRect.width > 1.00001f ||
+        sourceRect.y + sourceRect.height > 1.00001f) return false;
+    const float sourceU[4] = {sourceRect.x, sourceRect.x + sourceRect.width,
+        sourceRect.x, sourceRect.x + sourceRect.width};
+    const float sourceV[4] = {sourceRect.y, sourceRect.y,
+        sourceRect.y + sourceRect.height, sourceRect.y + sourceRect.height};
+    Ps1UiVertex result[4]{};
+    for (unsigned i = 0; i < 4; ++i) {
+        if (!ToScreen(corners[i].x, corners[i].y, viewport, result[i].x, result[i].y)) return false;
+        const float u = sourceU[i] * (textureSize.width - 1.0f);
+        const float v = sourceV[i] * (textureSize.height - 1.0f);
+        if (u < 0.0f || u > 255.0f || v < 0.0f || v > 255.0f) return false;
+        result[i].u = static_cast<std::uint8_t>(Round(u));
+        result[i].v = static_cast<std::uint8_t>(Round(v));
+    }
+    for (unsigned i = 0; i < 4; ++i) vertices[i] = result[i];
+    return true;
+}
+
 /** Builds a rotated sprite quad. Position and size are already in logical pixels; viewport only offsets them. */
 inline bool TryBuildSpriteQuad(Ps1UiPoint position, Ps1UiSize size, Ps1UiPoint scale, float rotationRadians,
                                Ps1UiRectF sourceRect, Ps1UiSize textureSize, Ps1ScreenRect viewport,

@@ -374,13 +374,13 @@ public sealed class Ps1SceneSubsetExporter {
     }
 
     static (object Walker, MethodInfo ReadValueMethod) CreatePersistenceValueWalker() {
-        Assembly coreAssembly = typeof(SceneAsset).Assembly;
-        Type walkerType = coreAssembly.GetType("helengine.ScenePersistenceValueWalker", throwOnError: false)
+        Assembly managedAssembly = typeof(IScriptTypeResolver).Assembly;
+        Type walkerType = managedAssembly.GetType("helengine.ScenePersistenceValueWalker", throwOnError: false)
             ?? throw new InvalidOperationException(
-                $"The loaded engine core assembly '{coreAssembly.Location}' does not expose ScenePersistenceValueWalker.");
-        Type readerType = coreAssembly.GetType("helengine.IScenePersistenceAssetValueReader", throwOnError: false)
+                $"The loaded engine managed assembly '{managedAssembly.Location}' does not expose ScenePersistenceValueWalker.");
+        Type readerType = managedAssembly.GetType("helengine.IScenePersistenceAssetValueReader", throwOnError: false)
             ?? throw new InvalidOperationException(
-                $"The loaded engine core assembly '{coreAssembly.Location}' does not expose IScenePersistenceAssetValueReader.");
+                $"The loaded engine managed assembly '{managedAssembly.Location}' does not expose IScenePersistenceAssetValueReader.");
         object reader = DispatchProxy.Create(readerType, typeof(NoAssetValueReaderProxy));
         ConstructorInfo constructor = walkerType.GetConstructor([readerType, typeof(string)])
             ?? throw new InvalidOperationException("The loaded engine core persistence walker has an unexpected constructor contract.");
@@ -461,7 +461,7 @@ public sealed class Ps1SceneSubsetExporter {
     }
 
     static List<Ps1EngineAssemblyReport> BuildEngineAssemblyReport(string engineBinaryRootPath) {
-        string[] names = ["helengine.core.dll", "helengine.editor.dll", "helengine.files.dll", "helengine.baseplatform.dll", "helengine.shader.dll", "helengine.shader.compilation.dll"];
+        string[] names = ["helengine.core.dll", "helengine.managed.dll", "helengine.editor.dll", "helengine.files.dll", "helengine.baseplatform.dll", "helengine.shader.dll", "helengine.shader.compilation.dll"];
         List<Ps1EngineAssemblyReport> result = new();
         foreach (string name in names) {
             string requestedPath = Path.Combine(engineBinaryRootPath, name);
