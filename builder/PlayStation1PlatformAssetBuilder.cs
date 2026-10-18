@@ -14,7 +14,7 @@ namespace helengine.ps1.builder;
 /// writes the scene catalog beside generated Core, and runs the pinned native build. The legacy path
 /// embeds content in a PS-X EXE; scene-module builds publish a CD image with per-scene code/content.
 /// </summary>
-public sealed class PlayStation1PlatformAssetBuilder : IPlatformAssetBuilder {
+public sealed class PlayStation1PlatformAssetBuilder : IPlatformAssetBuilder, IPlatformLayoutTargetProvider {
     /// <summary>Name of the executable the native build must produce for the build to count as successful.</summary>
     public const string ExecutableFileName = "helengine_ps1.ps-exe";
 
@@ -155,4 +155,12 @@ public sealed class PlayStation1PlatformAssetBuilder : IPlatformAssetBuilder {
         }
         return packageSourceRoot;
     }
+    /// <summary>Describes the fixed W320 NTSC progressive framebuffer initialized by Ps1Video.</summary>
+    /// <param name="request">Effective build selection; this backend currently has one fixed video target.</param>
+    /// <returns>The actual 320 by 240 square-pixel output without invented physical DPI.</returns>
+    public PlatformLayoutTarget ResolveLayoutTarget(PlatformLayoutTargetRequest request) {
+        ArgumentNullException.ThrowIfNull(request);
+        return new PlatformLayoutTarget(320, 240, 1d, false, 0d, 1d);
+    }
+
 }
