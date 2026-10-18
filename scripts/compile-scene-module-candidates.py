@@ -8,14 +8,22 @@ import pathlib
 import subprocess
 
 
-def workspace_path(value, workspace):
+def workspace_path(value, workspace, path_mappings=()):
+    """Translate only declared host mounts and keep traversal within each mount."""
     normalized = str(value).replace("\\", "/")
-    prefix = "C:/dev/helworks/"
-    if normalized.lower().startswith(prefix.lower()):
-        normalized = str(workspace / normalized[len(prefix):])
+    mappings = list(path_mappings) or [("C:/dev/helworks", workspace)]
+    for host, mounted in mappings:
+        prefix = str(host).replace("\\", "/").rstrip("/")
+        if normalized.lower() == prefix.lower() or normalized.lower().startswith(prefix.lower() + "/"):
+            root = pathlib.Path(mounted).resolve()
+            path = (root / normalized[len(prefix):].lstrip("/")).resolve()
+            if not path.is_relative_to(root):
+                raise ValueError("Source/include escapes mount: " + str(value))
+            return path
     path = pathlib.Path(normalized).resolve()
-    if not path.is_relative_to(workspace.resolve()):
-        raise ValueError("Source/include escapes workspace: " + str(value))
+    allowed = [workspace.resolve(), *(pathlib.Path(mounted).resolve() for _, mounted in mappings)]
+    if not any(path.is_relative_to(root) for root in allowed):
+        raise ValueError("Source/include has no declared mount: " + str(value))
     return path
 
 
@@ -27,7 +35,7 @@ def symbols(nm, obj, defined):
 
 def compile_unit(candidate, args, flags):
     """Compile and inspect one isolated candidate without changing SDK invocation semantics."""
-    source = workspace_path(candidate["sourcePath"], args.workspace)
+    source = workspace_path(candidate["sourcePath"], args.workspace, args.path_map)
     identity = hashlib.sha256(str(candidate["sourcePath"]).encode()).hexdigest()[:24]
     obj = args.output / (identity + ".o")
     command = [args.compiler, *flags, "-c", str(source), "-o", str(obj)]
@@ -71,6 +79,7 @@ def main():
     parser.add_argument("--plan", required=True, type=pathlib.Path)
     parser.add_argument("--output", required=True, type=pathlib.Path)
     parser.add_argument("--workspace", default="/workspace", type=pathlib.Path)
+    parser.add_argument("--path-map", nargs=2, action="append", default=[], metavar=("HOST", "MOUNT"))
     parser.add_argument("--compiler", default="mipsel-none-elf-g++")
     parser.add_argument("--nm", default="mipsel-none-elf-nm")
     parser.add_argument("--jobs", type=int, choices=range(1, 5), default=4)
@@ -79,12 +88,12 @@ def main():
     manifest_path = args.output / "object-symbols.json"
     manifest_path.unlink(missing_ok=True)
     plan = json.loads(args.plan.read_text(encoding="utf-8-sig"))
-    root = workspace_path(plan["generatedCoreRoot"], args.workspace)
+    root = workspace_path(plan["generatedCoreRoot"], args.workspace, args.path_map)
     repo = args.workspace / "helengine-ps1"
     sdk = repo / "third_party/nugget"
     includes = [root, repo / "src", repo / "src/platform/ps1", sdk, sdk / "third_party/EASTL/include",
                 sdk / "third_party/EABase/include/Common"]
-    includes.extend(workspace_path(value, args.workspace) for value in plan.get("includePaths", []))
+    includes.extend(workspace_path(value, args.workspace, args.path_map) for value in plan.get("includePaths", []))
     flags = ["-std=c++20", "-march=mips1", "-mabi=32", "-EL", "-fno-pic", "-mno-shared", "-mlong-calls",
              "-mno-abicalls", "-mfp32", "-mno-llsc", "-msoft-float", "-fno-stack-protector",
              "-nostdlib", "-ffreestanding", "-ffunction-sections", "-fdata-sections", "-mno-gpopt",

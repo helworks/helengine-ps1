@@ -29,7 +29,7 @@ public sealed class PlayStation1NativeBuildExecutor : IPlayStation1NativeBuildEx
         if (string.IsNullOrWhiteSpace(repositoryRoot) || !Directory.Exists(repositoryRoot)) {
             throw new InvalidOperationException($"{RepositoryRootEnvironmentVariableName} must identify the PS1 implementation checkout.");
         }
-        string buildRunRoot = ResolveBuildRunRoot(repositoryRoot, generatedCoreCppRootPath);
+        string buildRunRoot = ResolveBuildRunRoot(repositoryRoot, generatedCoreCppRootPath, Environment.GetEnvironmentVariable(BuildRunRootEnvironmentVariableName) ?? string.Empty);
         Directory.CreateDirectory(outputRootPath);
         PlayStation1CodegenDiagnosticGate.Validate(generatedCoreCppRootPath);
         int omittedBatchSources = PlayStation1UnusedBatch2DPruner.Prune(generatedCoreCppRootPath);
@@ -117,22 +117,31 @@ public sealed class PlayStation1NativeBuildExecutor : IPlayStation1NativeBuildEx
     }
 
     /// <summary>Resolves the configured native directory once and rejects scene-module builds without a fixed directory before candidate compilation.</summary>
-    /// <param name="repositoryRoot">Platform checkout whose sibling builds directory constrains native outputs.</param>
+    /// <param name="repositoryRoot">Platform checkout that must remain separate from native outputs.</param>
     /// <param name="generatedRoot">Generated source tree used to determine whether scene modules are enabled.</param>
-    /// <returns>Normalized configured directory, or an empty value for the legacy wrapper's unconfigured flow.</returns>
-    static string ResolveBuildRunRoot(string repositoryRoot, string generatedRoot) {
-        string configuredRunRoot = Environment.GetEnvironmentVariable(BuildRunRootEnvironmentVariableName) ?? string.Empty;
+    /// <param name="configuredRunRoot">Explicit fixed directory supplied by the build environment.</param>
+    /// <returns>Normalized fixed directory, or empty when no native directory was selected.</returns>
+    static string ResolveBuildRunRoot(string repositoryRoot, string generatedRoot, string configuredRunRoot) {
         if (string.IsNullOrWhiteSpace(configuredRunRoot)) {
             if (File.Exists(Path.Combine(generatedRoot, "scene-modules", "source-plan.json"))) {
                 throw new InvalidOperationException($"{BuildRunRootEnvironmentVariableName} must identify a fixed native build directory for scene modules.");
             }
             return string.Empty;
         }
-        string buildRoot = Path.GetFullPath(Path.Combine(repositoryRoot, "..", "builds", "helengine-ps1"));
-        string buildPrefix = Path.TrimEndingDirectorySeparator(buildRoot) + Path.DirectorySeparatorChar;
-        string runRoot = Path.GetFullPath(configuredRunRoot);
-        if (!runRoot.StartsWith(buildPrefix, StringComparison.OrdinalIgnoreCase)) {
-            throw new InvalidOperationException($"{BuildRunRootEnvironmentVariableName} must identify a child of '{buildRoot}'.");
+        if (!Path.IsPathFullyQualified(configuredRunRoot)) {
+            throw new InvalidOperationException($"{BuildRunRootEnvironmentVariableName} must identify an absolute fixed directory.");
+        }
+        string runRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(configuredRunRoot));
+        if (runRoot.Equals(Path.TrimEndingDirectorySeparator(Path.GetPathRoot(runRoot)), StringComparison.OrdinalIgnoreCase)) {
+            throw new InvalidOperationException("The native build directory cannot be a volume root.");
+        }
+        foreach (string input in new[] { repositoryRoot, generatedRoot }) {
+            string source = Path.TrimEndingDirectorySeparator(Path.GetFullPath(input));
+            if (runRoot.Equals(source, StringComparison.OrdinalIgnoreCase)
+                || runRoot.StartsWith(source + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                || source.StartsWith(runRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) {
+                throw new InvalidOperationException("The native build directory must not overlap source inputs: " + source);
+            }
         }
         return runRoot;
     }
@@ -147,8 +156,17 @@ public sealed class PlayStation1NativeBuildExecutor : IPlayStation1NativeBuildEx
         string sourcePlanPath = Path.Combine(generatedRoot, "scene-modules", "source-plan.json");
         if (!File.Exists(sourcePlanPath)) return string.Empty;
         string workspace = Path.GetFullPath(Path.Combine(repositoryRoot, ".."));
-        string relativePlan = Path.GetRelativePath(workspace, sourcePlanPath).Replace('\\', '/');
-        if (relativePlan.StartsWith("../", StringComparison.Ordinal) || Path.IsPathRooted(relativePlan)) throw new InvalidOperationException("Scene code plan escapes the SDK input workspace.");
+        string cacheRoot = Environment.GetEnvironmentVariable("HELENGINE_BUILD_CACHE_ROOT") ?? string.Empty;
+        string inputRoot = workspace;
+        string inputMount = "/workspace";
+        string relativePlan = Path.GetRelativePath(inputRoot, sourcePlanPath).Replace('\\', '/');
+        if (relativePlan.StartsWith("../", StringComparison.Ordinal) || Path.IsPathRooted(relativePlan)) {
+            if (!Path.IsPathFullyQualified(cacheRoot)) throw new InvalidOperationException("External scene modules require HELENGINE_BUILD_CACHE_ROOT to name the mounted cache.");
+            inputRoot = Path.GetFullPath(cacheRoot);
+            inputMount = "/build-cache";
+            relativePlan = Path.GetRelativePath(inputRoot, sourcePlanPath).Replace('\\', '/');
+            if (relativePlan.StartsWith("../", StringComparison.Ordinal) || Path.IsPathRooted(relativePlan)) throw new InvalidOperationException("Scene code plan escapes the declared build cache.");
+        }
         string candidatesRoot = Path.Combine(outputRoot, "scene-module-candidates");
         Directory.CreateDirectory(candidatesRoot);
         JsonObject sourcePlan = JsonNode.Parse(File.ReadAllText(sourcePlanPath)).AsObject();
@@ -168,13 +186,19 @@ public sealed class PlayStation1NativeBuildExecutor : IPlayStation1NativeBuildEx
             WorkingDirectory = repositoryRoot, UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true
         };
-        foreach (string argument in new[] {
+        List<string> arguments = new() {
             "run", "--rm", "--mount", "type=bind,source=" + workspace + ",target=/workspace,readonly",
-            "--mount", "type=bind,source=" + Path.GetFullPath(candidatesRoot) + ",target=/module-candidates",
+            "--mount", "type=bind,source=" + Path.GetFullPath(candidatesRoot) + ",target=/module-candidates"
+        };
+        if (inputMount != "/workspace") arguments.AddRange(new[] { "--mount", "type=bind,source=" + inputRoot + ",target=" + inputMount + ",readonly" });
+        arguments.AddRange(new[] {
             "ghcr.io/grumpycoders/pcsx-redux-build@sha256:4f99ff0dd972096280cd6faf27c4255cc2bcf932397f8f9276ee22b6b1a67555",
-            "python3", "/workspace/helengine-ps1/scripts/compile-scene-module-candidates.py",
-            "--plan", "/workspace/" + relativePlan, "--output", "/module-candidates", "--workspace", "/workspace"
-        }) info.ArgumentList.Add(argument);
+            "python3", "-B", "/workspace/helengine-ps1/scripts/compile-scene-module-candidates.py",
+            "--plan", inputMount + "/" + relativePlan, "--output", "/module-candidates", "--workspace", "/workspace",
+            "--path-map", workspace, "/workspace"
+        });
+        if (inputMount != "/workspace") arguments.AddRange(new[] { "--path-map", inputRoot, inputMount });
+        foreach (string argument in arguments) info.ArgumentList.Add(argument);
         using Process process = Process.Start(info) ?? throw new InvalidOperationException("Could not start the SDK scene-module candidate compiler.");
         Task<string> stdout = process.StandardOutput.ReadToEndAsync(cancellationToken);
         Task<string> stderr = process.StandardError.ReadToEndAsync(cancellationToken);

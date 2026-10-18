@@ -78,14 +78,17 @@ if ($CoreBoot) {
 $sourceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $buildRoot = Join-Path (Split-Path $sourceRoot -Parent) 'builds\helengine-ps1'
 if ([string]::IsNullOrWhiteSpace($RunRoot)) { $RunRoot = $env:HELENGINE_PS1_BUILD_RUN_ROOT }
-if ([string]::IsNullOrWhiteSpace($RunRoot)) {
-    $runName = '{0}-{1}-{2}' -f (Get-Date -Format 'yyyyMMdd-HHmmss-fff'), $Configuration, ([guid]::NewGuid().ToString('N'))
-    $runRoot = Join-Path $buildRoot $runName
-} else {
-    $runRoot = [IO.Path]::GetFullPath($RunRoot)
-    $buildPrefix = [IO.Path]::GetFullPath($buildRoot).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
-    if (-not $runRoot.StartsWith($buildPrefix, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "RunRoot must be a child of $buildRoot"
+if ([string]::IsNullOrWhiteSpace($RunRoot)) { throw 'RunRoot must name an explicit fixed native build directory.' }
+if (-not [IO.Path]::IsPathRooted($RunRoot) -or -not [IO.Path]::GetPathRoot($RunRoot).EndsWith('\')) {
+    throw 'RunRoot must be absolute.'
+}
+$runRoot = [IO.Path]::GetFullPath($RunRoot).TrimEnd('\', '/')
+if ($runRoot -eq [IO.Path]::GetPathRoot($runRoot).TrimEnd('\', '/')) { throw 'RunRoot cannot be a volume root.' }
+foreach ($inputRoot in @($sourceRoot, $GeneratedCoreRoot, $AuthoredContentRoot)) {
+    if ([string]::IsNullOrWhiteSpace($inputRoot)) { continue }
+    $inputPath = [IO.Path]::GetFullPath($inputRoot).TrimEnd('\', '/')
+    if ($runRoot -eq $inputPath -or $runRoot.StartsWith($inputPath + '\', [StringComparison]::OrdinalIgnoreCase) -or $inputPath.StartsWith($runRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "RunRoot must not overlap source inputs: $inputPath"
     }
 }
 $sdkPatchRelative = 'patches\nugget\0001-frame-completion.patch'
@@ -308,7 +311,7 @@ try {
         throw "SDK checkout is dirty at $sdkSource"
     }
     if ([string]::IsNullOrWhiteSpace($NativeObjectCacheRoot)) {
-        $NativeObjectCacheRoot = Join-Path $buildRoot ('cache\ps1\' + $Configuration)
+        $NativeObjectCacheRoot = Join-Path (Split-Path -Parent $runRoot) 'native-objects'
     }
     $NativeObjectCacheRoot = [IO.Path]::GetFullPath($NativeObjectCacheRoot)
     $sdkSubmoduleRevisions = [ordered]@{}
