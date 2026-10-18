@@ -36,7 +36,7 @@ public sealed class PlayStation1NativeBuildExecutor : IPlayStation1NativeBuildEx
         if (omittedBatchSources != 0) {
             Console.WriteLine($"[ps1] omitted {omittedBatchSources} unused generated 2D batch sources");
         }
-        string sceneModulePlan = PrepareSceneModules(repositoryRoot, generatedCoreCppRootPath, outputRootPath, cancellationToken);
+        string sceneModulePlan = PrepareSceneModules(repositoryRoot, generatedCoreCppRootPath, buildRunRoot, cancellationToken);
 
         ProcessStartInfo info = new() {
             FileName = ResolvePowerShell(),
@@ -149,10 +149,10 @@ public sealed class PlayStation1NativeBuildExecutor : IPlayStation1NativeBuildEx
     /// <summary>Compiles candidate units in the pinned SDK, computes their actual symbol partition, and emits owning overlay registration sources.</summary>
     /// <param name="repositoryRoot">Platform checkout containing the official candidate compiler.</param>
     /// <param name="generatedRoot">Final generated source tree.</param>
-    /// <param name="outputRoot">Fixed native artifact directory.</param>
+    /// <param name="nativeBuildRoot">Fixed scratch directory whose sibling holds candidate objects and symbol reports.</param>
     /// <param name="cancellationToken">Build cancellation signal.</param>
     /// <returns>Final partition plan, or empty for the unchanged monolithic build path.</returns>
-    static string PrepareSceneModules(string repositoryRoot, string generatedRoot, string outputRoot, CancellationToken cancellationToken) {
+    static string PrepareSceneModules(string repositoryRoot, string generatedRoot, string nativeBuildRoot, CancellationToken cancellationToken) {
         string sourcePlanPath = Path.Combine(generatedRoot, "scene-modules", "source-plan.json");
         if (!File.Exists(sourcePlanPath)) return string.Empty;
         string workspace = Path.GetFullPath(Path.Combine(repositoryRoot, ".."));
@@ -167,7 +167,7 @@ public sealed class PlayStation1NativeBuildExecutor : IPlayStation1NativeBuildEx
             relativePlan = Path.GetRelativePath(inputRoot, sourcePlanPath).Replace('\\', '/');
             if (relativePlan.StartsWith("../", StringComparison.Ordinal) || Path.IsPathRooted(relativePlan)) throw new InvalidOperationException("Scene code plan escapes the declared build cache.");
         }
-        string candidatesRoot = Path.Combine(outputRoot, "scene-module-candidates");
+        string candidatesRoot = Path.Combine(Path.GetDirectoryName(nativeBuildRoot) ?? throw new InvalidOperationException("Native build directory must have a parent."), "scene-module-candidates");
         Directory.CreateDirectory(candidatesRoot);
         JsonObject sourcePlan = JsonNode.Parse(File.ReadAllText(sourcePlanPath)).AsObject();
         HashSet<string> omitted = Directory.EnumerateFiles(generatedRoot, "Batch2D*.cpp", SearchOption.AllDirectories)
