@@ -1,5 +1,6 @@
 #include "platform/ps1/modules/Ps1CodeModuleProvider.hpp"
 #include "IRuntimeCodeModule.hpp"
+#include "helcpp_config.hpp"
 #include "IRuntimeCodeModuleLoadOperation.hpp"
 #include "RuntimeCodeModuleManifestEntry.hpp"
 #include "RuntimeCodeModuleLoadState.hpp"
@@ -129,6 +130,9 @@ Ps1CodeModuleProvider::Ps1CodeModuleProvider(Ps1DiscSectorReader& reader,Ps1Disc
     for (std::size_t i=0;i<count;++i) {
         if (bindings[i].Descriptor==nullptr || bindings[i].Slot>=8) he_cpp_custom::Fail("Native module slot declaration invalid");
         const auto& a=*bindings[i].Descriptor;
+        constexpr std::uint32_t numericPolicy=HE_CPP_REAL_REPRESENTATION_VERSION |
+            (HE_CPP_REAL_STORAGE_BITS << 8) | (HE_CPP_REAL_ARITHMETIC_BITS << 16);
+        if (a.NumericPolicy!=numericPolicy) he_cpp_custom::Fail("Native module numeric policy differs from resident Core");
         if (a.ModuleId==nullptr || a.ModuleId[0]==0 || a.DiscPath==nullptr || a.LoadAddress<0x80010000u ||
             a.LoadAddress>=0x801f0000u || a.ArenaBytes==0 || a.ArenaBytes>0x801f0000u-a.LoadAddress)
             he_cpp_custom::Fail("Native module descriptor violates retail arena bounds");

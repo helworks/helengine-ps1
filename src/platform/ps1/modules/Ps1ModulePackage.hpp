@@ -14,6 +14,8 @@ struct Ps1ModuleDescriptor {
     std::uint32_t ArenaBytes;
     std::uint8_t ResidentBuildId[32];
     std::uint8_t FileSha256[32];
+    /// <summary>Representation/version/storage/arithmetic tuple; zero is invalid legacy metadata.</summary>
+    std::uint32_t NumericPolicy = 0;
 };
 
 /// <summary>Decoded HPM1 metadata; no on-disc fields are trusted as pointers before validation.</summary>
@@ -40,9 +42,9 @@ struct Ps1ModulePackage {
         if (header == nullptr || descriptor.FileBytes < HeaderBytes || descriptor.ArenaBytes == 0 ||
             descriptor.LoadAddress < 0x80010000u || descriptor.LoadAddress >= 0x801f0000u ||
             descriptor.ArenaBytes > 0x801f0000u - descriptor.LoadAddress) return false;
-        if (ReadU32(header) != 0x314d5048u || ReadU32(header+4) != 1 || ReadU32(header+8) != HeaderBytes ||
+        if (ReadU32(header) != 0x314d5048u || ReadU32(header+4) != 2 || ReadU32(header+8) != HeaderBytes ||
             ReadU32(header+12) != descriptor.FileBytes || ReadU32(header+16) != descriptor.LoadAddress ||
-            ReadU32(header+56) != 0 || ReadU32(header+124) != 0 ||
+            ReadU32(header+56) != 0 || descriptor.NumericPolicy == 0 || ReadU32(header+124) != descriptor.NumericPolicy ||
             !Ps1Sha256::Equal(header+60, descriptor.ResidentBuildId)) return false;
         LoadBytes=ReadU32(header+20);BssOffset=ReadU32(header+24);BssBytes=ReadU32(header+28);
         RegisterOffset=ReadU32(header+32);UnregisterOffset=ReadU32(header+36);
