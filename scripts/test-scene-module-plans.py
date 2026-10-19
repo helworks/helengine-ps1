@@ -41,6 +41,18 @@ def main():
     else:
         raise AssertionError("Missing module feature configuration must fail before native build")
     features.write_text('#pragma once\n#define HE_CPP_FEATURE_TEXT2D 1\n', encoding="utf-8")
+    numeric_spec = importlib.util.spec_from_file_location("numeric_packer", args.repo / "scripts/pack-scene-module.py")
+    numeric = importlib.util.module_from_spec(numeric_spec);numeric_spec.loader.exec_module(numeric)
+    for bits in (32, 64, 32):
+        identity = f"real-v1-s{bits}-a{bits}"
+        config.write_text(f'#define HE_CPP_REAL_NUMERIC_IDENTITY "{identity}"\n', encoding="utf-8")
+        numeric.require_numeric_config(config, identity)
+        try:
+            numeric.require_numeric_config(config, "real-v1-s16-a16")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Different Core and overlay policy must reject before native compilation")
     spec = importlib.util.spec_from_file_location("archive_packer", args.repo / "scripts/embed-authored-assets.py")
     packer = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = packer
@@ -56,7 +68,7 @@ def main():
     image = packer.pack_archive(files)
     archive = args.output / "ASSETS.BIN"
     archive.write_bytes(image)
-    plan = {"schemaVersion": 1, "assets": assets, "modules": [], "slots": [],
+    plan = {"numericPolicy": "real-v1-s32-a32", "schemaVersion": 1, "assets": assets, "modules": [], "slots": [],
             "persistentAssetPaths": ["cooked/scenes/loading"],
             "scenes": [{"sceneId": "menu", "cookedRelativePath": "cooked/scenes/menu",
                         "assetPaths": ["cooked/scenes/menu"], "requiredCodeModuleIds": []}]}

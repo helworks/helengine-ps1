@@ -1,6 +1,7 @@
 """Emit native build tables from the partition plan and actual HEP1 archive, never guessed offsets."""
 import argparse
 import hashlib
+import importlib.util
 import json
 import pathlib
 import struct
@@ -55,6 +56,9 @@ def main():
     if args.plan is None or args.archive is None or args.cache_budget_bytes is None:
         parser.error("Table emission requires --plan, --archive and --cache-budget-bytes")
     plan=json.loads(args.plan.read_text(encoding="utf-8-sig"))
+    spec=importlib.util.spec_from_file_location("module_packer", pathlib.Path(__file__).with_name("pack-scene-module.py"))
+    packer=importlib.util.module_from_spec(spec);spec.loader.exec_module(packer)
+    policy_word=packer.numeric_policy_word(plan.get("numericPolicy"))
     if plan["schemaVersion"]!=1 or args.cache_budget_bytes<=0:
         raise ValueError("Unsupported partition schema or missing cache budget")
     # A persistent loading scene's bytes remain leased while any target is materialized.
@@ -85,6 +89,8 @@ def main():
         slot=slots[module["slot"]]
         receipt_path=None if args.module_receipts is None else args.module_receipts/("MOD"+str(index).zfill(5)+".json")
         receipt=None if receipt_path is None else json.loads(receipt_path.read_text(encoding="utf-8"))
+        if receipt is not None and receipt.get("numericPolicy")!=plan["numericPolicy"]:
+            raise ValueError("Module receipt numeric policy differs from resident plan")
         size=128 if receipt is None else receipt["fileBytes"]
         build_id="00"*32 if receipt is None else receipt["residentBuildId"]
         file_digest="00"*32 if receipt is None else receipt["fileSha256"]
@@ -92,7 +98,7 @@ def main():
             raise ValueError("Module receipt does not match measured slot")
         cpp.append('const Ps1ModuleDescriptor Module'+str(index)+' = {'+cstring(module["moduleId"])+','+
                    cstring("MOD"+str(index).zfill(5)+".BIN;1")+','+str(size)+','+str(slot["loadAddress"])+','+
-                   str(slot["capacityBytes"])+','+digest_initializer(build_id)+','+digest_initializer(file_digest)+'};')
+                   str(slot["capacityBytes"])+','+digest_initializer(build_id)+','+digest_initializer(file_digest)+','+str(policy_word)+'};')
     cpp.append('const Ps1DiscModuleBinding Modules[] = {'+','.join('{&Module'+str(i)+','+str(module["slot"])+'}' for i,module in enumerate(modules))+'};')
     cpp.append('Ps1CodeModulePinState Pins[] = {'+','.join('{'+cstring(module["moduleId"])+',0,false}' for module in modules)+'};')
     cpp.append('const Ps1DiscAssetDescriptor Assets[] = {'+','.join('{'+cstring(name)+','+str(entries[name][0])+','+str(entries[name][1])+','+digest_initializer(entries[name][2])+'}' for name in names)+'};')
@@ -127,7 +133,7 @@ def main():
     args.output.mkdir(parents=True,exist_ok=True)
     (args.output/"ps1_scene_module_metadata.hpp").write_text(header,encoding="utf-8")
     (args.output/"ps1_scene_module_metadata.cpp").write_text("\n".join(cpp)+"\n",encoding="utf-8")
-    (args.output/"metadata-receipt.json").write_text(json.dumps({"schemaVersion":1,"moduleCount":len(modules),
+    (args.output/"metadata-receipt.json").write_text(json.dumps({"numericPolicy":plan["numericPolicy"],"schemaVersion":1,"moduleCount":len(modules),
         "sceneCount":len(plan["scenes"]),"assetCount":len(names),"archiveBytes":len(image),
         "archiveSha256":hashlib.sha256(image).hexdigest(),"cacheBudgetBytes":args.cache_budget_bytes,
         "placeholderModuleDigests":args.module_receipts is None},indent=2)+"\n",encoding="utf-8")

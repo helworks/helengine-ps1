@@ -8,7 +8,7 @@ public sealed class PlayStation1SceneModuleBuildPlanWriterTests {
     /// <summary>Records only selected dependencies, authenticates staged bytes, and refuses any preload path missing from the actual package.</summary>
     [Fact]
     public void WriteSourcePlan_SelectedCookedPaths_UsesExactBytesAndRejectsMissingAssets() {
-        string root = "C:/dev/helworks/builds/helengine-ps1/menu-20261007/scene-modules/buildgraph/content-plan-fixture";
+        string root = "C:/temp/numeric-precision/ps1/content-plan-fixture";
         Directory.CreateDirectory(Path.Combine(root, "scene-modules"));
         File.WriteAllText(Path.Combine(root, "generated_unity.cpp"), "#include \"ActualType.cpp\"");
         File.WriteAllText(Path.Combine(root, "helengine_core_unity.cpp"), "#include \"ActualType.cpp\"");
@@ -18,6 +18,7 @@ public sealed class PlayStation1SceneModuleBuildPlanWriterTests {
         File.WriteAllBytes(selected, new byte[3]);
         File.WriteAllBytes(unused, new byte[4096]);
         JsonObject plan = new() {
+            ["numericPolicy"] = "real-v1-s32-a32",
             ["generatedCoreRoot"] = root,
             ["candidates"] = new JsonArray(), ["residentRoots"] = new JsonArray(),
             ["scenes"] = new JsonArray(new JsonObject { ["sceneId"] = "menu" })
@@ -29,6 +30,12 @@ public sealed class PlayStation1SceneModuleBuildPlanWriterTests {
         PlatformBuildManifest manifest = new(1, "cache-test", "1", "1", "ps1", "1", "menu", [scene], [], [], [], [],
             new PlatformContainerWritePlan("ps1", []), [], new PlatformBuildRuntimeFeatureManifest([]));
         PlayStation1SceneModuleBuildPlanWriter writer = new();
+        byte[] originalPlan = File.ReadAllBytes(path);
+        plan["numericPolicy"] = "real-v1-s64-a64";
+        File.WriteAllText(path, plan.ToJsonString());
+        Assert.Throws<InvalidOperationException>(() => writer.WriteSourcePlan(root, manifest, [new("selected.hasset", selected)]));
+        Assert.Equal("real-v1-s64-a64", JsonNode.Parse(File.ReadAllText(path))["numericPolicy"].GetValue<string>());
+        File.WriteAllBytes(path, originalPlan);
         writer.WriteSourcePlan(root, manifest, [new("selected.hasset", selected), new("unused.hasset", unused)]);
         JsonObject result = JsonNode.Parse(File.ReadAllText(path)).AsObject();
         Assert.Single(result["candidates"].AsArray());

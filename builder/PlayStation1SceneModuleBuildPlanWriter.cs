@@ -17,6 +17,7 @@ public sealed class PlayStation1SceneModuleBuildPlanWriter {
         string path = Path.Combine(generatedRoot, "scene-modules", "source-plan.json");
         if (!File.Exists(path)) return string.Empty;
         JsonObject plan = JsonNode.Parse(File.ReadAllText(path)).AsObject();
+        if (plan["numericPolicy"]?.GetValue<string>() != manifest.NumericPolicy.Identity) throw new InvalidOperationException("Scene source-plan numeric policy differs from build manifest.");
         string previousRoot = plan["generatedCoreRoot"].GetValue<string>();
         RebaseSourcePaths(plan, previousRoot, generatedRoot);
         plan["generatedCoreRoot"] = Path.GetFullPath(generatedRoot);
@@ -106,6 +107,7 @@ public sealed class PlayStation1SceneModuleBuildPlanWriter {
             File.WriteAllText(registrationPath, cpp.ToString(), new UTF8Encoding(false));
             module["registrationSourcePath"] = registrationPath;
         }
+        partition["numericPolicy"] = sourcePlan["numericPolicy"].DeepClone();
         partition["generatedCoreRoot"] = Path.GetFullPath(generatedRoot);
         partition["sourcePlanPath"] = Path.Combine(root, "source-plan.json");
         partition["assets"] = sourcePlan["assets"].DeepClone();

@@ -34,8 +34,10 @@ void BuildImage(DelayedDisc& disc,Ps1ModuleDescriptor& descriptor) {
     const std::uint32_t payload=5000;
     disc.Image.assign(6144,0);
     descriptor={"fixture","MODULE.BIN",128+payload,0x80140000,8192,{}, {}};
-    const std::uint32_t header[15]={0x314d5048,1,128,128+payload,descriptor.LoadAddress,payload,payload,3072,0,4,8,0,8,0,0};
+    const std::uint32_t header[15]={0x314d5048,2,128,128+payload,descriptor.LoadAddress,payload,payload,3072,0,4,8,0,8,0,0};
     for (unsigned i=0;i<15;++i) WriteU32(disc.Image.data()+i*4,header[i]);
+    descriptor.NumericPolicy=0x00202001u;
+    WriteU32(disc.Image.data()+124,descriptor.NumericPolicy);
     for (std::uint32_t i=0;i<payload;++i) disc.Image[128+i]=static_cast<std::uint8_t>(i*7);
     Ps1Sha256 payloadHash;payloadHash.Update(disc.Image.data()+128,payload);payloadHash.Finish(disc.Image.data()+92);
     Ps1Sha256 fileHash;fileHash.Update(disc.Image.data(),descriptor.FileBytes);fileHash.Finish(descriptor.FileSha256);
@@ -71,6 +73,13 @@ int main() {
         arena.fill(0xee);Ps1ModuleTransfer transfer(disc,descriptor,0,arena.data());Run(transfer,disc);
         assert(transfer.GetPhase()==Ps1ModuleTransfer::Phase::Complete);
     }
+    // Forge only numeric policy, recomputing the file hash so identity is the sole rejection.
+    BuildImage(disc,descriptor);WriteU32(disc.Image.data()+124,0x00404001u);
+    Ps1Sha256 changedHash;changedHash.Update(disc.Image.data(),descriptor.FileBytes);changedHash.Finish(descriptor.FileSha256);
+    arena.fill(0x5a);
+    { Ps1ModuleTransfer transfer(disc,descriptor,0,arena.data());Run(transfer,disc);assert(transfer.GetPhase()==Ps1ModuleTransfer::Phase::Failed); }
+    for (auto byte:arena) assert(byte==0x5a);
+    BuildImage(disc,descriptor);
     disc.Image[4096]^=1;arena.fill(0x5a);
     { Ps1ModuleTransfer transfer(disc,descriptor,0,arena.data());Run(transfer,disc);assert(transfer.GetPhase()==Ps1ModuleTransfer::Phase::Failed); }
     for (auto byte:arena) assert(byte==0x5a);

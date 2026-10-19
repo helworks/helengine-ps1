@@ -51,7 +51,7 @@ def main():
         module_symbols = packer.read_symbols("mipsel-none-elf-nm", elf)
         assert all(module_symbols[name] == address for name,address in imports.items())
         record = packer.package(elf, args.output / ("MOD0000"+str(index)+".BIN"), build_id,65536,
-                                "mipsel-none-elf-nm", "mipsel-none-elf-objcopy")
+                                "mipsel-none-elf-nm", "mipsel-none-elf-objcopy", "real-v1-s32-a32")
         image = (args.output / ("MOD0000"+str(index)+".BIN")).read_bytes()
         assert struct.unpack_from("<I", image,44)[0] == 1
         assert struct.unpack_from("<I", image,52)[0] == 1

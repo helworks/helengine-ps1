@@ -37,8 +37,11 @@ def main():
     parser.add_argument("--plan", required=True, type=pathlib.Path)
     parser.add_argument("--configuration", required=True)
     parser.add_argument("--sdk-defines", default="")
+    parser.add_argument("--cpu-profile", action="store_true")
     parser.add_argument("--runtime-heap-reserve-bytes", type=int, default=65536)
     args = parser.parse_args()
+    if args.cpu_profile and args.configuration != "Release":
+        parser.error("--cpu-profile requires Release configuration")
     root = pathlib.Path.cwd().resolve()
     generated = root / "generated-core"
     config_hashes = runtime_config_hashes(generated)
@@ -123,6 +126,7 @@ def main():
         return module
 
     packer = load_script("pack-scene-module")
+    packer.require_numeric_config(generated / "helcpp_config.hpp", plan.get("numericPolicy"))
     disc = load_script("pack-scene-module-disc")
     run(["python3", "-B", root / "scripts/embed-authored-assets.py", "--declarations",
          root / "authored-declarations.json", "--output-archive", task / "ASSETS.BIN",
@@ -149,6 +153,7 @@ def main():
             (pending / ("helengine_ps1." + extension)).unlink(missing_ok=True)
         import_flags = " ".join("-Wl,-u," + value for value in sorted(resident_imports))
         run(["make", "BUILD=" + args.configuration, "CORE_BOOT=1", "AUTHORED=1", "SCENE_MODULES=1",
+             "CPU_PROFILE=" + str(int(args.cpu_profile)),
              "PS1_MODULE_IMPORT_FLAGS=" + import_flags,
              "SDK_DEFINES=" + args.sdk_defines, "all"])
         elf = pending / "helengine_ps1.elf"
@@ -162,6 +167,8 @@ def main():
              "-mno-abicalls", "-mfp32", "-mno-llsc", "-msoft-float", "-fno-stack-protector", "-nostdlib",
              "-ffreestanding", "-ffunction-sections", "-fdata-sections", "-mno-gpopt", "-fno-builtin",
              "-fno-strict-aliasing", "-fno-exceptions", "-fno-use-cxa-atexit", "-frtti", "-Os", "-g"]
+    if args.cpu_profile:
+        flags.append("-DPS1_CPU_PROFILE=1")
     sdk = root / "third_party/nugget"
     flags += ["-I" + str(path) for path in (generated, root / "src", root / "src/platform/ps1", sdk,
               sdk / "third_party/EASTL/include", sdk / "third_party/EABase/include/Common")]
@@ -275,7 +282,7 @@ def main():
     for index, module in enumerate(plan["modules"]):
         elf, _ = link_module(module["moduleId"], True)
         receipt = packer.package(elf, modules_out / ("MOD" + str(index).zfill(5) + ".BIN"), build_id,
-                                 slots[module["slot"]]["capacityBytes"], "mipsel-none-elf-nm", "mipsel-none-elf-objcopy")
+                                 slots[module["slot"]]["capacityBytes"], "mipsel-none-elf-nm", "mipsel-none-elf-objcopy", plan["numericPolicy"])
         (modules_out / ("MOD" + str(index).zfill(5) + ".json")).write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
     metadata(True)
     _, final_symbols = make_resident()
@@ -289,8 +296,9 @@ def main():
         disc_command += ["--module", modules_out / ("MOD" + str(index).zfill(5) + ".BIN")]
     run(disc_command)
     receipt = {"schemaVersion": 1, "passed": True, "entryPoint": "helengine_ps1.cue",
+        "cpuProfile": args.cpu_profile,
         **config_hashes,
-        "residentBuildId": build_id.hex(), "residentImportAddresses": abi, "slots": list(slots.values()),
+        "numericPolicy": plan["numericPolicy"], "residentBuildId": build_id.hex(), "residentImportAddresses": abi, "slots": list(slots.values()),
         "sceneCount": len(plan["scenes"]), "cacheBudgetBytes": cache_budget,
         "runtimeHeapReserveBytes": args.runtime_heap_reserve_bytes,
         "heapStart": final_symbols["__heap_start"], "heapCeiling": 0x801f0000}
