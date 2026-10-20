@@ -133,10 +133,10 @@ std::uint16_t PackPaletteEntry(std::uint8_t red, std::uint8_t green, std::uint8_
 bool TryScreenTransform(const ::float3& worldPosition, const ::float3& worldScale,
                         const ::float4& orientation, Ps1UiPoint& position,
                         Ps1UiPoint& scale, float& rotation) {
-    const float rightX = 1.0f - 2.0f * (orientation.Y * orientation.Y + orientation.Z * orientation.Z);
-    const float rightY = 2.0f * (orientation.X * orientation.Y + orientation.W * orientation.Z);
-    position = {worldPosition.X, worldPosition.Y};
-    scale = {worldScale.X, worldScale.Y};
+    const float rightX = static_cast<float>(1.0f - 2.0f * (orientation.Y * orientation.Y + orientation.Z * orientation.Z));
+    const float rightY = static_cast<float>(2.0f * (orientation.X * orientation.Y + orientation.W * orientation.Z));
+    position = {worldPosition.X.ToSingle(), worldPosition.Y.ToSingle()};
+    scale = {worldScale.X.ToSingle(), worldScale.Y.ToSingle()};
     rotation = rightX == 1.0f && rightY == 0.0f ? 0.0f : ui_geometry_detail::Atan2(rightY, rightX);
     return ui_geometry_detail::Finite(position.x) && ui_geometry_detail::Finite(position.y) &&
            ui_geometry_detail::Finite(scale.x) && ui_geometry_detail::Finite(scale.y) &&
@@ -173,13 +173,13 @@ Ps1RenderManager2D::Ps1RenderManager2D(psyqo::GPU& gpu, Ps1RasterRenderer& rende
 bool Ps1RenderManager2D::ResolveViewport(::ICamera* camera, Ps1ScreenRect& viewport) const {
     if (camera == nullptr) return false;
     const ::float4 authored = camera->get_Viewport();
-    if (!ui_geometry_detail::Finite(authored.X) || !ui_geometry_detail::Finite(authored.Y) ||
-        !ui_geometry_detail::Finite(authored.Z) || !ui_geometry_detail::Finite(authored.W) ||
+    if (!ui_geometry_detail::Finite(authored.X.ToSingle()) || !ui_geometry_detail::Finite(authored.Y.ToSingle()) ||
+        !ui_geometry_detail::Finite(authored.Z.ToSingle()) || !ui_geometry_detail::Finite(authored.W.ToSingle()) ||
         authored.Z <= 0.0f || authored.W <= 0.0f) return false;
-    float x = authored.X;
-    float y = authored.Y;
-    float width = authored.Z;
-    float height = authored.W;
+    float x = authored.X.ToSingle();
+    float y = authored.Y.ToSingle();
+    float width = authored.Z.ToSingle();
+    float height = authored.W.ToSingle();
     if (width <= 1.0f && height <= 1.0f) {
         x *= DisplayWidth;
         y *= DisplayHeight;
@@ -707,7 +707,7 @@ void Ps1RenderManager2D::DrawRoundedRect(::IRoundedRectDrawable2D* shape) {
     std::uint16_t count = 0;
     std::uint16_t fillCount = 0;
     if (!TryBuildRectTriangles(position, {static_cast<float>(size.X), static_cast<float>(size.Y)}, scale,
-                               rotation + shape->get_Rotation(), shape->get_BorderThickness(), ActiveViewport,
+                               static_cast<float>(rotation + shape->get_Rotation()), shape->get_BorderThickness().ToSingle(), ActiveViewport,
                                triangles, 10, count, fillCount)) {
         Reject("PS1_UI_SHAPE_GEOMETRY_REJECTED");
         return;
@@ -784,14 +784,14 @@ void Ps1RenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
     Ps1SpriteGeometryKey geometryKey{};
     geometryKey.Drawable = sprite;
     geometryKey.Texture = texture;
-    geometryKey.Source = {source.X, source.Y, source.Z, source.W};
+    geometryKey.Source = {source.X.ToSingle(), source.Y.ToSingle(), source.Z.ToSingle(), source.W.ToSingle()};
     geometryKey.TextureWidth = width;
     geometryKey.TextureHeight = height;
     geometryKey.Viewport = ActiveViewport;
-    geometryKey.Corners[0] = {quad.TopLeft.X, quad.TopLeft.Y};
-    geometryKey.Corners[1] = {quad.TopRight.X, quad.TopRight.Y};
-    geometryKey.Corners[2] = {quad.BottomLeft.X, quad.BottomLeft.Y};
-    geometryKey.Corners[3] = {quad.BottomRight.X, quad.BottomRight.Y};
+    geometryKey.Corners[0] = {quad.TopLeft.X.ToSingle(), quad.TopLeft.Y.ToSingle()};
+    geometryKey.Corners[1] = {quad.TopRight.X.ToSingle(), quad.TopRight.Y.ToSingle()};
+    geometryKey.Corners[2] = {quad.BottomLeft.X.ToSingle(), quad.BottomLeft.Y.ToSingle()};
+    geometryKey.Corners[3] = {quad.BottomRight.X.ToSingle(), quad.BottomRight.Y.ToSingle()};
     Ps1UiVertex vertices[4]{};
     if (!SpriteGeometryCache.TryGet(geometryKey, vertices)) {
         if (!TryBuildSpriteQuadFromCorners(geometryKey.Corners, geometryKey.Source,
@@ -923,10 +923,10 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
     Ps1ScreenRect clipRect = ActiveViewport;
     const auto applyClip = [&](::IClipRegion2D* clip) {
             const ::float4 r = clip->GetClipRect();
-            const int left = ui_geometry_detail::Round(r.X) + ActiveViewport.x;
-            const int top = ui_geometry_detail::Round(r.Y) + ActiveViewport.y;
-            const int right = ui_geometry_detail::Round(r.X + r.Z) + ActiveViewport.x;
-            const int bottom = ui_geometry_detail::Round(r.Y + r.W) + ActiveViewport.y;
+            const int left = ui_geometry_detail::Round(r.X.ToSingle()) + ActiveViewport.x;
+            const int top = ui_geometry_detail::Round(r.Y.ToSingle()) + ActiveViewport.y;
+            const int right = ui_geometry_detail::Round(static_cast<float>(r.X + r.Z)) + ActiveViewport.x;
+            const int bottom = ui_geometry_detail::Round(static_cast<float>(r.Y + r.W)) + ActiveViewport.y;
             const int x0 = left > clipRect.x ? left : clipRect.x;
             const int y0 = top > clipRect.y ? top : clipRect.y;
             const int x1 = right < clipRect.x + clipRect.width ? right : clipRect.x + clipRect.width;
@@ -1024,21 +1024,21 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
             return;
         }
     }
-    const float fontScale = text->get_FontScale() > 0.0001f ? text->get_FontScale() : 0.0001f;
+    const float fontScale = text->get_FontScale() > 0.0001f ? text->get_FontScale().ToSingle() : 0.0001f;
     HeCppString content = text->get_Text();
     if (text->get_WrapText()) {
         const int32_t wrapWidth = static_cast<int32_t>(ui_geometry_detail::Round(static_cast<float>(size.X) / fontScale));
         content = ::TextLayoutUtils::WrapText(content, font, wrapWidth > 0 ? wrapWidth : 1);
     }
-    const float lineHeight = font->get_LineHeight() * fontScale > 1.0f ? font->get_LineHeight() * fontScale : 1.0f;
+    const float lineHeight = font->get_LineHeight().ToSingle() * fontScale > 1.0f ? font->get_LineHeight().ToSingle() * fontScale : 1.0f;
     const float spaceWidth = font->get_FontInfo() != nullptr && font->get_FontInfo()->get_SpaceWidth() * fontScale > 1.0f
         ? font->get_FontInfo()->get_SpaceWidth()
-        : (font->get_LineHeight() * 0.25f * fontScale > 1.0f ? font->get_LineHeight() * 0.25f : 1.0f / fontScale);
+        : (font->get_LineHeight().ToSingle() * 0.25f * fontScale > 1.0f ? font->get_LineHeight().ToSingle() * 0.25f : 1.0f / fontScale);
     const ::float2 shadow = text->get_ShadowOffset();
     struct GlyphPass { float x; float y; ::byte4 color; psyqo::Color gpuColor; bool semiTransparent; } passes[6]{};
     unsigned passCount = 0;
-    if (shadow.X != 0.0f || shadow.Y != 0.0f) passes[passCount++] = {shadow.X, shadow.Y, text->get_ShadowColor()};
-    const float outline = text->get_OutlineScale();
+    if (shadow.X.ToSingle() != 0.0f || shadow.Y.ToSingle() != 0.0f) passes[passCount++] = {shadow.X.ToSingle(), shadow.Y.ToSingle(), text->get_ShadowColor()};
+    const float outline = text->get_OutlineScale().ToSingle();
     if (outline > 0.0f) {
         const ::byte4 color = text->get_OutlineColor();
         passes[passCount++] = {-outline, 0.0f, color};
@@ -1060,9 +1060,9 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
             if (!font->get_Characters()->TryGetValue(key, glyph)) return false;
             const ::float4 source = glyph.SourceRect;
             Ps1GlyphTexelRect texels{};
-            const bool sourceValid = TryResolveGlyphTexels({source.X, source.Y, source.Z, source.W},
+            const bool sourceValid = TryResolveGlyphTexels({source.X.ToSingle(), source.Y.ToSingle(), source.Z.ToSingle(), source.W.ToSingle()},
                                                            {static_cast<float>(width), static_cast<float>(height)}, texels);
-            cached = {source.Z * font->get_AtlasWidth(), source.W * font->get_AtlasHeight(),
+            cached = {static_cast<float>(source.Z * font->get_AtlasWidth()), static_cast<float>(source.W * font->get_AtlasHeight()),
                       glyph.OffsetY, glyph.AdvanceWidth, texels.x, texels.y, texels.width, texels.height, sourceValid,
                       glyph.BearingX};
             return true;

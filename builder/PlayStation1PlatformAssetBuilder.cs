@@ -66,6 +66,11 @@ public sealed class PlayStation1PlatformAssetBuilder : IPlatformAssetBuilder, IP
         if (progressReporter == null) throw new ArgumentNullException(nameof(progressReporter));
         if (diagnosticReporter == null) throw new ArgumentNullException(nameof(diagnosticReporter));
 
+        Definition.CodegenProfiles.Single().NumericCapabilities.RequireSupported(request.NumericPolicy);
+        if (request.NumericPolicy.Identity != request.Manifest.NumericPolicy.Identity) {
+            throw new InvalidOperationException("PS1 build request and content manifest have different numeric policies.");
+        }
+        foreach (PlatformBuildCodeModule module in request.Manifest.CodeModules) { module.RequireNumericPolicy(request.NumericPolicy); }
         List<PlatformBuildDiagnostic> diagnostics = [];
         string stagingRoot = Path.Combine(request.WorkingRoot, "ps1-authored-content");
         string declarationsPath = Path.Combine(request.WorkingRoot, "ps1-authored-declarations.json");
@@ -96,7 +101,7 @@ public sealed class PlayStation1PlatformAssetBuilder : IPlatformAssetBuilder, IP
                 if (!string.Equals(workItem.TargetPlatformId, "ps1", StringComparison.OrdinalIgnoreCase)) {
                     throw new InvalidOperationException($"PS1 builder received a cook work item for platform '{workItem.TargetPlatformId}'.");
                 }
-                cookExecutor.Execute(workItem, packageSourceRoot);
+                cookExecutor.Execute(workItem, packageSourceRoot, request.NumericPolicy);
                 progressReporter.Report(new PlatformBuildProgressUpdate(
                     "Cook Platform Assets", workItem.OutputLogicalArtifactId, index + 1, cookWorkItems.Length,
                     $"Cooked '{workItem.OutputRelativePath}'."));
@@ -114,6 +119,7 @@ public sealed class PlayStation1PlatformAssetBuilder : IPlatformAssetBuilder, IP
                 }
             }
             IReadOnlyList<PlayStation1StagedAsset> staged = new PlayStation1ContentStager().StageSelected(request.Manifest.CookedArtifacts, cookWorkItems, packageSourceRoot, stagingRoot, cancellationToken, selectedRuntimePaths);
+            PlayStation1CookedAssetPolicyValidator.Validate(staged, request.NumericPolicy, cancellationToken);
             PlayStation1ContentStager.WriteDeclarations(staged, declarationsPath);
             new PlayStation1StartupManifestWriter().Write(request.GeneratedCoreCppRootPath, request.Manifest);
             new PlayStation1SceneModuleBuildPlanWriter().WriteSourcePlan(request.GeneratedCoreCppRootPath, request.Manifest, staged);

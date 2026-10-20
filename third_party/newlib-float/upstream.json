@@ -1,0 +1,25 @@
+{
+  "repository": "https://github.com/mirror/newlib-cygwin",
+  "revision": "61f181d6b872e6f37b04fed790fa903a312a3795",
+  "tag": "newlib-2_5_0",
+  "files": {
+    "ef_asin.c": "2b78100e2ebd4fc831ce8119ff45ed69b6903c72b6a9bd16d5a8b4a9d64945ad",
+    "ef_atan2.c": "ef1c29c34e78e32cbab5e01d4b4909369532c2aada027945d7a5b9e14d2cd704",
+    "ef_fmod.c": "c123a36c9568b4072b0da7b00ec11c63caf4ba809fa2e7b97ad3ffa381b7c54a",
+    "ef_rem_pio2.c": "64349d09eacaf87beb002f9b12d86153737c020a13762794b639ae3faca2f6dc",
+    "ef_sqrt.c": "7b2cbf7ac9b50853f10a29a9ccc43a8d0d41b91b590c3a7cf751b19fa6c96be1",
+    "kf_cos.c": "0be4b097e803ee5594c69d027719b7a01aeb2d047fd8414ff570739637d7a1fe",
+    "kf_rem_pio2.c": "ca0521c7d2a745c332832eb8747780b3c87908896ebc4f0c26cf2ef572f8cf53",
+    "kf_sin.c": "95c33e554946eaa08255355e5241db4299c816a84d57a5f87fae59eb58445f95",
+    "kf_tan.c": "42f649485b5a0edf9103d2ab42ebdc75af86a843c8a62dac228ba7d56230ae36",
+    "sf_atan.c": "ebf311f6b700bd88cb8e59963edf7a6dd47978ecedfa58a129bc3de4fbac3434",
+    "sf_ceil.c": "e2902053c57d5bfda49da951d3de3b7a996f29ecf67f06d119e696c1a50a9340",
+    "sf_copysign.c": "29f9fac19328beb4eebe6f2cd41bd8b6a30b8fca589210cdd49e1a853cdbcc35",
+    "sf_cos.c": "bad4808cdf3cf2af392f2032a64d321a6c6b426abd730ca3d5ff7b6d1cfe39c8",
+    "sf_fabs.c": "7714898070107896198789fbf8a64aae3092d5f0e03af50facb23eb5951b6dff",
+    "sf_floor.c": "79719c79df40f334772f6b06b08931fb0eca30cd2654415e8ddcd2a92e39ba0d",
+    "sf_scalbn.c": "33f7c9d2a93c7335192b940798c2510db666fb9026f2bab20114fb960673cdcb",
+    "sf_sin.c": "14d2f4510831dd52af1b5575fa46f1272ce46bce0976b133f7c98ee996993ae5",
+    "sf_tan.c": "b58a95baca2abea8a7facaeacb668464aabc7931b702663ec463d60517010444"
+  }
+}

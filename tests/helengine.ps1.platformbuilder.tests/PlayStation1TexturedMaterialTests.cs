@@ -135,14 +135,14 @@ public sealed class PlayStation1TexturedMaterialTests {
         };
         new helengine.editor.MaterialAssetSchemaSettingsService().EnsureSelectedSchema(settings, PlayStation1PlatformDefinitionFactory.Create().MaterialSchemas);
         Dictionary<string, string> projected = new helengine.editor.MaterialAssetReferenceProjectionService().CreateResolvedFieldValues(settings);
-        return new PlatformMaterialCookRequest("material-identity", "materials/games/tilt/GoalFlagPole.hasset", "ps1", "release", "ps1-opaque", settings.SchemaId, projected);
+        return new PlatformMaterialCookRequest("material-identity", "materials/games/tilt/GoalFlagPole.hasset", "ps1", "release", "ps1-opaque", settings.SchemaId, projected, helengine.NumericPrecisionPolicy.Default);
     }
 
     /// <summary>Creates the real builder request with fields projected by the shared material packaging pipeline.</summary>
     /// <param name="fields">Resolved PS1 schema values.</param>
     /// <returns>A request using the existing opaque schema and profile.</returns>
     static PlatformMaterialCookRequest Request(Dictionary<string, string> fields) {
-        return new PlatformMaterialCookRequest("material-identity", "materials/cube.hasset", "ps1", "release", "ps1-opaque", PlayStation1MaterialSchemaIds.OpaqueSchemaId, fields);
+        return new PlatformMaterialCookRequest("material-identity", "materials/cube.hasset", "ps1", "release", "ps1-opaque", PlayStation1MaterialSchemaIds.OpaqueSchemaId, fields, helengine.NumericPrecisionPolicy.Default);
     }
 
     /// <summary>Provides only the existing schema fields so texture support does not introduce a new material ABI.</summary>

@@ -23,7 +23,9 @@ public sealed class PlayStation1PlatformCookWorkItemExecutor {
     /// </summary>
     /// <param name="workItem">Work item naming the source asset, the serialized settings and the output path.</param>
     /// <param name="packageSourceRootPath">Package source root the content stager reads.</param>
-    public void Execute(PlatformCookWorkItem workItem, string packageSourceRootPath) {
+    /// <param name="numericPolicy">Immutable precision of the consuming build, including its runtime asset envelope.</param>
+    public void Execute(PlatformCookWorkItem workItem, string packageSourceRootPath, helengine.NumericPrecisionPolicy numericPolicy) {
+        helengine.RealBinaryCodec.ValidatePolicy(numericPolicy);
         if (workItem == null) {
             throw new ArgumentNullException(nameof(workItem));
         }
@@ -58,7 +60,7 @@ public sealed class PlayStation1PlatformCookWorkItemExecutor {
         string destinationDirectory = Path.GetDirectoryName(destinationPath)
             ?? throw new InvalidOperationException($"PS1 cooked texture destination directory could not be resolved for '{destinationPath}'.");
         Directory.CreateDirectory(destinationDirectory);
-        File.WriteAllBytes(destinationPath, helengine.files.AssetSerializer.SerializeToBytes(cooked));
+        File.WriteAllBytes(destinationPath, helengine.files.AssetSerializer.SerializeToBytes(cooked, numericPolicy));
     }
 
     /// <summary>Normalizes one declared output path to forward slashes without a leading separator.</summary>

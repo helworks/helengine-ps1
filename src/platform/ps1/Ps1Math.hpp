@@ -14,6 +14,19 @@
 #include <math.h>
 #else
 extern "C" {
+
+// Genuine binary32 entry points linked from the pinned Newlib float sources.
+float sinf(float value);
+float cosf(float value);
+float tanf(float value);
+float asinf(float value);
+float atan2f(float y, float x);
+float sqrtf(float value);
+float floorf(float value);
+float ceilf(float value);
+float fabsf(float value);
+float fmodf(float value, float divisor);
+
 double ceil(double value);
 double floor(double value);
 double fabs(double value);

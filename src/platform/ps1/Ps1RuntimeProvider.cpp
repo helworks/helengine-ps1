@@ -56,10 +56,16 @@ std::uint64_t he_cpp_custom::MonotonicMicroseconds() {
 }
 
 [[noreturn]] void he_cpp_custom::Fail(const char* message) {
+    // Keep the original failing boundary and call site before the fatal marker replaces it.
+    const std::uint32_t failedStage = helengine_ps1_frame_diagnostics.Stage;
+    const auto caller = reinterpret_cast<std::uintptr_t>(__builtin_return_address(0));
     helengine::ps1::CopyDiagnosticText(helengine_ps1_failure_diagnostics.AbortMessage, 192, message);
     helengine::ps1::MarkFrameStage(helengine::ps1::Ps1FrameStage::FatalBeforeLog,
                                   helengine_ps1_frame_diagnostics.Detail);
-    ramsyscall_printf("PS1_CORE_FATAL %s\n", message);
+    ramsyscall_printf("PS1_CORE_FATAL %s caller=%08x stage=%u detail=%u asset=%s\n", message,
+                      static_cast<unsigned>(caller), static_cast<unsigned>(failedStage),
+                      static_cast<unsigned>(helengine_ps1_frame_diagnostics.Detail),
+                      const_cast<const char*>(helengine_ps1_failure_diagnostics.LastAssetPath));
     psyqo::Kernel::abort(message);
 }
 

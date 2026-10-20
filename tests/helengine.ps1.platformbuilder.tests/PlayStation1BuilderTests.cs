@@ -34,7 +34,7 @@ public sealed class PlayStation1BuilderTests : IDisposable {
     };
 
     static PlatformMaterialCookRequest CookRequest(Dictionary<string, string> fields, string schemaId = PlayStation1MaterialSchemaIds.OpaqueSchemaId, string platform = "ps1") =>
-        new("b933266da88a40ca995a62781f4e12a2", "materials/rendering/cube_test/CubeTestSolid.hasset", platform, "release", "ps1-opaque", schemaId, fields);
+        new("b933266da88a40ca995a62781f4e12a2", "materials/rendering/cube_test/CubeTestSolid.hasset", platform, "release", "ps1-opaque", schemaId, fields, helengine.NumericPrecisionPolicy.Default);
 
     static PlatformBuildManifest Manifest(string startupSceneId, PlatformBuildScene[] scenes, PlatformBuildArtifact[] artifacts, string[] features, string platform = "ps1") =>
         new(1, "demodisc", "1.0.0", "1.0.0+test", platform, "0.1.0", startupSceneId, scenes, [], artifacts, [],
@@ -61,7 +61,7 @@ public sealed class PlayStation1BuilderTests : IDisposable {
     public void MaterialCooker_CooksOpaqueUnlitBaseColor() {
         PlatformMaterialCookResult result = new PlayStation1MaterialCooker().Cook(CookRequest(UnlitFields()));
 
-        helengine.Asset asset = helengine.AssetSerializer.Deserialize(new MemoryStream(result.CookedMaterialBytes));
+        helengine.Asset asset = helengine.PackagedAssetBinarySerializer.Deserialize(new MemoryStream(result.CookedMaterialBytes), helengine.NumericPrecisionPolicy.Default);
         helengine.PlatformMaterialAsset material = Assert.IsType<helengine.PlatformMaterialAsset>(asset);
         Assert.Equal("b933266da88a40ca995a62781f4e12a2", material.Id);
         Assert.Equal("ps1-opaque", material.RendererFamilyId);
@@ -77,7 +77,7 @@ public sealed class PlayStation1BuilderTests : IDisposable {
 
         PlatformMaterialCookResult result = new PlayStation1MaterialCooker().Cook(CookRequest(fields));
 
-        helengine.Asset asset = helengine.AssetSerializer.Deserialize(new MemoryStream(result.CookedMaterialBytes));
+        helengine.Asset asset = helengine.PackagedAssetBinarySerializer.Deserialize(new MemoryStream(result.CookedMaterialBytes), helengine.NumericPrecisionPolicy.Default);
         helengine.PlatformMaterialAsset material = Assert.IsType<helengine.PlatformMaterialAsset>(asset);
         Assert.True(material.Lit);
         Assert.Equal((0x3F, 0x7F, 0xBF), (material.BaseColorR, material.BaseColorG, material.BaseColorB));
@@ -90,7 +90,7 @@ public sealed class PlayStation1BuilderTests : IDisposable {
 
         PlatformMaterialCookResult result = new PlayStation1MaterialCooker().Cook(CookRequest(fields));
 
-        helengine.Asset asset = helengine.AssetSerializer.Deserialize(new MemoryStream(result.CookedMaterialBytes));
+        helengine.Asset asset = helengine.PackagedAssetBinarySerializer.Deserialize(new MemoryStream(result.CookedMaterialBytes), helengine.NumericPrecisionPolicy.Default);
         helengine.PlatformMaterialAsset material = Assert.IsType<helengine.PlatformMaterialAsset>(asset);
         Assert.True(material.Lit);
     }
@@ -137,7 +137,10 @@ public sealed class PlayStation1BuilderTests : IDisposable {
     [Fact]
     public void ContentStager_StagesOnlyDeclaredArtifactsAndWritesDeclarations() {
         string packageSource = Path.Combine(Root, "package-source");
-        WriteFile(Path.Combine(packageSource, "cooked", "scenes", "cube_test.hasset"), "HELE");
+        string scenePath = Path.Combine(packageSource, "cooked", "scenes", "cube_test.hasset");
+        Directory.CreateDirectory(Path.GetDirectoryName(scenePath));
+        File.WriteAllBytes(scenePath, helengine.files.AssetSerializer.SerializeToBytes(
+            new helengine.SceneAsset { Id = "cube_test" }, helengine.NumericPrecisionPolicy.Default));
         WriteFile(Path.Combine(packageSource, "cooked", "materials", "cube_test_solid.hasset"), "MAT");
         WriteFile(Path.Combine(packageSource, "cooked", "engine", "models", "cube.hasset"), "MDL");
         WriteFile(Path.Combine(packageSource, "cooked", "stray.bin"), "STRAY");
@@ -164,7 +167,10 @@ public sealed class PlayStation1BuilderTests : IDisposable {
         // stager that only reads the manifest leaves them out of the archive and the runtime cannot
         // open them.
         string packageSource = Path.Combine(Root, "package-source");
-        WriteFile(Path.Combine(packageSource, "cooked", "scenes", "cube_test.hasset"), "HELE");
+        string scenePath = Path.Combine(packageSource, "cooked", "scenes", "cube_test.hasset");
+        Directory.CreateDirectory(Path.GetDirectoryName(scenePath));
+        File.WriteAllBytes(scenePath, helengine.files.AssetSerializer.SerializeToBytes(
+            new helengine.SceneAsset { Id = "cube_test" }, helengine.NumericPrecisionPolicy.Default));
         WriteFile(Path.Combine(packageSource, "cooked", "materials", "cube_test_solid.hasset"), "MAT");
         WriteFile(Path.Combine(packageSource, "cooked", "engine", "models", "cube.hasset"), "MDL");
         WriteFile(Path.Combine(packageSource, "cooked", "imported", "atlas.hetex"), "TEX");
@@ -185,7 +191,10 @@ public sealed class PlayStation1BuilderTests : IDisposable {
     [Fact]
     public void ContentStager_DoesNotStageACookOutputTwiceWhenTheManifestAlsoDeclaresIt() {
         string packageSource = Path.Combine(Root, "package-source");
-        WriteFile(Path.Combine(packageSource, "cooked", "scenes", "cube_test.hasset"), "HELE");
+        string scenePath = Path.Combine(packageSource, "cooked", "scenes", "cube_test.hasset");
+        Directory.CreateDirectory(Path.GetDirectoryName(scenePath));
+        File.WriteAllBytes(scenePath, helengine.files.AssetSerializer.SerializeToBytes(
+            new helengine.SceneAsset { Id = "cube_test" }, helengine.NumericPrecisionPolicy.Default));
         WriteFile(Path.Combine(packageSource, "cooked", "materials", "cube_test_solid.hasset"), "MAT");
         WriteFile(Path.Combine(packageSource, "cooked", "engine", "models", "cube.hasset"), "MDL");
         string staging = Path.Combine(Root, "staging");
@@ -209,7 +218,10 @@ public sealed class PlayStation1BuilderTests : IDisposable {
     [Fact]
     public void ContentStager_StagesOnlyPs1GeneratedControlTextures() {
         string packageSource = Path.Combine(Root, "package-source");
-        WriteFile(Path.Combine(packageSource, "cooked", "scenes", "cube_test.hasset"), "HELE");
+        string scenePath = Path.Combine(packageSource, "cooked", "scenes", "cube_test.hasset");
+        Directory.CreateDirectory(Path.GetDirectoryName(scenePath));
+        File.WriteAllBytes(scenePath, helengine.files.AssetSerializer.SerializeToBytes(
+            new helengine.SceneAsset { Id = "cube_test" }, helengine.NumericPrecisionPolicy.Default));
         WriteFile(Path.Combine(packageSource, "cooked", "materials", "cube_test_solid.hasset"), "MAT");
         WriteFile(Path.Combine(packageSource, "cooked", "engine", "models", "cube.hasset"), "MDL");
         WriteFile(Path.Combine(packageSource, "cooked", "imported", "ps1.hetex"), "PS1");
@@ -389,7 +401,10 @@ public sealed class PlayStation1BuilderTests : IDisposable {
     public async Task Builder_StagesWritesCatalogAndRunsNativeBuild() {
         string working = Path.Combine(Root, "working");
         string packageSource = Path.Combine(working, "package-source");
-        WriteFile(Path.Combine(packageSource, "cooked", "scenes", "cube_test.hasset"), "HELE");
+        string scenePath = Path.Combine(packageSource, "cooked", "scenes", "cube_test.hasset");
+        Directory.CreateDirectory(Path.GetDirectoryName(scenePath));
+        File.WriteAllBytes(scenePath, helengine.files.AssetSerializer.SerializeToBytes(
+            new helengine.SceneAsset { Id = "cube_test" }, helengine.NumericPrecisionPolicy.Default));
         WriteFile(Path.Combine(packageSource, "cooked", "materials", "cube_test_solid.hasset"), "MAT");
         WriteFile(Path.Combine(packageSource, "cooked", "engine", "models", "cube.hasset"), "MDL");
         string generatedCore = Path.Combine(Root, "generated-core");

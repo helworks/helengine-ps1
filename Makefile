@@ -113,6 +113,11 @@ FDLIBM_NAMES = s_atan s_scalbn s_copysign \
                k_rem_pio2 k_sin k_cos k_tan
 FDLIBM_SRCS = $(addprefix $(FDLIBM_ROOT)/,$(addsuffix .c,$(FDLIBM_NAMES)))
 SRCS += $(FDLIBM_SRCS)
+# Real's binary32 math uses genuine float kernels, independent of authored double math.
+FLOAT_FDLIBM_SRCS = $(wildcard third_party/newlib-float/*.c)
+SRCS += $(FLOAT_FDLIBM_SRCS)
+$(FLOAT_FDLIBM_SRCS:.c=.o) $(FLOAT_FDLIBM_SRCS:.c=.dep): CFLAGS += -fsingle-precision-constant -fno-builtin -ffp-contract=off
+
 $(FDLIBM_SRCS:.c=.o) $(FDLIBM_SRCS:.c=.dep): CFLAGS += -D__LITTLE_ENDIAN -D_IEEE_LIBM
 endif
 

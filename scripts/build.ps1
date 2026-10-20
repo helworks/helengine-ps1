@@ -337,7 +337,8 @@ try {
     $allowDirectories = @(
         'linker',
         'src',
-        'third_party\nugget'
+        'third_party\nugget',
+        'third_party\newlib-float'
     )
     foreach ($relative in $allowFiles) {
         Copy-InputPath -SourcePath (Join-Path $sourceRoot $relative) -DestinationRoot $runRoot -RelativeRoot (Split-Path -Parent $relative)

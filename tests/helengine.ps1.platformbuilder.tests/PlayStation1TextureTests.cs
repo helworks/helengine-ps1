@@ -145,7 +145,7 @@ public sealed class PlayStation1TextureTests {
     /// <summary>Exercises file routing, builder-owned cooking, serialization and runtime reading as one pipeline.</summary>
     [Fact]
     public void CookTimFile_ProducesNativeRuntimeTexture() {
-        string outputRoot = Path.Combine(@"C:\dev\helworks\builds\helengine-ps1\texture-source-tests", Guid.NewGuid().ToString("N"));
+        string outputRoot = Path.GetFullPath(@"C:\temp\numeric-precision\ps1\texture-source-tests");
         Directory.CreateDirectory(outputRoot);
         string sourcePath = Path.Combine(outputRoot, "source.TIM");
         using MemoryStream tim = CreateTim(2, 2, 1, new byte[] { 0x1f, 0, 0, 0x80 });
@@ -153,10 +153,10 @@ public sealed class PlayStation1TextureTests {
         PlatformCookWorkItem workItem = new("tim-test", sourcePath, "texture", "ps1", "texture",
             "cooked/texture.heltex", "tim-test-texture", "source-hash", "settings-hash",
             "{\"maxResolution\":256,\"colorFormat\":\"Ps1Bgr555\",\"alphaPrecision\":\"Binary\"}", []);
-        new PlayStation1PlatformCookWorkItemExecutor().Execute(workItem, outputRoot);
+        new PlayStation1PlatformCookWorkItemExecutor().Execute(workItem, outputRoot, NumericPrecisionPolicy.Default);
         string cookedPath = Path.Combine(outputRoot, "cooked", "texture.heltex");
         using FileStream stream = File.OpenRead(cookedPath);
-        using TextureAsset runtime = Assert.IsType<TextureAsset>(PackagedAssetBinarySerializer.Deserialize(stream));
+        using TextureAsset runtime = Assert.IsType<TextureAsset>(PackagedAssetBinarySerializer.Deserialize(stream, NumericPrecisionPolicy.Default));
         Assert.Equal("tim-test-texture", runtime.Id);
         Assert.Equal(TextureAssetColorFormat.Ps1Bgr555, runtime.ColorFormat);
         Assert.Equal(new byte[] { 0x1f, 0x80, 0, 0x80 }, runtime.Colors);

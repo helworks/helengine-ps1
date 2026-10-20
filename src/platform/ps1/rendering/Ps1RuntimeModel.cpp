@@ -3,6 +3,7 @@
 #include "ModelAsset.hpp"
 #include "float3.hpp"
 #include "float2.hpp"
+#include "RealMath.hpp"
 #include "platform/ps1/Ps1Math.hpp"
 #include "platform/ps1/rendering/Ps1AuthoredLighting.hpp"
 #include "platform/ps1/rendering/Ps1AuthoredProjection.hpp"
@@ -35,7 +36,7 @@ bool Ps1RuntimeModel::Initialize(const ::ModelAsset* asset) {
     if (asset->TexCoords != nullptr && asset->TexCoords->Length != 0 && asset->TexCoords->Length != vertexCount) return false;
     if (asset->TexCoords != nullptr) {
         for (int32_t index = 0; index < asset->TexCoords->Length; ++index) {
-            if (!__builtin_isfinite(asset->TexCoords->Data[index].X) || !__builtin_isfinite(asset->TexCoords->Data[index].Y)) return false;
+            if (!RealEvaluation::IsFinite(asset->TexCoords->Data[index].X) || !RealEvaluation::IsFinite(asset->TexCoords->Data[index].Y)) return false;
         }
     }
     std::int16_t* vertices = new std::int16_t[static_cast<std::uint32_t>(vertexCount) * 3u];
@@ -43,14 +44,14 @@ bool Ps1RuntimeModel::Initialize(const ::ModelAsset* asset) {
     for (int32_t index = 0; index < vertexCount; ++index) {
         const ::float3& position = asset->Positions->Data[index];
         std::int16_t converted[3];
-        if (!Ps1AuthoredProjection::TryConvertVertex(Ps1Vector3{position.X, position.Y, position.Z}, converted)) {
+        if (!Ps1AuthoredProjection::TryConvertVertex(Ps1Vector3{position.X.ToSingle(), position.Y.ToSingle(), position.Z.ToSingle()}, converted)) {
             delete[] vertices;
             return false;
         }
         vertices[index * 3] = converted[0];
         vertices[index * 3 + 1] = converted[1];
         vertices[index * 3 + 2] = converted[2];
-        const float length = sqrt(position.X * position.X + position.Y * position.Y + position.Z * position.Z);
+        const float length = static_cast<float>(RealMath::Sqrt(position.X * position.X + position.Y * position.Y + position.Z * position.Z));
         if (length > radius) radius = length;
     }
     std::int16_t* normals = nullptr;
@@ -59,7 +60,7 @@ bool Ps1RuntimeModel::Initialize(const ::ModelAsset* asset) {
         for (int32_t index = 0; index < vertexCount; ++index) {
             const ::float3& normal = asset->Normals->Data[index];
             std::int16_t converted[3];
-            if (!Ps1AuthoredLighting::TryConvertNormal(Ps1Vector3{normal.X, normal.Y, normal.Z}, converted)) {
+            if (!Ps1AuthoredLighting::TryConvertNormal(Ps1Vector3{normal.X.ToSingle(), normal.Y.ToSingle(), normal.Z.ToSingle()}, converted)) {
                 delete[] vertices;
                 delete[] normals;
                 return false;
@@ -78,7 +79,7 @@ bool Ps1RuntimeModel::Initialize(const ::ModelAsset* asset) {
     if (asset->TexCoords != nullptr && asset->TexCoords->Length == vertexCount) {
         TextureCoordinatesValue = new Ps1MeshUv[static_cast<std::uint32_t>(vertexCount)];
         for (int32_t index = 0; index < vertexCount; ++index) {
-            TextureCoordinatesValue[index] = Ps1MeshUv{asset->TexCoords->Data[index].X, asset->TexCoords->Data[index].Y};
+            TextureCoordinatesValue[index] = Ps1MeshUv{asset->TexCoords->Data[index].X.ToSingle(), asset->TexCoords->Data[index].Y.ToSingle()};
         }
     }
     VertexCountValue = static_cast<std::uint32_t>(vertexCount);

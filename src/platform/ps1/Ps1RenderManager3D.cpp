@@ -64,9 +64,9 @@ Ps1AuthoredTransform TransformOf(::Entity* entity) {
     const ::float4 orientation = entity->get_Orientation();
     const ::float3 scale = entity->get_Scale();
     Ps1AuthoredTransform transform{};
-    transform.Position = Ps1Vector3{position.X, position.Y, position.Z};
-    transform.Orientation = Ps1Quaternion{orientation.X, orientation.Y, orientation.Z, orientation.W};
-    transform.Scale = Ps1Vector3{scale.X, scale.Y, scale.Z};
+    transform.Position = Ps1Vector3{position.X.ToSingle(), position.Y.ToSingle(), position.Z.ToSingle()};
+    transform.Orientation = Ps1Quaternion{orientation.X.ToSingle(), orientation.Y.ToSingle(), orientation.Z.ToSingle(), orientation.W.ToSingle()};
+    transform.Scale = Ps1Vector3{scale.X.ToSingle(), scale.Y.ToSingle(), scale.Z.ToSingle()};
     return transform;
 }
 
@@ -179,8 +179,8 @@ bool Ps1RenderManager3D::TryBuildLighting() {
         // reuse that utility rather than reimplementing the convention on this platform.
         const ::float3 direction = ::LightDirectionUtility::GetLightDirection(light);
         const ::float4 color = light->get_Color();
-        converted[count].Direction = Ps1Vector3{direction.X, direction.Y, direction.Z};
-        converted[count].Color = Ps1Vector3{color.X, color.Y, color.Z};
+        converted[count].Direction = Ps1Vector3{direction.X.ToSingle(), direction.Y.ToSingle(), direction.Z.ToSingle()};
+        converted[count].Color = Ps1Vector3{color.X.ToSingle(), color.Y.ToSingle(), color.Z.ToSingle()};
         converted[count].Intensity = light->get_Intensity();
         ++count;
     }
@@ -235,10 +235,10 @@ void Ps1RenderManager3D::Draw() {
         CameraTransform = TransformOf(camera->get_Parent());
         // The field of view belongs to the authored camera, so one scene frames the same way on every
         // platform. TryBuildPose rejects values outside the range it can project.
-        CameraFieldOfViewRadians = camera->get_FieldOfView();
+        CameraFieldOfViewRadians = camera->get_FieldOfView().ToSingle();
         const ::CameraClearSettings clearSettings = camera->get_ClearSettings();
         ClearColor = clearSettings.ClearColorEnabled
-            ? psyqo::Color{{.r = Channel(clearSettings.ClearColor.X), .g = Channel(clearSettings.ClearColor.Y), .b = Channel(clearSettings.ClearColor.Z)}}
+            ? psyqo::Color{{.r = Channel(clearSettings.ClearColor.X.ToSingle()), .g = Channel(clearSettings.ClearColor.Y.ToSingle()), .b = Channel(clearSettings.ClearColor.Z.ToSingle())}}
             : Ps1FrameContext::DefaultClearColor;
         if (!TryBuildLighting()) {
             Reject("PS1_RENDER_LIGHTING_REJECTED");

@@ -180,10 +180,10 @@ void Ps1AuthoredScene::ReportSceneState(const char* marker) {
     if (drawableCount > 0 && objectManager->get_Drawables3D()->get_Item(0) != nullptr &&
         objectManager->get_Drawables3D()->get_Item(0)->get_Parent() != nullptr) {
         const ::float4 orientation = objectManager->get_Drawables3D()->get_Item(0)->get_Parent()->get_Orientation();
-        yawX = Milli(orientation.X);
-        yawY = Milli(orientation.Y);
-        yawZ = Milli(orientation.Z);
-        yawW = Milli(orientation.W);
+        yawX = Milli(orientation.X.ToSingle());
+        yawY = Milli(orientation.Y.ToSingle());
+        yawZ = Milli(orientation.Z.ToSingle());
+        yawW = Milli(orientation.W.ToSingle());
     }
     ramsyscall_printf("%s seq=%u cameras=%d drawables=%d updateables=%d orientation_milli=%d,%d,%d,%d elapsed_ms=%d\n", marker,
                       static_cast<unsigned>(m_frameSequence), static_cast<int>(cameraCount), static_cast<int>(drawableCount),

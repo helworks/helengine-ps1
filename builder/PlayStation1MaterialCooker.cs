@@ -55,7 +55,7 @@ public sealed class PlayStation1MaterialCooker {
             BaseColorB = b,
             BaseColorA = a
         };
-        return new PlatformMaterialCookResult(helengine.files.AssetSerializer.SerializeToBytes(cooked), []);
+        return new PlatformMaterialCookResult(helengine.files.AssetSerializer.SerializeToBytes(cooked, request.NumericPolicy), []);
     }
 
     /// <summary>Validates the shared packager's content-relative texture artifact path without inventing a source importer or another texture payload.</summary>
