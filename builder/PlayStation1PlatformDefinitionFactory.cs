@@ -102,7 +102,8 @@ public static class PlayStation1PlatformDefinitionFactory {
                 new("codegen-runtime-provider-header", "Runtime Provider Header", PlatformSettingKind.Text, "Ps1RuntimeProvider.hpp", true, []),
                 new("codegen-compact-native-exception-messages", "Compact Native Exception Messages", PlatformSettingKind.Boolean, "true", true, [])
             ], new PlatformNumericCapabilities(helengine.NumericPrecisionPolicy.Default,
-                [helengine.NumericPrecisionPolicy.Default, new helengine.NumericPrecisionPolicy(16, 32)]));
+                [helengine.NumericPrecisionPolicy.Default, new helengine.NumericPrecisionPolicy(16, 32),
+                    new helengine.NumericPrecisionPolicy(16, 16)]));
         PlatformMaterialSchemaDefinition materialSchema = new(
             PlayStation1MaterialSchemaIds.OpaqueSchemaId,
             "PS1 Opaque Unlit",
