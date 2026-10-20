@@ -1,0 +1,103 @@
+299:    // If we didn't find a fitting block, return NULL. This is
+300-    // the case when the heap is full, and we've ran out of memory.
+301-    if (best_fit == NULL) {
+302-        dprintf("psyqo_malloc(%u) failed\n", size_);
+303:        return NULL;
+304-    }
+305-
+306-    size_t best_fit_size = best_fit->size;
+307-
+308-    // At this point, we have the best fit block. The best fit
+309-    // block will become the returned pointer. We will mangle
+310-    // it a bit, right before returning it, but make it now
+311-    // for readability.
+312-    allocated_block *ptr = (allocated_block *)best_fit;
+313-
+314-    // At this point, we need to update the linked list. There are
+315-    // two paths:
+316-    // 1. If the current block is exactly the size we need, we can just
+317-    //    remove it from the list, and link the previous block to the next one.
+318-    //    Note that due to the granularity of the empty blocks, this is always
+319-    //    possible, and we don't have to worry about blocks which may not be
+320-    //    big enough to hold an empty block.
+321-    // 2. If the current block is bigger than we need, we need to create
+322-    //    a new empty block after what we are allocating.
+323-    if (best_fit_size == size) {
+324-        // Case 1: Remove the block from the list.
+325-        if (best_fit_prev == NULL) {
+326-            head = best_fit->next;
+327-        } else {
+328-            best_fit_prev->next = best_fit->next;
+329-        }
+330-    } else {
+331-        // Case 2: Create a new empty block after what we are allocating.
+332-        empty_block *new_block = (empty_block *)((char *)best_fit + size);
+333-        new_block->next = best_fit->next;
+334-        new_block->size = best_fit_size - size;
+335-        if (best_fit_prev == NULL) {
+--
+491:        return NULL;
+492-    }
+493-
+494-    size_t size = ALIGN_TO(size_ + sizeof(empty_block));
+495-    dprintf("psyqo_realloc(%p, %u) -> %u\n", ptr_, size_, size);
+496-    // Get the current size of the block.
+497-    empty_block *block = (empty_block *)ptr_;
+498-    size_t old_size = (--block)->size;
+499-
+500-    // If the new size is the same as the old size, we can just return the pointer.
+501-    if (size == old_size) {
+502-        dprintf("psyqo_realloc(%p, %u) -> same\n", ptr_, size_);
+503-        return ptr_;
+504-    }
+505-
+506-    // Is our memory already completely full?
+507-    if (head == &marker) {
+508-        // If we're shrinking the allocation, then we can
+509-        // create a new empty block after what we are re-allocating,
+510-        // and re-create our list.
+511-        if (size < old_size) {
+512-            empty_block *new_block = (empty_block *)((char *)block + size);
+513-            new_block->next = &marker;
+514-            new_block->size = old_size - size;
+515-            head = new_block;
+516-            block->size = size;
+517-            dprintf("psyqo_realloc(%p, %u) -> %p\n", ptr_, size_, ptr_);
+518-            check_integrity();
+519-            return ptr_;
+520-        }
+521-        // Otherwise, we're out of luck, and we need to error out
+522-        // with a NULL pointer signalling we're out of memory.
+523:        return NULL;
+524-    }
+525-
+526-    // Special case: is the allocated block before the head?
+527-    if (block < head) {
+528-        // Are we shrinking?
+529-        if (size < old_size) {
+530-            // If we are, we can just create a new empty block after what we are re-allocating.
+531-            empty_block *new_block = (empty_block *)((char *)block + size);
+532-            // Is it adjacent to our head?
+533-            if (head == (empty_block *)((char *)block + size)) {
+534-                // Yes, we can merge them.
+535-                new_block->next = head->next;
+536-                new_block->size = head->size + (old_size - size);
+537-            } else {
+538-                // No, we need to create a new empty block after what we are re-allocating.
+539-                new_block->next = head;
+540-                new_block->size = old_size - size;
+541-            }
+542-            head = new_block;
+543-            block->size = size;
+544-            dprintf("psyqo_realloc(%p, %u) -> %p\n", ptr_, size_, ptr_);
+545-            check_integrity();
+546-            return ptr_;
+547-        }
+548-        // We are growing. Is the first block adjacent to the block we're re-allocating?
+549-        // If the first block is adjacent to the block we're re-allocating,
+550-        // and it has enough space to hold the new size, we can just grow
+551-        // the allocation.
+552-        if (((char *)block + old_size) == (char *)head) {
+553-            size_t delta = size - old_size;
+554-            if (head->size >= delta) {
+555-                // If it has exactly the right amount of space, we can just remove

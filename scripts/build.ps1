@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('SmallDebug', 'Release')]
@@ -452,6 +452,7 @@ try {
             $dockerImage, 'python3', '-B', '/work/scripts/build-scene-modules.py',
             '--plan', '/work/scene-modules/partition-plan.json', '--configuration', $Configuration,
             '--sdk-defines', ($SdkDefine -join ' '))
+        if ($CpuProfile) { $dockerArgs += '--cpu-profile' }
     }
     $dockerResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $dockerArgs -WorkingDirectory $runRoot -StdoutPath $dockerStdout -StderrPath $dockerStderr
     Merge-ProcessLogs -StdoutPath $dockerResult.StdoutPath -StderrPath $dockerResult.StderrPath -CombinedPath $buildLog
@@ -473,6 +474,7 @@ try {
         }
         $moduleManifest = [ordered]@{
             schema = 1; configuration = $Configuration; core_boot = $true; authored = $true; scene_modules = $true
+            cpu_profile = [bool]$CpuProfile
             entry_point = (Join-Path $runRoot 'out\helengine_ps1.cue')
             scene_module_plan = $SceneModulePlan; scene_module_validation = $moduleReceipt
             source = [ordered]@{ revision = $revision; dirty = $dirty }; docker_image = $dockerImage

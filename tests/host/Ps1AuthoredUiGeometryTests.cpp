@@ -341,7 +341,7 @@ int main() {
     Ps1SpriteGeometryCache spriteCache;
     const Ps1SpriteGeometryKey spriteKey{
         reinterpret_cast<const void*>(1), reinterpret_cast<const void*>(2),
-        {10.0f, 20.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f, 1.0f},
+        {1.0f, 0.0f, 0.0f, 1.0f, 10.0f, 20.0f}, {0.5f, 0.5f}, 0.0f,
         26, 27, {0.0f, 0.0f, 1.0f, 1.0f}, 14, 27, full
     };
     Ps1UiVertex spriteQuad[4]{};
@@ -356,16 +356,28 @@ int main() {
         assert(reusedSprite[i].u == spriteQuad[i].u && reusedSprite[i].v == spriteQuad[i].v);
     }
     Ps1SpriteGeometryKey changed = spriteKey;
-    changed.Position[0] += 1.0f;
-    assert(!spriteCache.TryGet(changed, reusedSprite));
+    // Every affine coefficient participates, including ancestor shear and mirrored axes.
+    for (unsigned index = 0; index < 6; ++index) {
+        changed = spriteKey;
+        changed.Affine[index] += 0.25f;
+        assert(!spriteCache.TryGet(changed, reusedSprite));
+    }
+    for (unsigned index = 0; index < 2; ++index) {
+        changed = spriteKey;
+        changed.Pivot[index] += 0.25f;
+        assert(!spriteCache.TryGet(changed, reusedSprite));
+    }
     changed = spriteKey;
-    changed.Orientation[2] = 0.5f;
+    changed.RotationRadians = 0.5f;
     assert(!spriteCache.TryGet(changed, reusedSprite));
     changed = spriteKey;
     changed.Source.x = 0.25f;
     assert(!spriteCache.TryGet(changed, reusedSprite));
     changed = spriteKey;
     changed.SizeX = 25;
+    assert(!spriteCache.TryGet(changed, reusedSprite));
+    changed = spriteKey;
+    changed.SizeY = 28;
     assert(!spriteCache.TryGet(changed, reusedSprite));
     changed = spriteKey;
     changed.Viewport.x = 160;
