@@ -10,11 +10,15 @@ namespace helengine.ps1.platformbuilder.tests;
 public sealed class PlayStation1CookNumericPolicyTests {
     /// <summary>Imported textures and generated font atlases carry the requested policy through their real executor.</summary>
     [Theory]
-    [InlineData(32, "texture")]
-    [InlineData(64, "texture")]
-    [InlineData(32, "font-atlas-texture")]
-    [InlineData(64, "font-atlas-texture")]
-    public void TextureEnvelopeUsesBuildPolicy(int bits, string sourceKind) {
+    [InlineData(16, 16, "texture")]
+    [InlineData(16, 32, "texture")]
+    [InlineData(32, 32, "texture")]
+    [InlineData(64, 64, "texture")]
+    [InlineData(16, 16, "font-atlas-texture")]
+    [InlineData(16, 32, "font-atlas-texture")]
+    [InlineData(32, 32, "font-atlas-texture")]
+    [InlineData(64, 64, "font-atlas-texture")]
+    public void TextureEnvelopeUsesBuildPolicy(int bits, int arithmeticBits, string sourceKind) {
         string root = @"C:\temp\numeric-precision\ps1\cook-fixture";
         Directory.CreateDirectory(root);
         string sourcePath = Path.Combine(root, "source.hasset");
@@ -22,7 +26,7 @@ public sealed class PlayStation1CookNumericPolicyTests {
         TextureAsset source = new TextureAsset { Width = 2, Height = 2, ColorFormat = TextureAssetColorFormat.Rgba32,
             AlphaPrecision = TextureAssetAlphaPrecision.Opaque, Colors = Enumerable.Repeat((byte)255, 16).ToArray() };
         File.WriteAllBytes(sourcePath, helengine.files.AssetSerializer.SerializeToBytes(source));
-        NumericPrecisionPolicy policy = new NumericPrecisionPolicy(bits, bits);
+        NumericPrecisionPolicy policy = new NumericPrecisionPolicy(bits, arithmeticBits);
         PlatformCookWorkItem item = new PlatformCookWorkItem("numeric", sourcePath, sourceKind, "ps1", "texture",
             "cooked/fixture.hetex", "numeric-texture", "source-hash", "settings-hash",
             PlayStation1TextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
@@ -30,7 +34,7 @@ public sealed class PlayStation1CookNumericPolicyTests {
         try {
             new PlayStation1PlatformCookWorkItemExecutor().Execute(item, root, policy);
             byte[] bytes = File.ReadAllBytes(destination);
-            Assert.Equal(new byte[] { 1, (byte)bits, (byte)bits }, bytes.Skip(12).Take(3));
+            Assert.Equal(new byte[] { 1, (byte)policy.StorageBits, (byte)policy.ArithmeticBits }, bytes.Skip(12).Take(3));
             using MemoryStream stream = new MemoryStream(bytes, false);
             TextureAsset restored = Assert.IsType<TextureAsset>(PackagedAssetBinarySerializer.Deserialize(stream, policy));
             Assert.Equal((ushort)2, restored.Width);
@@ -74,16 +78,18 @@ public sealed class PlayStation1CookNumericPolicyTests {
 
     /// <summary>Standard and authored platform materials keep their build policy in the final runtime envelope.</summary>
     [Theory]
-    [InlineData(32)]
-    [InlineData(64)]
-    public void MaterialEnvelopeUsesBuildPolicy(int bits) {
-        NumericPrecisionPolicy policy = new NumericPrecisionPolicy(bits, bits);
+    [InlineData(16, 16)]
+    [InlineData(16, 32)]
+    [InlineData(32, 32)]
+    [InlineData(64, 64)]
+    public void MaterialEnvelopeUsesBuildPolicy(int bits, int arithmeticBits) {
+        NumericPrecisionPolicy policy = new NumericPrecisionPolicy(bits, arithmeticBits);
         PlatformMaterialCookRequest request = new PlatformMaterialCookRequest("numeric-material", "material.hemat", "ps1", "release", "",
             PlayStation1MaterialSchemaIds.OpaqueSchemaId,
             new Dictionary<string, string> { [PlayStation1MaterialSchemaIds.BaseColorFieldId] = "#3F7FBFFF" }, policy);
         byte[] bytes = new PlayStation1MaterialCooker().Cook(request).CookedMaterialBytes;
         Assert.Same(policy, request.NumericPolicy);
-        Assert.Equal(new byte[] { 1, (byte)bits, (byte)bits }, bytes.Skip(12).Take(3));
+        Assert.Equal(new byte[] { 1, (byte)policy.StorageBits, (byte)policy.ArithmeticBits }, bytes.Skip(12).Take(3));
         using MemoryStream stream = new MemoryStream(bytes, false);
         PlatformMaterialAsset material = Assert.IsType<PlatformMaterialAsset>(PackagedAssetBinarySerializer.Deserialize(stream, policy));
         Assert.Equal((byte)0x3f, material.BaseColorR);

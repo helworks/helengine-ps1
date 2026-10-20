@@ -7,6 +7,8 @@ volatile std::uint64_t helengine_ps1_profile_native_us[128]{};
 volatile std::uint32_t helengine_ps1_profile_native_calls[128]{};
 }
 #include "IUpdateable.hpp"
+#include "SceneManager.hpp"
+#include "LoadedSceneRecord.hpp"
 
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
 #include "common/syscalls/syscalls.h"
@@ -65,9 +67,30 @@ void Ps1CpuProfileSink::ClockFault() {
     Window.ClockFault();
 }
 
-void Ps1CpuProfileSink::BeginFrame(std::uint64_t sequence, std::uint32_t vblank, const char* sceneId) {
-    SceneId = sceneId == nullptr ? "unknown" : sceneId;
-    Window.BeginFrame(sequence, vblank, SceneHash(SceneId));
+void Ps1CpuProfileSink::BeginFrame(std::uint64_t sequence, std::uint32_t vblank, ::SceneManager* sceneManager) {
+    ::LoadedSceneRecord* record = nullptr;
+    std::int32_t kind = 0;
+    std::int32_t loadedCount = 0;
+    if (sceneManager == nullptr) { kind = 1; }
+    else if (sceneManager->get_IsSceneTransitionActive() || sceneManager->get_HasPendingSceneOperations()) { kind = 2; }
+    else {
+        auto* loaded = sceneManager->get_LoadedScenes();
+        loadedCount = loaded->get_Count();
+        if (loadedCount == 1) { record = loaded->get_Item(0); }
+        else { kind = loadedCount == 0 ? 3 : 4; }
+    }
+    if (record != ProfiledScene || kind != ProfiledSceneKind
+        || (record != nullptr && record->get_SceneId() != SceneId)) {
+        ProfiledScene = record;
+        ProfiledSceneKind = kind;
+        SceneId = record != nullptr ? record->get_SceneId()
+            : HeCppString(kind == 1 ? "no-scene-manager" : kind == 2 ? "scene-loading"
+                : kind == 3 ? "no-loaded-scene" : "multiple-loaded-scenes");
+        ProfiledSceneHash = SceneHash(SceneId.c_str());
+        ramsyscall_printf("HE_CPU_SCENE id=%s loaded=%u transition=%u\n", SceneId.c_str(),
+                          static_cast<unsigned>(loadedCount), kind == 2 ? 1u : 0u);
+    }
+    Window.BeginFrame(sequence, vblank, ProfiledSceneHash);
 }
 
 void Ps1CpuProfileSink::EndFrame(std::uint64_t sequence, std::uint32_t vblank) {
@@ -209,7 +232,7 @@ void Ps1CpuProfileSink::EmitPendingReport() {
     Ps1CpuProfileWindow::TryFormatMilliseconds(HostDrawTotalUs, HostFrameCount, drawMilliseconds);
     Ps1CpuProfileWindow::TryFormatMilliseconds(HostBetweenTotalUs, HostFrameCount, betweenMilliseconds);
     ramsyscall_printf("HE_CPU_WINDOW platform=ps1 scene=%s build=cpu_profile frames=%u first=%u last=%u clock=hsync64us update_ms=%s draw_ms=%s boundary_ms=%s between_ms=%s scene_hash=%08x dropped=%u resets=%u vblank_first=%u vblank_last=%u\n",
-                      SceneId, static_cast<unsigned>(report.FrameCount), static_cast<unsigned>(report.FirstSequence),
+                      SceneId.c_str(), static_cast<unsigned>(report.FrameCount), static_cast<unsigned>(report.FirstSequence),
                       static_cast<unsigned>(report.LastSequence), updateMilliseconds, drawMilliseconds,
                       boundaryMilliseconds, betweenMilliseconds, static_cast<unsigned>(report.SceneId),
                       static_cast<unsigned>(report.Dropped), static_cast<unsigned>(report.Resets),

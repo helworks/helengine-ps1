@@ -91,7 +91,7 @@ AUTHORED_CORE_SRCS = src/platform/ps1/Ps1AuthoredScene.cpp \
                      generated-core/runtime/runtime_startup_manifest.cpp
 ifeq ($(CPU_PROFILE),1)
 DEFINES += PS1_CPU_PROFILE=1
-AUTHORED_CORE_SRCS += src/platform/ps1/profiling/Ps1CpuProfileSink.cpp src/platform/ps1/profiling/Ps1CpuProfileWindow.cpp
+AUTHORED_CORE_SRCS += src/platform/ps1/profiling/Ps1CpuProfileSink.cpp src/platform/ps1/profiling/Ps1CpuProfileWindow.cpp src/platform/ps1/profiling/Ps1NumericPolicySelfTest.cpp
 endif
 SRCS += $(AUTHORED_CORE_SRCS)
 ifeq ($(SCENE_MODULES),1)

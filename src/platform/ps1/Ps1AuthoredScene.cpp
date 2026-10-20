@@ -25,6 +25,7 @@
 #include "runtime/runtime_startup_manifest.hpp"
 #if defined(PS1_CPU_PROFILE)
 #include "platform/ps1/profiling/Ps1CpuProfileSink.hpp"
+#include "platform/ps1/profiling/Ps1NumericPolicySelfTest.hpp"
 #endif
 #include "platform/ps1/rendering/Ps1FrameOverlayText.hpp"
 #include "psyqo/alloc.h"
@@ -75,6 +76,9 @@ void Ps1AuthoredScene::start(StartReason) {
 
 void Ps1AuthoredScene::InitializeCore() {
     InitializeRuntimeClock(gpu());
+#if defined(PS1_CPU_PROFILE)
+    Ps1NumericPolicySelfTest::Run();
+#endif
     ramsyscall_printf("PS1_CORE_INITIALIZING\n");
 #if defined(PS1_SCENE_MODULES)
     // The permanent driver owns asynchronous callbacks; no content stream performs disc I/O.
@@ -207,7 +211,7 @@ void Ps1AuthoredScene::frame() {
     m_cpuProfileSink->EmitPendingReport();
     const bool profileCapture = m_frameSequence >= 600u && !hadPendingReport;
     if (profileCapture) {
-        m_cpuProfileSink->BeginFrame(static_cast<std::uint64_t>(m_frameSequence) + 1u, vblankFrame, Ps1StartupSceneId());
+        m_cpuProfileSink->BeginFrame(static_cast<std::uint64_t>(m_frameSequence) + 1u, vblankFrame, m_core->get_SceneManager());
     }
 #endif
     const std::uint32_t now = gpu().now();

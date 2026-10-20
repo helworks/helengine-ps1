@@ -6,6 +6,9 @@
 #include "IRuntimeCpuProfileSink.hpp"
 #include "platform/ps1/profiling/Ps1CpuProfileWindow.hpp"
 
+class SceneManager;
+class LoadedSceneRecord;
+
 namespace helengine::ps1 {
 
 /// Bridges generated Core CPU probes to the bounded PS1 report window.
@@ -32,7 +35,8 @@ public:
     void RegisterType(::IUpdateable* item, std::uint32_t typeHash, HeCppString typeName) override;
     void ClockFault() override;
 
-    void BeginFrame(std::uint64_t sequence, std::uint32_t vblank, const char* sceneId);
+    /// Samples the current loaded scene; its owned label survives unloading before report emission.
+    void BeginFrame(std::uint64_t sequence, std::uint32_t vblank, ::SceneManager* sceneManager);
     void EndFrame(std::uint64_t sequence, std::uint32_t vblank);
     void RecordNativeStage(std::uint32_t stageId, std::uint64_t elapsedMicroseconds);
     void RecordHostTimings(std::uint64_t updateMicroseconds, std::uint64_t boundaryMicroseconds,
@@ -57,7 +61,10 @@ private:
     const char* FindTypeName(std::uint32_t typeHash, const Ps1CpuProfileWindow::ReportView& report) const;
 
     Ps1CpuProfileWindow Window;
-    const char* SceneId = "unknown";
+    HeCppString SceneId = "unknown";
+    const ::LoadedSceneRecord* ProfiledScene = nullptr;
+    std::int32_t ProfiledSceneKind = -1;
+    std::uint32_t ProfiledSceneHash = 0;
     std::uint64_t HostUpdateTotalUs = 0;
     std::uint64_t HostBoundaryTotalUs = 0;
     std::uint64_t HostDrawTotalUs = 0;
