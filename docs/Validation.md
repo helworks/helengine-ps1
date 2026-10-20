@@ -1605,3 +1605,53 @@ These are managed builder tests; the native toolchain and emulator were not run
 for this staging correction. I/O failures or cancellation during the subsequent
 copy loop can still leave an incomplete staging tree; preflight preserves prior
 staging for the validated input failures above.
+
+### Text geometry RAM reduction (2026-10-20)
+
+The PS1 text cache retains only final clipped quads. Position or clipping changes
+rebuild layout from the text and font metrics instead of retaining a second array
+of unclipped quads. Eight cache entries, 96 final quads per entry, ancestor clip
+membership caching, and protection for entries referenced by the current frame
+are unchanged. The CPU/RAM tradeoff was approved before implementation.
+
+Actual MIPS ABI sizes fall from 118,012 to 84,188 bytes for
+`Ps1RenderManager2D` and from 8,932 to 4,704 bytes per text cache entry.
+The 33,824-byte reduction comprises 33,792 bytes of quad arrays and 32 bytes of
+control fields/alignment across all entries.
+
+Both official retail and full CPU-profiler builds passed with 32/32 arithmetic,
+117 policy-checked assets, nine modules and all 15 scenes (menu plus 14 rendering
+scenes). All 44 menu buttons remain. Retail measurements are:
+
+| Measurement | Before | After |
+|---|---:|---:|
+| Code bytes | 864,660 | 862,388 |
+| Static image bytes, including alignment and module arenas | 1,200,128 | 1,198,080 |
+| Heap expansion high-water bytes | 523,328 | 489,504 |
+| Unexpanded heap headroom bytes | 242,624 | 278,496 |
+
+Heap expansion high-water is not live allocation size. The complete 2 MiB budget
+also retains 64 KiB for the stack and 64 KiB below the executable load address;
+scratchpad and VRAM are separate. Retail logged 600 steady frames in 1,200
+vblanks (30 FPS), with two sprites, nine shapes, eight texts, 294 glyph quads and
+no UI rejection.
+
+The CPU cost is visible even without navigation because
+`FooterIdentityMarqueeComponent` moves the footer automatically. Across six
+600-frame profiler windows, median draw time rose from 19.102 to 22.316 ms,
+while update stayed at 2.288 ms. Text drawing rose from 2.684 to 6.1565 ms.
+The profiler reported zero dropped rows and clock faults. These are guest-time
+measurements with a 64 microsecond clock quantum, including waits inside scopes.
+No manual navigation, keyboard/mouse automation or visual capture was performed.
+
+The MIPS compile-only fixture
+`C:/dev/helworks/helengine-ps1/tests/host/Ps1TextCacheMemoryMipsFixture.cpp`
+failed its 84 KiB renderer budget before the change and passed after it, using
+the actual generated Core and SDK headers. Host geometry/layout tests passed,
+including repeated clipping, disappearance, re-entry and clip expansion with
+restored UV endpoints, plus glyph bearing and compatible replacement cases.
+
+Evidence and source/artifact hashes:
+`C:/temp/numeric-precision/ps1/text-cache-profile.json`.
+Retail disc: `C:/temp/numeric-precision/ps1/package/helengine_ps1.cue`.
+Profiler disc: `C:/temp/numeric-precision/ps1/native/out/helengine_ps1.cue`.

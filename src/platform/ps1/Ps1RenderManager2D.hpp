@@ -115,10 +115,6 @@ private:
         std::uint8_t ClipComponentCount = 0;
         std::uint8_t ClipRegionCount = 0;
         bool ClipCacheValid = false;
-        // Keep unclipped glyphs so authored scrolling changes only integer screen geometry.
-        PendingUiDrawable RawQuads[96]{};
-        std::uint16_t RawCount = 0;
-        bool RawReady = false;
         std::int16_t MinY = 0;
         std::int16_t MaxY = 0;
     };

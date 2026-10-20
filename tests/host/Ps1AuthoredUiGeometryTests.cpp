@@ -2,13 +2,51 @@
 #include "platform/ps1/rendering/Ps1SpriteGeometryCache.hpp"
 #include "platform/ps1/rendering/Ps1VramAllocator.hpp"
 #include "platform/ps1/rendering/Ps1IndexedTextureUpload.hpp"
+#include "platform/ps1/rendering/Ps1TextLayout.hpp"
 
 #include <cassert>
 #include <cmath>
 
 using namespace helengine::ps1;
 
+static void TestTextRebuildAfterScrollAndClipChanges() {
+    const auto lookup = [](char, Ps1TextGlyph& glyph) {
+        glyph = {10, 10, 0, 10, 40, 50, 20, 20, true};
+        return true;
+    };
+    Ps1UiVertex finalQuad[4]{};
+    const auto rebuild = [&](float y, Ps1ScreenRect clip) {
+        unsigned visible = 0;
+        assert(LayoutPs1Text("A", 1, 10, y, 10, 1, 1, 10, Ps1TextAlignment::Left, lookup,
+            [&](char, const Ps1TextGlyph& glyph, float x, float py) {
+                assert(TryBuildGlyphQuadTexels({x, py}, {glyph.width, glyph.height},
+                    {glyph.sourceX, glyph.sourceY, glyph.sourceWidth, glyph.sourceHeight},
+                    256, 256, {0, 0, 320, 240}, finalQuad));
+                if (ClipPs1GlyphQuad(finalQuad, clip)) ++visible;
+                return true;
+            }));
+        return visible;
+    };
+    // Rebuild from font metrics after cropping, leaving the clip, and returning.
+    // A retained cropped quad cannot restore the missing source texels.
+    for (unsigned repeat = 0; repeat < 3; ++repeat) {
+        assert(rebuild(20, {12, 22, 6, 6}) == 1);
+        assert(finalQuad[0].y == 22 && finalQuad[0].v == 54);
+        assert(finalQuad[3].y == 28 && finalQuad[3].v == 66);
+        assert(rebuild(0, {12, 22, 6, 6}) == 0);
+        assert(rebuild(24, {12, 22, 6, 6}) == 1);
+        assert(finalQuad[0].y == 24 && finalQuad[0].v == 50);
+        assert(finalQuad[3].y == 28 && finalQuad[3].v == 58);
+        assert(rebuild(24, {12, 22, 6, 20}) == 1);
+        assert(finalQuad[0].y == 24 && finalQuad[0].v == 50);
+        assert(finalQuad[3].y == 34 && finalQuad[3].v == 70);
+        assert(finalQuad[0].x == 12 && finalQuad[0].u == 44);
+        assert(finalQuad[3].x == 18 && finalQuad[3].u == 56);
+    }
+}
+
 int main() {
+    TestTextRebuildAfterScrollAndClipChanges();
     // A mirrored, sheared quad keeps UVs on authored corners and the viewport offset.
     Ps1UiPoint affineCorners[4]{{30,20},{10,25},{38,60},{18,65}};
     Ps1UiVertex affineVertices[4]{};

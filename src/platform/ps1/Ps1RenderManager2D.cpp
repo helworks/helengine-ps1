@@ -996,51 +996,8 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
         AppendCachedText(*cached);
         return;
     }
-    if (cached != nullptr && !cached->InFrame && cached->RawReady && cached->Font == font && cached->Texture == texture &&
-        cached->RenderStateVersion == renderStateVersion &&
-        cached->Key[0] == static_cast<std::uint16_t>(ActiveViewport.x) &&
-        cached->Key[1] == static_cast<std::uint16_t>(ActiveViewport.y) &&
-        cached->Key[2] == static_cast<std::uint16_t>(ActiveViewport.width) &&
-        cached->Key[3] == static_cast<std::uint16_t>(ActiveViewport.height) &&
-        cached->Key[13] == width && cached->Key[14] == height) {
-        const auto dx = static_cast<std::int32_t>(positionX - cached->Key[4]);
-        const auto dy = static_cast<std::int32_t>(positionY - cached->Key[5]);
-        bool translated = true;
-        for (unsigned i = 0; translated && i < cached->RawCount; ++i) {
-            for (const auto& vertex : cached->RawQuads[i].Vertices) {
-                const auto x = static_cast<std::int32_t>(vertex.x) + dx;
-                const auto y = static_cast<std::int32_t>(vertex.y) + dy;
-                if (x < -32768 || x > 32767 || y < -32768 || y > 32767) { translated = false; break; }
-            }
-        }
-        if (translated) {
-            cached->Count = 0;
-            cached->MinY = 32767; cached->MaxY = -32768;
-            const auto revision = AllocatePacketRevision();
-            for (unsigned i = 0; i < cached->RawCount; ++i) {
-                auto& raw = cached->RawQuads[i];
-                for (auto& vertex : raw.Vertices) {
-                    vertex.x = static_cast<std::int16_t>(vertex.x + dx);
-                    vertex.y = static_cast<std::int16_t>(vertex.y + dy);
-                }
-                auto quad = raw;
-                if (!ClipPs1GlyphQuad(quad.Vertices, clipRect)) continue;
-                quad.PacketRevision = revision;
-                for (const auto& vertex : quad.Vertices) {
-                    if (vertex.y < cached->MinY) cached->MinY = vertex.y;
-                    if (vertex.y > cached->MaxY) cached->MaxY = vertex.y;
-                }
-                cached->Quads[cached->Count++] = quad;
-            }
-            cached->Key[4] = positionX; cached->Key[5] = positionY;
-            cached->Key[33] = static_cast<std::uint16_t>(clipRect.x);
-            cached->Key[34] = static_cast<std::uint16_t>(clipRect.y);
-            cached->Key[35] = static_cast<std::uint16_t>(clipRect.width);
-            cached->Key[36] = static_cast<std::uint16_t>(clipRect.height);
-            AppendCachedText(*cached);
-            return;
-        }
-    }
+    // Position or clipping changes rebuild from authored text. Only final quads
+    // are retained; cropped UVs must never be used as the source of a new layout.
     const float fontScale = text->get_FontScale() > 0.0001f ? text->get_FontScale().ToSingle() : 0.0001f;
     HeCppString content = text->get_Text();
     if (text->get_WrapText()) {
@@ -1191,7 +1148,6 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
                 quad = static_cast<std::uint16_t>(quad + visiblePasses);
             }
             cached->Content = content;
-            cached->RawReady = false;
             contentMatches = true;
         }
     }
@@ -1201,9 +1157,6 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
         return;
     }
     const std::uint16_t pendingStart = PendingCount;
-    unsigned rawCount = 0;
-    bool rawReady = cached != nullptr && !cached->InFrame;
-    if (rawReady) cached->RawReady = false;
     const auto emit = [&](char, const Ps1TextGlyph& glyph, float x, float y) {
         const Ps1GlyphTexelRect source{glyph.sourceX, glyph.sourceY, glyph.sourceWidth, glyph.sourceHeight};
         for (unsigned passIndex = 0; passIndex < passCount; ++passIndex) {
@@ -1223,10 +1176,6 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
             pending.Bucket = bucket;
             pending.SemiTransparent = pass.semiTransparent;
             pending.IsSprite = true;
-            if (rawReady) {
-                if (rawCount == 96) rawReady = false;
-                else cached->RawQuads[rawCount++] = pending;
-            }
             if (!ClipPs1GlyphQuad(pending.Vertices, clipRect)) continue;
             if (!AppendPending(pending)) return false;
             ++QueuedGlyphQuads;
@@ -1257,8 +1206,6 @@ void Ps1RenderManager2D::DrawText(::ITextDrawable2D* text) {
         __builtin_memcpy(cached->Key, key, sizeof(key));
         cached->Content = content;
         cached->Count = static_cast<std::uint16_t>(PendingCount - pendingStart);
-        cached->RawCount = static_cast<std::uint16_t>(rawCount);
-        cached->RawReady = rawReady;
         cached->MinY = 32767; cached->MaxY = -32768;
         const std::uint32_t revision = AllocatePacketRevision();
         for (std::uint16_t i = 0; i < cached->Count; ++i) {
