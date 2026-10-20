@@ -20,12 +20,14 @@ int main() {
     assert(affineVertices[0].u == 0 && affineVertices[1].u == 63);
     assert(affineVertices[2].u == 0 && affineVertices[2].v == 63);
     Ps1SpriteGeometryCache affineCache;
-    Ps1SpriteGeometryKey affineKey{};
+    Ps1SpriteGeometryKey affineKey{
+        nullptr, nullptr, {-20.0f, 5.0f, 8.0f, 40.0f, 30.0f, 20.0f}, {0.0f, 0.0f}, 0.0f,
+        1, 1, {0.0f, 0.0f, 1.0f, 1.0f}, 64, 64, {5, 7, 320, 240}
+    };
     affineKey.Drawable = &affineKey;
-    for (unsigned i = 0; i < 4; ++i) affineKey.Corners[i] = affineCorners[i];
     affineCache.Remember(affineKey, affineVertices);
     assert(affineCache.TryGet(affineKey, affineVertices));
-    affineKey.Corners[1].y += 1;
+    affineKey.Affine[1] += 1.0f;
     assert(!affineCache.TryGet(affineKey, affineVertices));
     // Three-pixel rows start on alternating nibble boundaries in the shared payload.
     const std::uint8_t indices[] = {0x21, 0x43, 0x65};

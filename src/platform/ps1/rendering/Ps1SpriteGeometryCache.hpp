@@ -7,21 +7,22 @@
 
 namespace helengine::ps1 {
 
-// Inputs that affect the four screen-space vertices of one authored sprite.
+/// <summary>Captures unresolved geometry inputs so a cache hit can avoid local rotation and corner transforms.</summary>
 struct Ps1SpriteGeometryKey {
     const void* Drawable = nullptr;
     const void* Texture = nullptr;
-    float Position[3]{};
-    float Scale[3]{};
-    float Orientation[4]{};
+    /// <summary>Stores M11, M12, M21, M22, M41 and M42 from the cached world matrix, including inherited shear and reflection.</summary>
+    float Affine[6]{};
+    /// <summary>Stores the authored local pivot before it is multiplied by sprite size.</summary>
+    float Pivot[2]{};
+    /// <summary>Invalidates local trigonometry when the sprite's own rotation changes.</summary>
+    float RotationRadians = 0.0f;
     std::int32_t SizeX = 0;
     std::int32_t SizeY = 0;
     Ps1UiRectF Source{};
     std::uint16_t TextureWidth = 0;
     std::uint16_t TextureHeight = 0;
     Ps1ScreenRect Viewport{};
-    // Resolved positions include pivot, local rotation, and the exact ancestor matrix.
-    Ps1UiPoint Corners[4]{};
 };
 
 // Keeps static sprite geometry without retaining generated-Core objects or allocating per frame.
@@ -66,13 +67,12 @@ private:
 
     static bool Equal(const Ps1SpriteGeometryKey& a, const Ps1SpriteGeometryKey& b) {
         return a.Drawable == b.Drawable && a.Texture == b.Texture
-            && __builtin_memcmp(a.Position, b.Position, sizeof(a.Position)) == 0
-            && __builtin_memcmp(a.Scale, b.Scale, sizeof(a.Scale)) == 0
-            && __builtin_memcmp(a.Orientation, b.Orientation, sizeof(a.Orientation)) == 0
+            && __builtin_memcmp(a.Affine, b.Affine, sizeof(a.Affine)) == 0
+            && __builtin_memcmp(a.Pivot, b.Pivot, sizeof(a.Pivot)) == 0
+            && __builtin_memcmp(&a.RotationRadians, &b.RotationRadians, sizeof(a.RotationRadians)) == 0
             && a.SizeX == b.SizeX && a.SizeY == b.SizeY
             && __builtin_memcmp(&a.Source, &b.Source, sizeof(a.Source)) == 0
             && a.TextureWidth == b.TextureWidth && a.TextureHeight == b.TextureHeight
-            && __builtin_memcmp(a.Corners, b.Corners, sizeof(a.Corners)) == 0
             && a.Viewport.x == b.Viewport.x && a.Viewport.y == b.Viewport.y
             && a.Viewport.width == b.Viewport.width && a.Viewport.height == b.Viewport.height;
     }

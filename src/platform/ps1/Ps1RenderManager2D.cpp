@@ -26,6 +26,7 @@
 #include "psyqo/alloc.h"
 #include "float3.hpp"
 #include "float4.hpp"
+#include "float4x4.hpp"
 #include "int2.hpp"
 #include "platform/ps1/Ps1RuntimeProvider.hpp"
 #include "platform/ps1/Ps1FrameDiagnostics.hpp"
@@ -779,22 +780,38 @@ void Ps1RenderManager2D::DrawSprite(::ISpriteDrawable2D* sprite) {
 #if defined(PS1_CPU_PROFILE)
     const std::uint64_t geometryStartUs = CpuProfile == nullptr ? 0u : CpuProfile->ReadMicroseconds();
 #endif
-    const ::SpriteQuad2D quad = ::Batch2DGeometry::ResolveSpriteQuad(sprite);
+    const ::float4x4 world = parent->get_WorldTransformMatrix();
+    const ::float2 pivot = sprite->get_Pivot();
+    const ::int2 size = sprite->get_Size();
     const ::float4 source = sprite->get_SourceRect();
     Ps1SpriteGeometryKey geometryKey{};
     geometryKey.Drawable = sprite;
     geometryKey.Texture = texture;
+    geometryKey.Affine[0] = world.M11.ToSingle();
+    geometryKey.Affine[1] = world.M12.ToSingle();
+    geometryKey.Affine[2] = world.M21.ToSingle();
+    geometryKey.Affine[3] = world.M22.ToSingle();
+    geometryKey.Affine[4] = world.M41.ToSingle();
+    geometryKey.Affine[5] = world.M42.ToSingle();
+    geometryKey.Pivot[0] = pivot.X.ToSingle();
+    geometryKey.Pivot[1] = pivot.Y.ToSingle();
+    geometryKey.RotationRadians = sprite->get_RotationRadians();
+    geometryKey.SizeX = size.X;
+    geometryKey.SizeY = size.Y;
     geometryKey.Source = {source.X.ToSingle(), source.Y.ToSingle(), source.Z.ToSingle(), source.W.ToSingle()};
     geometryKey.TextureWidth = width;
     geometryKey.TextureHeight = height;
     geometryKey.Viewport = ActiveViewport;
-    geometryKey.Corners[0] = {quad.TopLeft.X.ToSingle(), quad.TopLeft.Y.ToSingle()};
-    geometryKey.Corners[1] = {quad.TopRight.X.ToSingle(), quad.TopRight.Y.ToSingle()};
-    geometryKey.Corners[2] = {quad.BottomLeft.X.ToSingle(), quad.BottomLeft.Y.ToSingle()};
-    geometryKey.Corners[3] = {quad.BottomRight.X.ToSingle(), quad.BottomRight.Y.ToSingle()};
     Ps1UiVertex vertices[4]{};
     if (!SpriteGeometryCache.TryGet(geometryKey, vertices)) {
-        if (!TryBuildSpriteQuadFromCorners(geometryKey.Corners, geometryKey.Source,
+        const ::SpriteQuad2D quad = ::Batch2DGeometry::ResolveSpriteQuad(sprite);
+        const Ps1UiPoint corners[4]{
+            {quad.TopLeft.X.ToSingle(), quad.TopLeft.Y.ToSingle()},
+            {quad.TopRight.X.ToSingle(), quad.TopRight.Y.ToSingle()},
+            {quad.BottomLeft.X.ToSingle(), quad.BottomLeft.Y.ToSingle()},
+            {quad.BottomRight.X.ToSingle(), quad.BottomRight.Y.ToSingle()}
+        };
+        if (!TryBuildSpriteQuadFromCorners(corners, geometryKey.Source,
             {static_cast<float>(width), static_cast<float>(height)}, ActiveViewport, vertices)) {
             Reject("PS1_UI_SPRITE_GEOMETRY_REJECTED");
             return;
