@@ -32,6 +32,14 @@ def validate_slot_assignments(plan):
     return {slot["index"]: dict(slot) for slot in plan["slots"]}
 
 
+def module_gc_link_flags(module_id, modules, definitions):
+    """Discard unreachable sections while rooting loader callbacks and exports used by other modules."""
+    imports = {symbol for module in modules if module["moduleId"] != module_id
+               for symbol in module["importSymbols"]}
+    roots = {"he_ps1_module_register", "he_ps1_module_unregister"} | (imports & definitions[module_id])
+    return ["-Wl,--gc-sections", *["-Wl,-u," + symbol for symbol in sorted(roots)]]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", required=True, type=pathlib.Path)
@@ -188,12 +196,15 @@ def main():
     # imports before resident GC so registry/teardown and SDK exports survive --just-symbols.
     overlay_definitions = set()
     overlay_imports = set()
+    module_definitions = {}
     for module in plan["modules"]:
+        definitions = module_definitions[module["moduleId"]] = set()
         for obj in module["objects"]:
-            overlay_definitions.update(line.split()[-1] for line in
+            definitions.update(line.split()[-1] for line in
                 run(["mipsel-none-elf-nm", "-g", "--defined-only", obj]).splitlines() if line.split())
             overlay_imports.update(line.split()[-1] for line in
                 run(["mipsel-none-elf-nm", "-u", obj]).splitlines() if line.split())
+        overlay_definitions.update(definitions)
     resident_imports.update(overlay_imports - overlay_definitions)
     metadata()
     resident_elf, resident_symbols = make_resident()
@@ -219,7 +230,8 @@ def main():
         capacity = slot["capacityBytes"] if measured else 0x1e0000
         index = plan["modules"].index(module)
         elf = modules_out / ("MOD" + str(index).zfill(5) + ".elf")
-        command = ["mipsel-none-elf-g++", *flags, "-Wl,--defsym,MODULE_VMA=" + hex(vma),
+        command = ["mipsel-none-elf-g++", *flags, *module_gc_link_flags(module_id, plan["modules"], module_definitions),
+                   "-Wl,--defsym,MODULE_VMA=" + hex(vma),
                    "-Wl,--defsym,MODULE_CAPACITY=" + str(capacity), "-Wl,-T," + str(root / "linker/scene-module.ld"),
                    "-Wl,--just-symbols=" + str(resident_elf)]
         command += ["-Wl,--defsym," + name + "=" + hex(address) for name, address in sorted(imported.items())]
