@@ -425,6 +425,10 @@ try {
         $fingerprintHasher.Dispose()
     }
     $nativeCachePath = Join-Path $NativeObjectCacheRoot ('objects-' + $nativeFingerprint)
+    # The fixed run directory may contain another configuration's objects. Restore
+    # only the selected cache after clearing those leftovers, never merge them.
+    . (Join-Path $PSScriptRoot 'native-object-cache.ps1')
+    Reset-NativeCompilerOutputs -Root $runRoot
     if (Test-Path -LiteralPath $nativeCachePath -PathType Container) {
         Sync-NativeBuildFiles -SourceRoot $nativeCachePath -DestinationRoot $runRoot
     }

@@ -4,6 +4,10 @@ BINDIR ?= out/
 BUILD ?= Release
 
 CXXFLAGS += -std=c++20
+# Refresh the include graph whenever an object recompiles, including headers
+# introduced by another header. The SDK's standalone .dep rule tracks only source changes.
+CXXFLAGS += -MMD -MP -MF $(@:.o=.dep)
+CFLAGS += -MMD -MP -MF $(@:.o=.dep)
 CPPFLAGS += -Isrc
 EXTRA_LDSCRIPT = linker/retail-memory.ld
 DEMO_MODE ?= Clear
