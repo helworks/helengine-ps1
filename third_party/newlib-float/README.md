@@ -7,7 +7,7 @@ Unmodified single-precision fdlibm sources from Newlib 2.5.0, pinned by
 
 The local `fdlibm.h` provides only their IEEE binary32 bit access, internal
 prototypes and direct IEEE entry aliases. No errno/hosted libc is required.
-The existing pinned SDK continues to provide the separate double API.
+The separately pinned uC-sdk dependency provides the double API.
 Compile these C files with `-fsingle-precision-constant`, `-fno-builtin` and
 `-ffp-contract=off`: floating literals participate in binary32 expressions,
 functions do not redirect through hosted builtins, and operations do not fuse.

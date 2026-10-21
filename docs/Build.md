@@ -63,16 +63,21 @@ The dependency record is [toolchain.lock.json](../toolchain.lock.json):
 
 | Input | Locked value |
 | --- | --- |
-| Nugget/PSYQo | `625da805c4a9bfd56dd9b2b17409805c0591dd42` |
+| Nugget/PSYQo | `12c22eed2175d11991cb6508682fcde8b632f745` |
 | `third_party/uC-sdk` | `69e06871824e2d62069487a7426ded09090ceb69` |
-| `third_party/psxlua` | `abed030e686b4e34987851bd0a028c93b1f73967` |
-| `third_party/xmake-psx` | `e02b8cb6fdaf9258e74b80de806c8ac23222d41e` |
+| `third_party/nugget/third_party/psxlua` | `4401a3354e1ffe5f38b028c4d5cedf7c077638bd` |
+| `third_party/nugget/third_party/xmake-psx` | `a3ee46281fa5fbf887560ee15d15fbb71e09e738` |
+| `third_party/nugget/third_party/libcester` | `0e0c97dfbad6b256646d62ce32824836d87eebb9` |
 | Docker image | `ghcr.io/grumpycoders/pcsx-redux-build@sha256:4f99ff0dd972096280cd6faf27c4255cc2bcf932397f8f9276ee22b6b1a67555` |
 | MIPS GCC | `16.2.0` |
 | Binutils | `2.47.20260726` |
 | GNU Make | `4.4.1` |
 | host GCC | `15.2.0` |
 | Python | `3.14.4` |
+
+The uC-sdk dependency is pinned directly by this repository because current
+Nugget no longer includes it. Its fdlibm sources still provide the unchanged
+binary64 math implementation independently of the SDK version.
 
 The tracked SDK correction is
 `patches/nugget/0001-frame-completion.patch`. A successful manifest records

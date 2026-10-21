@@ -112,6 +112,7 @@ function Read-ToolchainLock {
         $lock = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
         $imageReference = [string]$lock.image.reference
         $sdkCommit = [string]$lock.sdk.commit
+        $mathCommit = [string]$lock.math.commit
     } catch {
         throw "Toolchain lock is not valid JSON or is missing required fields: $Path"
     }
@@ -120,6 +121,9 @@ function Read-ToolchainLock {
     }
     if ($sdkCommit -notmatch '^[0-9a-fA-F]{40}$') {
         throw "Toolchain SDK commit must be a full revision: $sdkCommit"
+    }
+    if ($mathCommit -notmatch '^[0-9a-fA-F]{40}$') {
+        throw "Toolchain math commit must be a full revision: $mathCommit"
     }
     return $lock
 }
@@ -310,6 +314,15 @@ try {
     if ($sdkStatus.Count -ne 0) {
         throw "SDK checkout is dirty at $sdkSource"
     }
+    $mathSource = Join-Path $sourceRoot 'third_party\uC-sdk'
+    $mathRevision = Get-GitRevision -RepositoryPath $mathSource
+    if ($mathRevision.ToLowerInvariant() -ne ([string]$toolchainLock.math.commit).ToLowerInvariant()) {
+        throw "Math library revision mismatch: expected $($toolchainLock.math.commit), got $mathRevision"
+    }
+    $mathStatus = @(& git -c "safe.directory=$mathSource" -C $mathSource status --porcelain --untracked-files=all 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $mathStatus.Count -ne 0) {
+        throw "Math library checkout is dirty or unreadable at $mathSource"
+    }
     if ([string]::IsNullOrWhiteSpace($NativeObjectCacheRoot)) {
         $NativeObjectCacheRoot = Join-Path (Split-Path -Parent $runRoot) 'native-objects'
     }
@@ -338,6 +351,7 @@ try {
         'linker',
         'src',
         'third_party\nugget',
+        'third_party\uC-sdk',
         'third_party\newlib-float'
     )
     foreach ($relative in $allowFiles) {
@@ -404,6 +418,7 @@ try {
         $dockerImage,
         [string]$toolchainLock.sdk.commit,
         $sdkRevision,
+        $mathRevision,
         (Get-FileHash -LiteralPath $patchCopy -Algorithm SHA256).Hash.ToLowerInvariant(),
         $Configuration,
         $DemoMode,
@@ -483,6 +498,7 @@ try {
             scene_module_plan = $SceneModulePlan; scene_module_validation = $moduleReceipt
             source = [ordered]@{ revision = $revision; dirty = $dirty }; docker_image = $dockerImage
             sdk = [ordered]@{ revision = $sdkRevision; submodules = $sdkSubmoduleRevisions }
+            math = [ordered]@{ revision = $mathRevision }
             generated_core_root = $GeneratedCoreRoot; authored_content_root = $AuthoredContentRoot
             copied_inputs = $inputHashes; artifacts = $moduleArtifactRecords; build_directory = $runRoot
         }
@@ -548,6 +564,7 @@ try {
             revision = $sdkRevision
             submodules = $sdkSubmoduleRevisions
         }
+        math = [ordered]@{ revision = $mathRevision }
         docker_image = $dockerImage
         source = [ordered]@{ revision = $revision; dirty = $dirty }
         toolchain_lock_sha256 = $lockHash

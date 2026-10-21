@@ -111,7 +111,7 @@ else
 SRCS += src/platform/ps1/Ps1CoreBoot.cpp
 CORE_RTTI_OBJS = src/platform/ps1/Ps1CoreBoot.o
 endif
-FDLIBM_ROOT = third_party/nugget/third_party/uC-sdk/libm/src
+FDLIBM_ROOT = third_party/uC-sdk/libm/src
 FDLIBM_NAMES = s_atan s_scalbn s_copysign \
                e_acos e_asin e_atan2 e_sqrt e_log e_fmod e_rem_pio2 \
                k_rem_pio2 k_sin k_cos k_tan

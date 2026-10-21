@@ -1,12 +1,16 @@
 {
   "sdk": {
     "repository": "https://github.com/pcsx-redux/nugget.git",
-    "commit": "625da805c4a9bfd56dd9b2b17409805c0591dd42",
+    "commit": "12c22eed2175d11991cb6508682fcde8b632f745",
     "submodules": {
-      "third_party/uC-sdk": "69e06871824e2d62069487a7426ded09090ceb69",
-      "third_party/psxlua": "abed030e686b4e34987851bd0a028c93b1f73967",
-      "third_party/xmake-psx": "e02b8cb6fdaf9258e74b80de806c8ac23222d41e"
+      "third_party/psxlua": "4401a3354e1ffe5f38b028c4d5cedf7c077638bd",
+      "third_party/xmake-psx": "a3ee46281fa5fbf887560ee15d15fbb71e09e738",
+      "third_party/libcester": "0e0c97dfbad6b256646d62ce32824836d87eebb9"
     }
+  },
+  "math": {
+    "repository": "https://github.com/grumpycoders/uC-sdk.git",
+    "commit": "69e06871824e2d62069487a7426ded09090ceb69"
   },
   "image": {
     "reference": "ghcr.io/grumpycoders/pcsx-redux-build@sha256:4f99ff0dd972096280cd6faf27c4255cc2bcf932397f8f9276ee22b6b1a67555",
