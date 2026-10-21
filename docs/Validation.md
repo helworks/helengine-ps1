@@ -1654,6 +1654,7 @@ restored UV endpoints, plus glyph bearing and compatible replacement cases.
 Evidence and source/artifact hashes:
 `C:/temp/numeric-precision/ps1/text-cache-profile.json`.
 Retail disc: `C:/temp/numeric-precision/ps1/package/helengine_ps1.cue`.
+
 Profiler disc: `C:/temp/numeric-precision/ps1/native/out/helengine_ps1.cue`.
 
 ### Native deserializer and static cleanup reduction (2026-10-21)
@@ -1711,3 +1712,34 @@ Evidence and source/artifact hashes:
 Runtime log: `C:/temp/numeric-precision/ps1/cleanup-runtime.log`.
 Current RAM report: `C:/temp/numeric-precision/ps1/ram-analysis.json`.
 Retail disc: `C:/temp/numeric-precision/ps1/package/helengine_ps1.cue`.
+
+### Cooked DemoDisc menu layout (2026-10-21)
+
+DemoDisc's main-menu viewport uses Cook processing only on PS1. Its override
+follows the entity's effective scope (`sd/msd/ps1` in the current authored scene),
+resolved through the project scope resolver. Common remains Dynamic. The menu
+factory persists the same policy when regenerating the scene.
+
+The official build produced algorithm-version-2 metadata for 320x240, pixel
+aspect 1, scale X 0.25 and scale Y/glyph scale 0.3333333432674408 under the
+unchanged 32/32 policy. The viewport payload grew from 37 to 114 bytes. Of the
+121 content files, only the menu scene changed; all 117 v26 numeric assets
+passed their policy checks. All 15 scenes, nine modules and 44 menu buttons
+remain. Canonical serialization confirms the authored scene otherwise matches
+the Git baseline, and the Common viewport payload is byte-identical.
+
+Menu heap expansion high-water fell from 489,504 to 483,352 bytes, saving 6,152
+bytes net; unexpanded heap headroom rose from 303,072 to 309,224 bytes. These
+measurements describe allocator expansion, not live allocations. Resident code
+remains 852,340 bytes and the static footprint remains 1,173,504 bytes. Other
+rendering viewports still use Dynamic, so this menu policy change does not remove
+the shared layout/cache implementation from the executable.
+
+DuckStation logged 600 steady frames in 1,200 vblanks (30 FPS), one camera,
+five updateables, two sprites, nine shapes, eight texts, 294 glyph quads and no
+render/UI rejection. Navigation and visual capture were not performed. The
+changed menu factory compiled directly from the real checkout with its module
+DTOs and current build assemblies.
+
+Evidence: `C:/temp/numeric-precision/ps1/viewport-cook.json` and
+`C:/temp/numeric-precision/ps1/viewport-cook-runtime.log`.
