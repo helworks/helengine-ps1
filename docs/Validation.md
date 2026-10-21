@@ -1655,3 +1655,59 @@ Evidence and source/artifact hashes:
 `C:/temp/numeric-precision/ps1/text-cache-profile.json`.
 Retail disc: `C:/temp/numeric-precision/ps1/package/helengine_ps1.cue`.
 Profiler disc: `C:/temp/numeric-precision/ps1/native/out/helengine_ps1.cue`.
+
+### Native deserializer and static cleanup reduction (2026-10-21)
+
+The native deserializer generator no longer emits nested helpers for values
+already handled by its canonical reader dispatch. Deferred-static destruction
+shares an out-of-line function while preserving its existing lifetime behavior.
+Scene modules discard unreachable sections, retaining registration,
+unregistration, initialization/finalization, and exports consumed by other
+modules. The serialized format, numeric policy, and component layouts are
+unchanged.
+
+The official 32/32 retail build passed with all 15 scenes, nine modules, all 44
+menu buttons, and 117 policy-checked v26 assets. Those 117 assets are byte-identical
+to the input baseline. Project source hashes were also preserved.
+
+| Measurement | Before | After | Change |
+|---|---:|---:|---:|
+| Resident code bytes | 862,388 | 852,340 | -10,048 |
+| Code bytes across all nine modules | 150,376 | 128,772 | -21,604 |
+| Spotlight deserializer module code bytes | 2,412 | 1,668 | -744 |
+| Ambient-light deserializer module code bytes | 2,328 | 1,584 | -744 |
+| Static image bytes, including alignment and module arenas | 1,198,080 | 1,173,504 | -24,576 |
+| Heap expansion high-water bytes | 489,504 | 489,504 | 0 |
+| Unexpanded heap headroom bytes | 278,496 | 303,072 | +24,576 |
+
+Module code totals describe all modules on disc; they are not simultaneously
+resident RAM. The actual static footprint releases 24 KiB to the heap. Heap
+expansion high-water is not live allocation size.
+
+The final disc booted through the emulator MCP and logged 600 steady frames in
+1,200 vblanks (30 FPS), with one camera, five updateables, two sprites, nine
+shapes, eight texts, 294 glyph quads, and no recorded render/UI failure. No manual
+navigation, keyboard/mouse automation, or visual capture was performed. The
+14 rendering scenes were packaged and link-validated, but not exercised in this
+runtime check. A CPU-profiler image was not rebuilt for this source revision;
+the fixed native output path now also contains the retail image.
+
+The build investigation exposed stale native dependencies: standalone `.dep`
+generation did not refresh newly added includes when a header caused an object
+to recompile. Compiler invocations now refresh dependency files with `-MMD -MP`.
+The fixed run directory also clears derived objects, dependency files, and
+archives before restoring its matching compiler cache. Sources and content are
+preserved. The final build recompiled all 265 top-level generated Core objects;
+the ambient-light global finalizer fell from 120 to 72 bytes in the real build.
+
+Validation passed: 32 generator tests, five converter string/null-empty tests,
+six module-builder CLI tests, actual MIPS section-GC/export retention and static
+cleanup size fixtures, a two-reload native lifetime check, an actual MIPS
+header-addition/header-only dependency regression, and the fixed-output cache
+reset filesystem regression.
+
+Evidence and source/artifact hashes:
+`C:/temp/numeric-precision/ps1/deserializer-cleanup.json`.
+Runtime log: `C:/temp/numeric-precision/ps1/cleanup-runtime.log`.
+Current RAM report: `C:/temp/numeric-precision/ps1/ram-analysis.json`.
+Retail disc: `C:/temp/numeric-precision/ps1/package/helengine_ps1.cue`.
