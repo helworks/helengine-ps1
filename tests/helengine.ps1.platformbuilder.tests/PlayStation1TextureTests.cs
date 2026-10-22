@@ -7,6 +7,22 @@ namespace helengine.ps1.platformbuilder.tests;
 
 /// <summary>Checks native TIM decoding and the serialized PS1 cook contract with byte-exact fixtures.</summary>
 public sealed class PlayStation1TextureTests {
+    /// <summary>Decodes authored PNG files on every build host, preserving channel order and straight alpha.</summary>
+    [Fact]
+    public void DecodePng_PreservesStraightRgbaOnPortableHosts() {
+        string sourcePath = Path.Combine(Path.GetTempPath(), "ps1-source-decoder.png");
+        File.WriteAllBytes(sourcePath, Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAEUlEQVR4nGMQVDJu+O/A8B8ACuwDJU26BfsAAAAASUVORK5CYII="));
+        try {
+            using TextureAsset decoded = new PlayStation1SourceTextureDecoder().Decode(sourcePath);
+            Assert.Equal(2, decoded.Width);
+            Assert.Equal(1, decoded.Height);
+            Assert.Equal(TextureAssetColorFormat.Rgba32, decoded.ColorFormat);
+            Assert.Equal(new byte[] { 17, 34, 51, 128, 255, 64, 0, 255 }, decoded.Colors);
+        } finally {
+            File.Delete(sourcePath);
+        }
+    }
+
     /// <summary>Checks low-nibble-first indices and multiple CLUT banks in both indexed depths.</summary>
     /// <param name="mode">TIM indexed mode.</param>
     /// <param name="entries">Number of colors per CLUT bank.</param>
