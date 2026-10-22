@@ -473,6 +473,14 @@ try {
             '--sdk-defines', ($SdkDefine -join ' '))
         if ($CpuProfile) { $dockerArgs += '--cpu-profile' }
     }
+    if ([IO.Path]::DirectorySeparatorChar -eq '/') {
+        # Bind-mounted compiler outputs must remain writable by the build host.
+        $nativeUid = [string](& id -u)
+        $nativeGid = [string](& id -g)
+        if ($nativeUid -notmatch '^\d+$' -or $nativeGid -notmatch '^\d+$') { throw 'Could not resolve the native build host uid/gid.' }
+        $dockerUser = '{0}:{1}' -f $nativeUid, $nativeGid
+        $dockerArgs = @($dockerArgs[0..1]) + @('--user', $dockerUser) + @($dockerArgs[2..($dockerArgs.Count - 1)])
+    }
     $dockerResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $dockerArgs -WorkingDirectory $runRoot -StdoutPath $dockerStdout -StderrPath $dockerStderr
     Merge-ProcessLogs -StdoutPath $dockerResult.StdoutPath -StderrPath $dockerResult.StderrPath -CombinedPath $buildLog
     $dockerExit = $dockerResult.ExitCode
