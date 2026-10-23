@@ -3,7 +3,6 @@ import hashlib
 import json
 import pathlib
 import shlex
-import shutil
 import subprocess
 
 
@@ -16,8 +15,8 @@ def run(command, cwd, log):
     return result.stdout
 
 
-def compile_native_kernel(args, generated, repository):
-    """Compile only the platform-native objects selected by make, without touching source inputs."""
+def prepare_native_commands(args, generated, repository):
+    """Read real make targets/flags without compiling or copying product sources."""
     root = args.output / 'native-kernel'
     root.mkdir(parents=True, exist_ok=True)
     objects = root / 'objects'
@@ -26,7 +25,11 @@ def compile_native_kernel(args, generated, repository):
     work.mkdir(exist_ok=True)
     log = root / 'probe.log'
     log.write_text('', encoding='utf-8')
-    shutil.copyfile(repository / 'Makefile', work / 'Makefile')
+    legacy = work / 'Makefile'
+    if legacy.exists() or legacy.is_symlink():
+        if legacy.is_symlink() or legacy.read_bytes() != (repository / 'Makefile').read_bytes():
+            raise ValueError('Legacy native kernel Makefile is not the known source snapshot')
+        legacy.unlink()
     for name, target in (('src', repository / 'src'), ('third_party', repository / 'third_party'), ('generated-core', generated)):
         link = work / name
         if link.is_symlink():
@@ -41,37 +44,63 @@ def compile_native_kernel(args, generated, repository):
     (modules / 'resident-sources.mk').write_text('PS1_RESIDENT_CORE_SRCS :=\n', encoding='utf-8')
     run(['python3', '-B', str(repository / 'scripts/write-scene-module-metadata.py'),
          '--declarations-only', '--output', str(modules / 'metadata')], work, log)
-    # common.mk normally remakes included .dep files even for a query. The isolated
-    # query sets its documented deepclean exclusion without requesting that target.
+    makefile = str(repository / 'Makefile').replace(' ', '\\ ')
     (work / 'kernel-query.mk').write_text(
-        'override MAKECMDGOALS := deepclean\ninclude Makefile\n'
+        'override MAKECMDGOALS := deepclean\ninclude ' + makefile + '\n'
         '.PHONY: he_ps1_native_sources\nhe_ps1_native_sources:\n'
-        "\t@printf '%s\\n' $(filter src/%.cpp,$(SRCS))\n", encoding='utf-8')
+        "\t@$(foreach source,$(filter src/%.cpp,$(SRCS)),printf '%s\\t%s\\n' '$(source)' '$(call ps1_object,$(source))';)\n",
+        encoding='utf-8')
     common = ['make', '--no-print-directory', '-f', 'kernel-query.mk',
-              'BUILD=Release', 'CORE_BOOT=1', 'AUTHORED=1', 'SCENE_MODULES=1']
+              'BUILD=Release', 'CORE_BOOT=1', 'AUTHORED=1', 'SCENE_MODULES=1',
+              'NATIVE_OBJECT_ROOT=' + str(objects / 'make-plan')]
     selected = run([*common, '-s', 'he_ps1_native_sources'], work, log).splitlines()
-    sources = sorted(set(line.strip() for line in selected if line.strip()))
-    if not sources:
+    pairs = sorted(set(line.strip() for line in selected if line.strip()))
+    if not pairs:
         raise ValueError('Canonical makefile selected no resident native host sources')
-    units = []
-    imports = set()
-    for relative in sources:
+    commands = []
+    for pair in pairs:
+        fields = pair.split('\t')
+        if len(fields) != 2:
+            raise ValueError('Canonical makefile did not return a source/object pair: ' + pair)
+        relative, target = fields
         source = (work / relative).resolve()
         if not source.is_relative_to((repository / 'src').resolve()) or not source.is_file():
             raise ValueError('Native make source escapes the platform source tree: ' + relative)
-        target = pathlib.PurePosixPath(relative).with_suffix('.o').as_posix()
+        if not pathlib.Path(target).is_relative_to(objects):
+            raise ValueError('Canonical native object is not external: ' + target)
         dry = run([*common, '-n', target], work, log)
-        commands = [shlex.split(line) for line in dry.splitlines() if line.startswith(args.compiler + ' ')]
-        if len(commands) != 1 or '-c' not in commands[0] or '-o' not in commands[0]:
+        compiler_commands = [shlex.split(line) for line in dry.splitlines() if line.startswith(args.compiler + ' ')]
+        if len(compiler_commands) != 1 or '-c' not in compiler_commands[0] or '-o' not in compiler_commands[0]:
             raise ValueError('Expected exactly the real compiler command for ' + relative)
-        command = commands[0]
-        if command[-1] != relative:
+        command = compiler_commands[0]
+        if (work / command[-1]).resolve() != source:
             raise ValueError('Make compiler command selected a different native source')
+        # Keep make's exact per-target flags; only output/dependency paths change.
+        command[-1] = str(source)
         identity = hashlib.sha256(relative.encode()).hexdigest()[:24]
         obj = objects / (identity + '.o')
         dependency = objects / (identity + '.d')
-        command[command.index('-o') + 1] = str(obj)
-        command += ['-MMD', '-MF', str(dependency)]
+        for flag, value in (('-o', obj), ('-MF', dependency), ('-MT', obj)):
+            if flag in command:
+                command[command.index(flag) + 1] = str(value)
+            else:
+                command.extend([flag, str(value)])
+        if '-MMD' not in command:
+            command.append('-MMD')
+        commands.append({'sourcePath': str(source), 'objectPath': str(obj),
+                         'commandArguments': command, 'makeTarget': target})
+    return root, work, log, modules, commands
+
+
+def compile_native_kernel(args, generated, repository):
+    """Compile only native objects with the canonical external-target flags."""
+    root, work, log, modules, commands = prepare_native_commands(args, generated, repository)
+    units = []
+    imports = set()
+    for entry in commands:
+        source = pathlib.Path(entry['sourcePath'])
+        obj = pathlib.Path(entry['objectPath'])
+        command = entry['commandArguments']
         run(command, work, log)
         undefined = run([args.nm, '-u', str(obj)], work, log)
         symbols = sorted({line.split()[-1] for line in undefined.splitlines() if line.split()})
