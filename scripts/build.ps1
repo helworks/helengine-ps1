@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('SmallDebug', 'Release')]
@@ -79,15 +79,18 @@ $sourceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $buildRoot = Join-Path (Split-Path $sourceRoot -Parent) 'builds\helengine-ps1'
 if ([string]::IsNullOrWhiteSpace($RunRoot)) { $RunRoot = $env:HELENGINE_PS1_BUILD_RUN_ROOT }
 if ([string]::IsNullOrWhiteSpace($RunRoot)) { throw 'RunRoot must name an explicit fixed native build directory.' }
-if (-not [IO.Path]::IsPathRooted($RunRoot) -or -not [IO.Path]::GetPathRoot($RunRoot).EndsWith('\')) {
+if (-not [IO.Path]::IsPathRooted($RunRoot) -or
+    ([IO.Path]::DirectorySeparatorChar -eq '\' -and [IO.Path]::GetPathRoot($RunRoot).Length -lt 3)) {
     throw 'RunRoot must be absolute.'
 }
+$runPathRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($RunRoot)).TrimEnd('\', '/')
 $runRoot = [IO.Path]::GetFullPath($RunRoot).TrimEnd('\', '/')
-if ($runRoot -eq [IO.Path]::GetPathRoot($runRoot).TrimEnd('\', '/')) { throw 'RunRoot cannot be a volume root.' }
+if ($runRoot -eq $runPathRoot) { throw 'RunRoot cannot be a volume root.' }
 foreach ($inputRoot in @($sourceRoot, $GeneratedCoreRoot, $AuthoredContentRoot)) {
     if ([string]::IsNullOrWhiteSpace($inputRoot)) { continue }
     $inputPath = [IO.Path]::GetFullPath($inputRoot).TrimEnd('\', '/')
-    if ($runRoot -eq $inputPath -or $runRoot.StartsWith($inputPath + '\', [StringComparison]::OrdinalIgnoreCase) -or $inputPath.StartsWith($runRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    $pathComparison = if ([IO.Path]::DirectorySeparatorChar -eq '\') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if ($runRoot.Equals($inputPath, $pathComparison) -or $runRoot.StartsWith($inputPath + [IO.Path]::DirectorySeparatorChar, $pathComparison) -or $inputPath.StartsWith($runRoot + [IO.Path]::DirectorySeparatorChar, $pathComparison)) {
         throw "RunRoot must not overlap source inputs: $inputPath"
     }
 }
@@ -219,32 +222,41 @@ function Get-RelativeInputPath {
         [Parameter(Mandatory = $true)][string] $BasePath,
         [Parameter(Mandatory = $true)][string] $FullPath
     )
-    $baseUri = New-Object System.Uri(($BasePath.TrimEnd('\') + '\'))
-    $fullUri = New-Object System.Uri($FullPath)
-    return [Uri]::UnescapeDataString($baseUri.MakeRelativeUri($fullUri).ToString()).Replace('/', '\')
+    $base = [IO.Path]::GetFullPath($BasePath).TrimEnd('\', '/')
+    $full = [IO.Path]::GetFullPath($FullPath)
+    $comparison = if ([IO.Path]::DirectorySeparatorChar -eq '\') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    $prefix = $base + [IO.Path]::DirectorySeparatorChar
+    if (-not $full.StartsWith($prefix, $comparison)) { throw 'Input path escapes its declared root.' }
+    return $full.Substring($prefix.Length)
 }
 
-function Sync-NativeBuildFiles {
-    param(
-        [Parameter(Mandatory = $true)][string] $SourceRoot,
-        [Parameter(Mandatory = $true)][string] $DestinationRoot
-    )
-
-    New-Item -ItemType Directory -Force -Path $DestinationRoot | Out-Null
-    $patchedSdkInputs = @(
-        'third_party/nugget/psyqo/gpu.hh',
-        'third_party/nugget/psyqo/psyqo.mk',
-        'third_party/nugget/psyqo/src/gpu.cpp',
-        'third_party/nugget/psyqo/src/ordering-table.cpp'
-    )
-    foreach ($file in Get-ChildItem -LiteralPath $SourceRoot -Recurse -File -Force) {
-        $relative = Get-RelativeInputPath -BasePath $SourceRoot -FullPath $file.FullName
-        if ($file.Extension -notin @('.o', '.dep', '.a') -and $relative.Replace('\', '/') -notin $patchedSdkInputs) { continue }
-        $destination = Join-Path $DestinationRoot $relative
-        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
-        Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
-        (Get-Item -LiteralPath $destination).LastWriteTimeUtc = $file.LastWriteTimeUtc
+function Confirm-PinnedSdkPatch {
+    param([string]$SdkRoot, [string]$PatchPath, [string]$StateRoot)
+    $untracked = @(& git -C $SdkRoot ls-files --others --exclude-standard)
+    if ($LASTEXITCODE -ne 0 -or $untracked.Count -ne 0) { throw 'SDK has untracked inputs; refusing to patch or build them.' }
+    $status = @(& git -C $SdkRoot status --porcelain)
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect pinned SDK checkout.' }
+    if ($status.Count -eq 0) {
+        & git -C $SdkRoot apply --check $PatchPath
+        if ($LASTEXITCODE -ne 0) { throw 'Existing pinned SDK patch does not apply cleanly.' }
+        & git -C $SdkRoot apply $PatchPath
+        if ($LASTEXITCODE -ne 0) { throw 'Applying existing pinned SDK patch failed.' }
     }
+    $savedIndex = $env:GIT_INDEX_FILE
+    try {
+        $env:GIT_INDEX_FILE = Join-Path $StateRoot 'sdk-patch.index'
+        & git -C $SdkRoot read-tree HEAD
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare isolated SDK patch proof index.' }
+        & git -C $SdkRoot apply --cached $PatchPath
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot derive the exact pinned SDK patch proof.' }
+        $expected = (@(& git -C $SdkRoot diff --no-ext-diff --no-textconv --binary --full-index --cached HEAD) -join [Environment]::NewLine)
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot read expected SDK patch proof.' }
+        $actual = (@(& git -C $SdkRoot diff --no-ext-diff --no-textconv --binary --full-index HEAD) -join [Environment]::NewLine)
+        if ($LASTEXITCODE -ne 0 -or $expected -cne $actual) { throw 'SDK changes differ from the existing required patch.' }
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { return ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($actual)))).Replace('-', '').ToLowerInvariant() }
+        finally { $sha.Dispose() }
+    } finally { $env:GIT_INDEX_FILE = $savedIndex }
 }
 
 function Copy-InputPath {
@@ -310,10 +322,6 @@ try {
     if ($sdkRevision.ToLowerInvariant() -ne ([string]$toolchainLock.sdk.commit).ToLowerInvariant()) {
         throw "SDK revision mismatch: expected $($toolchainLock.sdk.commit), got $sdkRevision"
     }
-    $sdkStatus = @(& git -c "safe.directory=$sdkSource" -C $sdkSource status --porcelain --untracked-files=all 2>$null)
-    if ($sdkStatus.Count -ne 0) {
-        throw "SDK checkout is dirty at $sdkSource"
-    }
     $mathSource = Join-Path $sourceRoot 'third_party\uC-sdk'
     $mathRevision = Get-GitRevision -RepositoryPath $mathSource
     if ($mathRevision.ToLowerInvariant() -ne ([string]$toolchainLock.math.commit).ToLowerInvariant()) {
@@ -326,7 +334,18 @@ try {
     if ([string]::IsNullOrWhiteSpace($NativeObjectCacheRoot)) {
         $NativeObjectCacheRoot = Join-Path (Split-Path -Parent $runRoot) 'native-objects'
     }
-    $NativeObjectCacheRoot = [IO.Path]::GetFullPath($NativeObjectCacheRoot)
+    if (-not [IO.Path]::IsPathRooted($NativeObjectCacheRoot) -or ([IO.Path]::DirectorySeparatorChar -eq '\' -and [IO.Path]::GetPathRoot($NativeObjectCacheRoot).Length -lt 3)) { throw 'NativeObjectCacheRoot must be absolute.' }
+    $cachePathRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($NativeObjectCacheRoot)).TrimEnd('\', '/')
+    $NativeObjectCacheRoot = [IO.Path]::GetFullPath($NativeObjectCacheRoot).TrimEnd('\', '/')
+    if ($NativeObjectCacheRoot -eq $cachePathRoot) { throw 'NativeObjectCacheRoot cannot be a volume root.' }
+    foreach ($inputRoot in @($sourceRoot, $GeneratedCoreRoot, $AuthoredContentRoot)) {
+        if ([string]::IsNullOrWhiteSpace($inputRoot)) { continue }
+        $inputPath = [IO.Path]::GetFullPath($inputRoot).TrimEnd('\', '/')
+        $comparison = if ([IO.Path]::DirectorySeparatorChar -eq '\') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+        if ($NativeObjectCacheRoot.Equals($inputPath, $comparison) -or $NativeObjectCacheRoot.StartsWith($inputPath + [IO.Path]::DirectorySeparatorChar, $comparison) -or $inputPath.StartsWith($NativeObjectCacheRoot + [IO.Path]::DirectorySeparatorChar, $comparison)) {
+            throw "NativeObjectCacheRoot must not overlap source inputs: $inputPath"
+        }
+    }
     $sdkSubmoduleRevisions = [ordered]@{}
     foreach ($submodule in $toolchainLock.sdk.submodules.PSObject.Properties) {
         $submoduleRelative = ([string]$submodule.Name).Replace('/', '\')
@@ -341,31 +360,11 @@ try {
     $status = @(& git -c "safe.directory=$sourceRoot" -C $sourceRoot status --porcelain 2>$null)
     $dirty = $status.Count -gt 0
 
-    $allowFiles = @(
-        'Makefile',
-        'toolchain.lock.json',
-        'scripts\check-retail-memory.py',
-        $sdkPatchRelative
-    )
-    $allowDirectories = @(
-        'linker',
-        'src',
-        'third_party\nugget',
-        'third_party\uC-sdk',
-        'third_party\newlib-float'
-    )
-    foreach ($relative in $allowFiles) {
-        Copy-InputPath -SourcePath (Join-Path $sourceRoot $relative) -DestinationRoot $runRoot -RelativeRoot (Split-Path -Parent $relative)
-    }
-    foreach ($relative in $allowDirectories) {
-        Copy-InputPath -SourcePath (Join-Path $sourceRoot $relative) -DestinationRoot $runRoot -RelativeRoot $relative
-    }
     if ($CoreBoot) {
         Copy-InputPath -SourcePath $GeneratedCoreRoot -DestinationRoot $runRoot -RelativeRoot 'generated-core'
     }
     if ($Authored) {
         Copy-InputPath -SourcePath $AuthoredContentRoot -DestinationRoot $runRoot -RelativeRoot 'authored-content'
-        Copy-InputPath -SourcePath (Join-Path $sourceRoot 'scripts\embed-authored-assets.py') -DestinationRoot $runRoot -RelativeRoot 'scripts'
         # The packer runs inside the container from /work, so declared sources are rewritten to the copied tree.
         $declared = Get-Content -LiteralPath $AuthoredDeclarations -Raw | ConvertFrom-Json
         $containerFiles = @()
@@ -380,40 +379,22 @@ try {
         [IO.File]::WriteAllText((Join-Path $runRoot 'authored-declarations.json'), ([ordered]@{ files = $containerFiles } | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
     }
 
-    $sdkCopy = Join-Path $runRoot 'third_party\nugget'
-    $patchCopy = Join-Path $runRoot $sdkPatchRelative
-    $patchCheck = Invoke-CapturedProcess -FilePath 'git.exe' -ArgumentList @('-C', $sdkCopy, 'apply', '--check', '--unsafe-paths', $patchCopy) -WorkingDirectory $runRoot -StdoutPath (Join-Path $runRoot 'patch-check.stdout.log') -StderrPath (Join-Path $runRoot 'patch-check.stderr.log')
-    Merge-ProcessLogs -StdoutPath $patchCheck.StdoutPath -StderrPath $patchCheck.StderrPath -CombinedPath (Join-Path $runRoot 'patch-check.log')
-    $patchCheckExit = $patchCheck.ExitCode
-    if ($patchCheckExit -ne 0) {
-        $failureExitCode = $patchCheckExit
-        throw ("SDK frame-completion patch check failed with exit code {0}{1}{2}" -f $patchCheckExit, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $patchCheck.StdoutPath -StderrPath $patchCheck.StderrPath))
-    }
-    $patchApply = Invoke-CapturedProcess -FilePath 'git.exe' -ArgumentList @('-C', $sdkCopy, 'apply', '--unsafe-paths', $patchCopy) -WorkingDirectory $runRoot -StdoutPath (Join-Path $runRoot 'patch-apply.stdout.log') -StderrPath (Join-Path $runRoot 'patch-apply.stderr.log')
-    Merge-ProcessLogs -StdoutPath $patchApply.StdoutPath -StderrPath $patchApply.StderrPath -CombinedPath (Join-Path $runRoot 'patch-apply.log')
-    $patchApplyExit = $patchApply.ExitCode
-    if ($patchApplyExit -ne 0) {
-        $failureExitCode = $patchApplyExit
-        throw ("SDK frame-completion patch application failed with exit code {0}{1}{2}" -f $patchApplyExit, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $patchApply.StdoutPath -StderrPath $patchApply.StderrPath))
-    }
+    $patchCopy = Join-Path $sourceRoot $sdkPatchRelative
+    $sdkPatchDiffSha256 = Confirm-PinnedSdkPatch -SdkRoot $sdkSource -PatchPath $patchCopy -StateRoot $runRoot
+
     if ($sceneModules) {
         foreach ($relativeHeader in @('helcpp_config.hpp', 'runtime/feature_config.hpp')) {
             if (-not (Test-Path -LiteralPath (Join-Path $runRoot ('generated-core/' + $relativeHeader)) -PathType Leaf)) {
                 throw "Scene modules require the composed native configuration header: $relativeHeader"
             }
         }
-        foreach ($scriptName in @('build-scene-modules.py', 'pack-scene-module.py', 'pack-scene-module-disc.py', 'write-scene-module-metadata.py')) {
-            Copy-InputPath -SourcePath (Join-Path $sourceRoot ('scripts\' + $scriptName)) -DestinationRoot $runRoot -RelativeRoot 'scripts'
-        }
         $moduleTask = Join-Path $runRoot 'scene-modules'
         New-Item -ItemType Directory -Path $moduleTask -Force | Out-Null
         Copy-Item -LiteralPath $SceneModulePlan -Destination (Join-Path $moduleTask 'partition-plan.json') -Force
     }
 
-    # The PSYQo SDK rules emit .o/.dep files beside sources and libpsyqo.a beside
-    # the SDK makefile. Keep those files in the disposable run tree during the build,
-    # then mirror only those compiler outputs into a separate profile/flags cache.
-    # Source files and final artifacts remain isolated in their immutable run folder.
+    # Product/SDK sources remain in actual read-only mounts. Compiler products
+    # live in one fixed external cache, invalidated only when native flags change.
     $nativeFingerprintInput = @(
         $dockerImage,
         [string]$toolchainLock.sdk.commit,
@@ -426,7 +407,7 @@ try {
         [string][bool]$Authored,
         [string][bool]$CpuProfile,
         [string][bool]$sceneModules,
-        (Get-FileHash -LiteralPath (Join-Path $runRoot 'Makefile') -Algorithm SHA256).Hash.ToLowerInvariant(),
+        (Get-FileHash -LiteralPath (Join-Path $sourceRoot 'Makefile') -Algorithm SHA256).Hash.ToLowerInvariant(),
         $(if ($sceneModules) { (Get-FileHash -LiteralPath $SceneModulePlan -Algorithm SHA256).Hash.ToLowerInvariant() } else { '' }),
         $(if ($sceneModules) { (Get-FileHash -LiteralPath (Join-Path $runRoot 'generated-core/helcpp_config.hpp') -Algorithm SHA256).Hash.ToLowerInvariant() } else { '' }),
         $(if ($sceneModules) { (Get-FileHash -LiteralPath (Join-Path $runRoot 'generated-core/runtime/feature_config.hpp') -Algorithm SHA256).Hash.ToLowerInvariant() } else { '' }),
@@ -439,23 +420,27 @@ try {
     } finally {
         $fingerprintHasher.Dispose()
     }
-    $nativeCachePath = Join-Path $NativeObjectCacheRoot ('objects-' + $nativeFingerprint)
-    # The fixed run directory may contain another configuration's objects. Restore
-    # only the selected cache after clearing those leftovers, never merge them.
+    $nativeCachePath = Join-Path $NativeObjectCacheRoot 'objects'
+    New-Item -ItemType Directory -Force -Path $nativeCachePath | Out-Null
     . (Join-Path $PSScriptRoot 'native-object-cache.ps1')
-    Reset-NativeCompilerOutputs -Root $runRoot
-    if (Test-Path -LiteralPath $nativeCachePath -PathType Container) {
-        Sync-NativeBuildFiles -SourceRoot $nativeCachePath -DestinationRoot $runRoot
+    $fingerprintPath = Join-Path $NativeObjectCacheRoot 'native-fingerprint.txt'
+    if (-not (Test-Path -LiteralPath $fingerprintPath) -or [IO.File]::ReadAllText($fingerprintPath) -cne $nativeFingerprint) {
+        Reset-NativeCompilerOutputs -Root $nativeCachePath
+        [IO.File]::WriteAllText($fingerprintPath, $nativeFingerprint)
     }
-
-    $inputHashes = @(Get-InputHashes -Root $runRoot)
+    $inputHashes = @(Get-InputHashes -Root $runRoot | Where-Object { $_.path -ne 'Makefile' -and $_.path -ne 'toolchain.lock.json' })
+    $sourceInputHashes = @(Get-InputHashes -Root $sourceRoot)
+    $readOnlyMounts = @()
+    foreach ($relative in @('Makefile', 'toolchain.lock.json', 'src', 'scripts', 'linker', 'third_party')) {
+        $readOnlyMounts += @('--mount', ('type=bind,source={0},target=/work/{1},readonly' -f (Join-Path $sourceRoot $relative), $relative))
+    }
+    $containerPrefix = @('run', '--rm', '--mount', "type=bind,source=$runRoot,target=/work",
+        '--mount', "type=bind,source=$NativeObjectCacheRoot,target=/nativecache") + $readOnlyMounts +
+        @('--env', 'NATIVE_OBJECT_ROOT=/nativecache/objects', '--workdir', '/work')
     $buildLog = Join-Path $runRoot 'build.log'
     $dockerStdout = Join-Path $runRoot 'docker.stdout.log'
     $dockerStderr = Join-Path $runRoot 'docker.stderr.log'
-    $dockerArgs = @(
-        'run', '--rm',
-        '--mount', "type=bind,source=$runRoot,target=/work",
-        '--workdir', '/work',
+    $dockerArgs = $containerPrefix + @(
         $dockerImage,
         'make',
         "BUILD=$Configuration",
@@ -467,7 +452,7 @@ try {
         'all'
     )
     if ($sceneModules) {
-        $dockerArgs = @('run', '--rm', '--mount', "type=bind,source=$runRoot,target=/work", '--workdir', '/work',
+        $dockerArgs = $containerPrefix + @(
             $dockerImage, 'python3', '-B', '/work/scripts/build-scene-modules.py',
             '--plan', '/work/scene-modules/partition-plan.json', '--configuration', $Configuration,
             '--sdk-defines', ($SdkDefine -join ' '))
@@ -481,14 +466,13 @@ try {
         $dockerUser = '{0}:{1}' -f $nativeUid, $nativeGid
         $dockerArgs = @($dockerArgs[0..1]) + @('--user', $dockerUser) + @($dockerArgs[2..($dockerArgs.Count - 1)])
     }
-    $dockerResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $dockerArgs -WorkingDirectory $runRoot -StdoutPath $dockerStdout -StderrPath $dockerStderr
+    $dockerResult = Invoke-CapturedProcess -FilePath 'docker' -ArgumentList $dockerArgs -WorkingDirectory $runRoot -StdoutPath $dockerStdout -StderrPath $dockerStderr
     Merge-ProcessLogs -StdoutPath $dockerResult.StdoutPath -StderrPath $dockerResult.StderrPath -CombinedPath $buildLog
     $dockerExit = $dockerResult.ExitCode
     if ($dockerExit -ne 0) {
         $failureExitCode = $dockerExit
         throw ("Docker build failed with exit code {0}{1}{2}" -f $dockerExit, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $dockerResult.StdoutPath -StderrPath $dockerResult.StderrPath))
     }
-    Sync-NativeBuildFiles -SourceRoot $runRoot -DestinationRoot $nativeCachePath
 
     if ($sceneModules) {
         $moduleReceipt = Get-Content -LiteralPath (Join-Path $runRoot 'out\scene-modules-receipt.json') -Raw | ConvertFrom-Json
@@ -508,7 +492,7 @@ try {
             sdk = [ordered]@{ revision = $sdkRevision; submodules = $sdkSubmoduleRevisions }
             math = [ordered]@{ revision = $mathRevision }
             generated_core_root = $GeneratedCoreRoot; authored_content_root = $AuthoredContentRoot
-            copied_inputs = $inputHashes; artifacts = $moduleArtifactRecords; build_directory = $runRoot
+            copied_inputs = $inputHashes; source_inputs = $sourceInputHashes; sdk_patch_diff_sha256 = $sdkPatchDiffSha256; artifacts = $moduleArtifactRecords; build_directory = $runRoot
         }
         $moduleManifestPath = Join-Path $runRoot 'manifest.json'
         $moduleManifest | ConvertTo-Json -Depth 20 | Out-File -LiteralPath $moduleManifestPath -Encoding utf8
@@ -526,16 +510,13 @@ try {
 
     $validationStdout = Join-Path $runRoot 'retail-memory-check.stdout.log'
     $validationStderr = Join-Path $runRoot 'retail-memory-check.stderr.log'
-    $validationArgs = @(
-        'run', '--rm',
-        '--mount', "type=bind,source=$runRoot,target=/work",
-        '--workdir', '/work',
+    $validationArgs = $containerPrefix + @(
         $dockerImage,
         'python3', '-B', '/work/scripts/check-retail-memory.py',
         '--elf', '/work/out/helengine_ps1.elf',
         '--exe', '/work/out/helengine_ps1.ps-exe'
     )
-    $validationResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $validationArgs -WorkingDirectory $runRoot -StdoutPath $validationStdout -StderrPath $validationStderr
+    $validationResult = Invoke-CapturedProcess -FilePath 'docker' -ArgumentList $validationArgs -WorkingDirectory $runRoot -StdoutPath $validationStdout -StderrPath $validationStderr
     $validationLog = Join-Path $runRoot 'retail-memory-check.log'
     Merge-ProcessLogs -StdoutPath $validationResult.StdoutPath -StderrPath $validationResult.StderrPath -CombinedPath $validationLog
     $validationExit = $validationResult.ExitCode
@@ -546,7 +527,7 @@ try {
     $validationOutput = @(Get-Content -LiteralPath $validationResult.StdoutPath)
     $validationSummary = ($validationOutput -join [Environment]::NewLine) | ConvertFrom-Json
 
-    $toolchainLockCopy = Join-Path $runRoot 'toolchain.lock.json'
+    $toolchainLockCopy = Join-Path $sourceRoot 'toolchain.lock.json'
     $patchHash = (Get-FileHash -LiteralPath $patchCopy -Algorithm SHA256).Hash.ToLowerInvariant()
     $lockHash = (Get-FileHash -LiteralPath $toolchainLockCopy -Algorithm SHA256).Hash.ToLowerInvariant()
     $artifactRecords = @()
@@ -578,6 +559,8 @@ try {
         toolchain_lock_sha256 = $lockHash
         sdk_patch_sha256 = $patchHash
         copied_inputs = $inputHashes
+        source_inputs = $sourceInputHashes
+        sdk_patch_diff_sha256 = $sdkPatchDiffSha256
         artifacts = $artifactRecords
         retail_memory = $validationSummary
         build_directory = (Resolve-Path -LiteralPath $runRoot).Path

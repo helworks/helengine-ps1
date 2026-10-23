@@ -13,7 +13,8 @@ function Reset-NativeCompilerOutputs {
     $files=@($items | Where-Object {!$_.PSIsContainer -and $_.Extension -in @('.o','.dep','.a')})
     foreach($file in $files){
         $target=[IO.Path]::GetFullPath($file.FullName)
-        if(!$target.StartsWith($resolved+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Compiler output escapes the selected root.'}
+        $comparison=if([IO.Path]::DirectorySeparatorChar -eq '\'){[StringComparison]::OrdinalIgnoreCase}else{[StringComparison]::Ordinal}
+        if(!$target.StartsWith($resolved+[IO.Path]::DirectorySeparatorChar,$comparison)){throw 'Compiler output escapes the selected root.'}
     }
     foreach($file in $files){Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop}
     Write-Host "Reset native compiler outputs: $($files.Count) files"

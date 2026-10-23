@@ -1,3 +1,20 @@
+# Compile actual read-only checkout inputs; all compiler products are external.
+PS1_PLATFORM_MAKEFILE := $(abspath $(lastword $(MAKEFILE_LIST)))
+PS1_SOURCE_ROOT ?= $(CURDIR)
+NATIVE_OBJECT_ROOT ?= $(abspath /work/native-objects)
+ps1_relative = $(patsubst $(PS1_SOURCE_ROOT)/%,%,$(abspath $(1)))
+ps1_object = $(NATIVE_OBJECT_ROOT)/$(basename $(call ps1_relative,$(1))).o
+ps1_objects = $(foreach source,$(1),$(call ps1_object,$(source)))
+ps1_deps = $(patsubst %.o,%.dep,$(call ps1_objects,$(1)))
+# Override before the SDK expands its link prerequisites. Include only existing
+# depfiles; compilation refreshes them with -MMD, never a makefile-remake pass.
+override OBJS = $(call ps1_objects,$(SRCS))
+PS1_ALL_DEPS = $(call ps1_deps,$(SRCS))
+override DEPS = $(wildcard $(PS1_ALL_DEPS))
+
+ifeq ($(PS1_BUILD_SDK),1)
+include $(PS1_SOURCE_ROOT)/third_party/nugget/psyqo/Makefile
+else
 TARGET = helengine_ps1
 TYPE = ps-exe
 BINDIR ?= out/
@@ -6,8 +23,6 @@ BUILD ?= Release
 CXXFLAGS += -std=c++20
 # Refresh the include graph whenever an object recompiles, including headers
 # introduced by another header. The SDK's standalone .dep rule tracks only source changes.
-CXXFLAGS += -MMD -MP -MF $(@:.o=.dep)
-CFLAGS += -MMD -MP -MF $(@:.o=.dep)
 CPPFLAGS += -Isrc
 EXTRA_LDSCRIPT = linker/retail-memory.ld
 DEMO_MODE ?= Clear
@@ -106,10 +121,10 @@ SRCS += src/platform/ps1/modules/Ps1CodeModuleProvider.cpp \
 else
 SRCS += authored/authored_assets.s
 endif
-CORE_RTTI_OBJS = $(AUTHORED_CORE_SRCS:.cpp=.o)
+CORE_RTTI_OBJS = $(call ps1_objects,$(AUTHORED_CORE_SRCS))
 else
 SRCS += src/platform/ps1/Ps1CoreBoot.cpp
-CORE_RTTI_OBJS = src/platform/ps1/Ps1CoreBoot.o
+CORE_RTTI_OBJS = $(call ps1_objects,src/platform/ps1/Ps1CoreBoot.cpp)
 endif
 FDLIBM_ROOT = third_party/uC-sdk/libm/src
 FDLIBM_NAMES = s_atan s_scalbn s_copysign \
@@ -120,12 +135,23 @@ SRCS += $(FDLIBM_SRCS)
 # Real's binary32 math uses genuine float kernels, independent of authored double math.
 FLOAT_FDLIBM_SRCS = $(wildcard third_party/newlib-float/*.c)
 SRCS += $(FLOAT_FDLIBM_SRCS)
-$(FLOAT_FDLIBM_SRCS:.c=.o) $(FLOAT_FDLIBM_SRCS:.c=.dep): CFLAGS += -fsingle-precision-constant -fno-builtin -ffp-contract=off
+$(call ps1_objects,$(FLOAT_FDLIBM_SRCS)): CFLAGS += -fsingle-precision-constant -fno-builtin -ffp-contract=off
 
-$(FDLIBM_SRCS:.c=.o) $(FDLIBM_SRCS:.c=.dep): CFLAGS += -D__LITTLE_ENDIAN -D_IEEE_LIBM
+$(call ps1_objects,$(FDLIBM_SRCS)): CFLAGS += -D__LITTLE_ENDIAN -D_IEEE_LIBM
 endif
 
-include third_party/nugget/psyqo/psyqo.mk
+# Preserve psyqo.mk's include/ABI flags while redirecting its library recipe.
+PSYQODIR := $(abspath third_party/nugget/psyqo)/
+PS1_SDK_LIBRARY := $(NATIVE_OBJECT_ROOT)/third_party/nugget/psyqo/libpsyqo.a
+LIBRARIES += $(PS1_SDK_LIBRARY)
+CPPFLAGS += -I$(PSYQODIR)../third_party/EASTL/include -I$(PSYQODIR)../third_party/EABase/include/Common
+CXXFLAGS += -std=c++20
+include third_party/nugget/common.mk
+
+$(PS1_SDK_LIBRARY):
+	$(MAKE) -C '$(PSYQODIR)' -f '$(PS1_PLATFORM_MAKEFILE)' PS1_BUILD_SDK=1 PS1_SOURCE_ROOT='$(PS1_SOURCE_ROOT)' NATIVE_OBJECT_ROOT='$(NATIVE_OBJECT_ROOT)' BINDIR='$(dir $(PS1_SDK_LIBRARY))' BUILD=$(BUILD) DEFINES="$(DEFINES)" CPPFLAGS_$(BUILD)="$(CPPFLAGS_$(BUILD))" LDFLAGS_$(BUILD)="$(LDFLAGS_$(BUILD))"
+
+.PHONY: $(PS1_SDK_LIBRARY)
 
 ifeq ($(SCENE_MODULES),1)
 # INSERT scripts precede the primary script; nooverlay must set the heap base first.
@@ -140,26 +166,26 @@ authored/authored_assets.s authored/authored_assets.bin: authored-declarations.j
 	python3 -B scripts/embed-authored-assets.py --declarations authored-declarations.json \
 	    --output-archive authored/authored_assets.bin --output-assembly authored/authored_assets.s \
 	    --incbin-path authored/authored_assets.bin
-authored/authored_assets.o: authored/authored_assets.bin
+$(call ps1_objects,authored/authored_assets.s): authored/authored_assets.bin
 endif
 
 ifeq ($(CORE_BOOT),1)
-generated-core/helengine_core_unity.o $(CORE_RTTI_OBJS): CXXFLAGS += -frtti
+$(call ps1_objects,generated-core/helengine_core_unity.cpp) $(CORE_RTTI_OBJS): CXXFLAGS += -frtti
 ifeq ($(SCENE_MODULES),1)
-$(PS1_RESIDENT_CORE_SRCS:.cpp=.o) src/platform/ps1/modules/Ps1CodeModuleProvider.o src/platform/ps1/modules/Ps1DiscContent.o src/platform/ps1/modules/Ps1SceneModuleMetadata.o scene-modules/metadata/ps1_scene_module_metadata.o: CXXFLAGS += -frtti
+$(call ps1_objects,$(PS1_RESIDENT_CORE_SRCS) src/platform/ps1/modules/Ps1CodeModuleProvider.cpp src/platform/ps1/modules/Ps1DiscContent.cpp src/platform/ps1/modules/Ps1SceneModuleMetadata.cpp scene-modules/metadata/ps1_scene_module_metadata.cpp): CXXFLAGS += -frtti
 endif
 ifeq ($(AUTHORED),1)
 ifeq ($(BUILD),Release)
 # The authored frame path uses measured throughput optimization instead of the SDK size default.
-generated-core/helengine_core_unity.o: CPPFLAGS += -O3
+$(call ps1_objects,generated-core/helengine_core_unity.cpp): CPPFLAGS += -O3
 ifeq ($(SCENE_MODULES),1)
 # These hot Core units replace the unity object in the resident module build.
 # Preserve its throughput optimization without expanding every resident unit.
 PS1_RUNTIME_HOT_SRCS := $(filter generated-core/ViewportComponent.cpp generated-core/Entity.cpp generated-core/ViewportLayoutSnapshot.cpp generated-core/AuthoredLayoutScaleUtils.cpp,$(PS1_RESIDENT_CORE_SRCS))
-$(PS1_RUNTIME_HOT_SRCS:.cpp=.o): CPPFLAGS += -O3
+$(call ps1_objects,$(PS1_RUNTIME_HOT_SRCS)): CPPFLAGS += -O3
 endif
-src/platform/ps1/Ps1RenderManager2D.o src/platform/ps1/Ps1RenderManager3D.o: CPPFLAGS += -O3
-src/platform/ps1/rendering/Ps1RasterRenderer.o src/platform/ps1/rendering/Ps1FrameContext.o: CPPFLAGS += -O3
+$(call ps1_objects,src/platform/ps1/Ps1RenderManager2D.cpp src/platform/ps1/Ps1RenderManager3D.cpp): CPPFLAGS += -O3
+$(call ps1_objects,src/platform/ps1/rendering/Ps1RasterRenderer.cpp src/platform/ps1/rendering/Ps1FrameContext.cpp): CPPFLAGS += -O3
 endif
 endif
 # libsupc++ must follow libpsyqo so operator new/delete resolve to the PSYQo allocator.
@@ -168,3 +194,24 @@ endif
 # link against this freestanding SDK.
 LIBRARIES := $(LIBRARIES) $(shell $(CXX) -msoft-float -print-file-name=libsupc++.a) $(shell $(CC) -msoft-float -print-libgcc-file-name)
 endif
+
+endif # PS1_BUILD_SDK
+
+# Associate every external object with its actual source before attaching the
+# recipes. This keeps all local/uncommitted source and header changes visible.
+$(foreach source,$(SRCS),$(eval $(call ps1_object,$(source)): $(abspath $(source))))
+PS1_CPP_OBJECTS := $(call ps1_objects,$(filter %.cpp %.cc,$(SRCS)))
+PS1_C_OBJECTS := $(call ps1_objects,$(filter %.c,$(SRCS)))
+PS1_ASM_OBJECTS := $(call ps1_objects,$(filter %.s,$(SRCS)))
+
+$(PS1_CPP_OBJECTS):
+	@mkdir -p '$(@D)'
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -MMD -MP -MT '$@' -MF '$(@:.o=.dep)' -c -o '$@' '$<'
+
+$(PS1_C_OBJECTS):
+	@mkdir -p '$(@D)'
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -MT '$@' -MF '$(@:.o=.dep)' -c -o '$@' '$<'
+
+$(PS1_ASM_OBJECTS):
+	@mkdir -p '$(@D)'
+	$(CC) $(ARCHFLAGS) $(ASFLAGS) -I$(ROOTDIR) -g -c -o '$@' '$<'
