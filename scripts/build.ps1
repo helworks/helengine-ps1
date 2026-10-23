@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('SmallDebug', 'Release')]
@@ -79,7 +79,8 @@ $sourceRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $buildRoot = Join-Path (Split-Path $sourceRoot -Parent) 'builds\helengine-ps1'
 if ([string]::IsNullOrWhiteSpace($RunRoot)) { $RunRoot = $env:HELENGINE_PS1_BUILD_RUN_ROOT }
 if ([string]::IsNullOrWhiteSpace($RunRoot)) { throw 'RunRoot must name an explicit fixed native build directory.' }
-if (-not [IO.Path]::IsPathRooted($RunRoot) -or -not [IO.Path]::GetPathRoot($RunRoot).EndsWith('\')) {
+if (-not [IO.Path]::IsPathRooted($RunRoot) -or
+    ([IO.Path]::DirectorySeparatorChar -eq '\' -and [IO.Path]::GetPathRoot($RunRoot).Length -lt 3)) {
     throw 'RunRoot must be absolute.'
 }
 $runRoot = [IO.Path]::GetFullPath($RunRoot).TrimEnd('\', '/')
@@ -87,7 +88,8 @@ if ($runRoot -eq [IO.Path]::GetPathRoot($runRoot).TrimEnd('\', '/')) { throw 'Ru
 foreach ($inputRoot in @($sourceRoot, $GeneratedCoreRoot, $AuthoredContentRoot)) {
     if ([string]::IsNullOrWhiteSpace($inputRoot)) { continue }
     $inputPath = [IO.Path]::GetFullPath($inputRoot).TrimEnd('\', '/')
-    if ($runRoot -eq $inputPath -or $runRoot.StartsWith($inputPath + '\', [StringComparison]::OrdinalIgnoreCase) -or $inputPath.StartsWith($runRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    $pathComparison = if ([IO.Path]::DirectorySeparatorChar -eq '\') { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+    if ($runRoot.Equals($inputPath, $pathComparison) -or $runRoot.StartsWith($inputPath + [IO.Path]::DirectorySeparatorChar, $pathComparison) -or $inputPath.StartsWith($runRoot + [IO.Path]::DirectorySeparatorChar, $pathComparison)) {
         throw "RunRoot must not overlap source inputs: $inputPath"
     }
 }
@@ -219,9 +221,9 @@ function Get-RelativeInputPath {
         [Parameter(Mandatory = $true)][string] $BasePath,
         [Parameter(Mandatory = $true)][string] $FullPath
     )
-    $baseUri = New-Object System.Uri(($BasePath.TrimEnd('\') + '\'))
+    $baseUri = New-Object System.Uri(($BasePath.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar))
     $fullUri = New-Object System.Uri($FullPath)
-    return [Uri]::UnescapeDataString($baseUri.MakeRelativeUri($fullUri).ToString()).Replace('/', '\')
+    return [Uri]::UnescapeDataString($baseUri.MakeRelativeUri($fullUri).ToString()).Replace('/', [IO.Path]::DirectorySeparatorChar)
 }
 
 function Sync-NativeBuildFiles {
@@ -382,14 +384,14 @@ try {
 
     $sdkCopy = Join-Path $runRoot 'third_party\nugget'
     $patchCopy = Join-Path $runRoot $sdkPatchRelative
-    $patchCheck = Invoke-CapturedProcess -FilePath 'git.exe' -ArgumentList @('-C', $sdkCopy, 'apply', '--check', '--unsafe-paths', $patchCopy) -WorkingDirectory $runRoot -StdoutPath (Join-Path $runRoot 'patch-check.stdout.log') -StderrPath (Join-Path $runRoot 'patch-check.stderr.log')
+    $patchCheck = Invoke-CapturedProcess -FilePath 'git' -ArgumentList @('-C', $sdkCopy, 'apply', '--check', '--unsafe-paths', $patchCopy) -WorkingDirectory $runRoot -StdoutPath (Join-Path $runRoot 'patch-check.stdout.log') -StderrPath (Join-Path $runRoot 'patch-check.stderr.log')
     Merge-ProcessLogs -StdoutPath $patchCheck.StdoutPath -StderrPath $patchCheck.StderrPath -CombinedPath (Join-Path $runRoot 'patch-check.log')
     $patchCheckExit = $patchCheck.ExitCode
     if ($patchCheckExit -ne 0) {
         $failureExitCode = $patchCheckExit
         throw ("SDK frame-completion patch check failed with exit code {0}{1}{2}" -f $patchCheckExit, [Environment]::NewLine, (Get-ProcessFailureDetail -StdoutPath $patchCheck.StdoutPath -StderrPath $patchCheck.StderrPath))
     }
-    $patchApply = Invoke-CapturedProcess -FilePath 'git.exe' -ArgumentList @('-C', $sdkCopy, 'apply', '--unsafe-paths', $patchCopy) -WorkingDirectory $runRoot -StdoutPath (Join-Path $runRoot 'patch-apply.stdout.log') -StderrPath (Join-Path $runRoot 'patch-apply.stderr.log')
+    $patchApply = Invoke-CapturedProcess -FilePath 'git' -ArgumentList @('-C', $sdkCopy, 'apply', '--unsafe-paths', $patchCopy) -WorkingDirectory $runRoot -StdoutPath (Join-Path $runRoot 'patch-apply.stdout.log') -StderrPath (Join-Path $runRoot 'patch-apply.stderr.log')
     Merge-ProcessLogs -StdoutPath $patchApply.StdoutPath -StderrPath $patchApply.StderrPath -CombinedPath (Join-Path $runRoot 'patch-apply.log')
     $patchApplyExit = $patchApply.ExitCode
     if ($patchApplyExit -ne 0) {
@@ -481,7 +483,7 @@ try {
         $dockerUser = '{0}:{1}' -f $nativeUid, $nativeGid
         $dockerArgs = @($dockerArgs[0..1]) + @('--user', $dockerUser) + @($dockerArgs[2..($dockerArgs.Count - 1)])
     }
-    $dockerResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $dockerArgs -WorkingDirectory $runRoot -StdoutPath $dockerStdout -StderrPath $dockerStderr
+    $dockerResult = Invoke-CapturedProcess -FilePath 'docker' -ArgumentList $dockerArgs -WorkingDirectory $runRoot -StdoutPath $dockerStdout -StderrPath $dockerStderr
     Merge-ProcessLogs -StdoutPath $dockerResult.StdoutPath -StderrPath $dockerResult.StderrPath -CombinedPath $buildLog
     $dockerExit = $dockerResult.ExitCode
     if ($dockerExit -ne 0) {
@@ -535,7 +537,7 @@ try {
         '--elf', '/work/out/helengine_ps1.elf',
         '--exe', '/work/out/helengine_ps1.ps-exe'
     )
-    $validationResult = Invoke-CapturedProcess -FilePath 'docker.exe' -ArgumentList $validationArgs -WorkingDirectory $runRoot -StdoutPath $validationStdout -StderrPath $validationStderr
+    $validationResult = Invoke-CapturedProcess -FilePath 'docker' -ArgumentList $validationArgs -WorkingDirectory $runRoot -StdoutPath $validationStdout -StderrPath $validationStderr
     $validationLog = Join-Path $runRoot 'retail-memory-check.log'
     Merge-ProcessLogs -StdoutPath $validationResult.StdoutPath -StderrPath $validationResult.StderrPath -CombinedPath $validationLog
     $validationExit = $validationResult.ExitCode
