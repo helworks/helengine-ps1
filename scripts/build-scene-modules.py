@@ -40,6 +40,22 @@ def module_gc_link_flags(module_id, modules, definitions):
     return ["-Wl,--gc-sections", *["-Wl,-u," + symbol for symbol in sorted(roots)]]
 
 
+def module_arena_layout(resident_bss_end, slots):
+    """Reserve aligned physical slots only when the resident actually loads overlays."""
+    if not slots:
+        return {"arenaEnd": resident_bss_end,
+                "linkerScript": "/* No overlay modules: retain the SDK's unpadded resident heap boundary. */\n"}
+    address = (resident_bss_end + 2047) & ~2047
+    script = "SECTIONS { .ps1_module_arenas " + hex(address) + " (NOLOAD) : {\n"
+    for index in sorted(slots):
+        slots[index]["loadAddress"] = address
+        capacity = slots[index]["capacityBytes"]
+        script += "__ps1_module_slot_" + str(index) + " = .; . += " + str(capacity) + ";\n"
+        address += capacity
+    script += "} } INSERT AFTER .sbss;\n__heap_base = ADDR(.ps1_module_arenas) + SIZEOF(.ps1_module_arenas);\n__heap_start = __heap_base;\n"
+    return {"arenaEnd": address, "linkerScript": script}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", required=True, type=pathlib.Path)
@@ -246,10 +262,8 @@ def main():
         _, symbols = link_module(module["moduleId"], False)
         slots[module["slot"]]["capacityBytes"] = max(slots[module["slot"]]["capacityBytes"],
             (symbols["__module_end"] - symbols["__module_start"] + 2047) & ~2047)
-    address = (resident_symbols["__bss_end"] + 2047) & ~2047
-    for index in sorted(slots):
-        slots[index]["loadAddress"] = address
-        address += slots[index]["capacityBytes"]
+    arena_layout = module_arena_layout(resident_symbols["__bss_end"], slots)
+    address = arena_layout["arenaEnd"]
     plan["slots"] = list(slots.values())
     measured_plan.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
     ram_fits = address + cache_budget + args.runtime_heap_reserve_bytes <= 0x801f0000
@@ -277,11 +291,7 @@ def main():
     (task / "memory-measurement-receipt.json").write_text(json.dumps(measurement, indent=2) + "\n", encoding="utf-8")
     if not ram_fits:
         raise ValueError("Measured resident + overlay arenas + scene cache + runtime heap reserve exceed retail RAM")
-    arena_script = "SECTIONS { .ps1_module_arenas " + hex((resident_symbols["__bss_end"] + 2047) & ~2047) + " (NOLOAD) : {\n"
-    for index in sorted(slots):
-        arena_script += "__ps1_module_slot_" + str(index) + " = .; . += " + str(slots[index]["capacityBytes"]) + ";\n"
-    arena_script += "} } INSERT AFTER .sbss;\n__heap_base = ADDR(.ps1_module_arenas) + SIZEOF(.ps1_module_arenas);\n__heap_start = __heap_base;\n"
-    (task / "arenas.ld").write_text(arena_script, encoding="utf-8")
+    (task / "arenas.ld").write_text(arena_layout["linkerScript"], encoding="utf-8")
     metadata()
     resident_elf, resident_symbols = make_resident()
     if any(resident_symbols[name] != address for name in ("__bss_end", "__heap_base", "__heap_start")):
