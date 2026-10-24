@@ -57,12 +57,15 @@ def peak_from_route_log(csv_text: str, column: str) -> int:
     peak = 0
     for row in reader:
         peak = max(peak, int(row[column].strip(), 0))
+    if peak == 0:
+        raise ValueError("watch column %s never left 0: wrong address or allocator never ran" % column)
     return peak
 
 
 def report(peak_heap_end: int, heap_start: int, ceiling: int = 0x801F0000, margin: int = 16 * 1024) -> dict:
-    """Summarise heap use. An allocator that never ran (end 0) counts as zero bytes."""
-    peak_heap_end = max(peak_heap_end, heap_start)
+    """Summarise heap use; a heap end below heap_start means a wrong watch address."""
+    if peak_heap_end < heap_start:
+        raise ValueError("peak heap end 0x%08x is below __heap_start 0x%08x: address outside the heap" % (peak_heap_end, heap_start))
     free_bytes = ceiling - peak_heap_end
     return {
         "peak_bytes": peak_heap_end - heap_start,
@@ -96,10 +99,14 @@ def main(argv=None) -> int:
         return 0
     column = "ram_%08x" % watch
     highest = 0
-    for path in args.route_log:
-        with open(path, encoding="utf-8") as handle:
-            highest = max(highest, peak_from_route_log(handle.read(), column))
-    print(json.dumps(report(highest, heap_start), indent=2))
+    try:
+        for path in args.route_log:
+            with open(path, encoding="utf-8") as handle:
+                highest = max(highest, peak_from_route_log(handle.read(), column))
+        print(json.dumps(report(highest, heap_start), indent=2))
+    except (ValueError, LookupError) as error:
+        print("heap_peak: %s" % error, file=sys.stderr)
+        return 1
     return 0
 
 

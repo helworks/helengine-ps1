@@ -32,6 +32,17 @@ class HeapPeakTests(unittest.TestCase):
         csv_text = "route_tick,ram_8012345c\n" +"0,0\n1,1500000\n2,1200000\n"
         self.assertEqual(1500000, heap_peak.peak_from_route_log(csv_text, "ram_8012345c"))
 
+    def test_all_zero_column_raises(self):
+        with self.assertRaisesRegex(ValueError, "never left 0"):
+            heap_peak.peak_from_route_log("route_tick,ram_8012345c
+0,0
+1,0
+", "ram_8012345c")
+
+    def test_peak_below_heap_start_raises(self):
+        with self.assertRaisesRegex(ValueError, "below __heap_start"):
+            heap_peak.report(0x80100000, 0x80158000)
+
     def test_report_fails_inside_margin(self):
         result = heap_peak.report(0x801F0000 - 8 * 1024, 0x80158000)
         self.assertEqual(8 * 1024, result["free_bytes"])
