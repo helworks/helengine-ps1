@@ -1,68 +1,93 @@
+using System.Reflection;
+
 namespace helengine.ps1.platformbuilder.tests;
 
 /// <summary>Exercises the native executor's fixed-directory handoff through a real child PowerShell wrapper without invoking the SDK.</summary>
 public sealed class PlayStation1NativeBuildRunRootTests {
-    /// <summary>Rejects module builds before reports, plan parsing or candidate compilation when the fixed run directory is absent.</summary>
+    /// <summary>Monolith builds without the environment variable bind the fixed native folder beside the output folder.</summary>
     [Fact]
-    public void Build_WhenSceneModulesHaveNoRunRoot_RejectsBeforePreparingCandidates() {
-        string root = CreateFixture("module-missing-root");
-        string generated = Path.Combine(root, "generated");
-        Directory.CreateDirectory(Path.Combine(generated, "scene-modules"));
-        File.WriteAllText(Path.Combine(generated, "scene-modules", "source-plan.json"), "invalid plan must not be parsed");
-        string previousRepository = Environment.GetEnvironmentVariable(builder.PlayStation1NativeBuildExecutor.RepositoryRootEnvironmentVariableName);
-        string previousRunRoot = Environment.GetEnvironmentVariable(builder.PlayStation1NativeBuildExecutor.BuildRunRootEnvironmentVariableName);
+    public void Monolith_without_env_passes_sibling_native_run_root() {
+        string root = CreateFixture("monolith-default");
         try {
-            Environment.SetEnvironmentVariable(builder.PlayStation1NativeBuildExecutor.RepositoryRootEnvironmentVariableName, Path.Combine(root, "workspace", "helengine-ps1"));
-            Environment.SetEnvironmentVariable(builder.PlayStation1NativeBuildExecutor.BuildRunRootEnvironmentVariableName, null);
-            InvalidOperationException error = Assert.Throws<InvalidOperationException>(() => new builder.PlayStation1NativeBuildExecutor().Build(
-                generated, Path.Combine(root, "content"), Path.Combine(root, "declarations.json"), Path.Combine(root, "output"), CancellationToken.None));
-            Assert.Contains(builder.PlayStation1NativeBuildExecutor.BuildRunRootEnvironmentVariableName, error.Message, StringComparison.Ordinal);
-            Assert.False(Directory.Exists(Path.Combine(root, "output", "scene-module-candidates")));
+            string output = Path.Combine(root, "out", "package");
+            string recordedRunRoot = RunExecutor(root, null, output);
+            Assert.Equal(Path.GetFullPath(Path.Combine(root, "out", "native")), recordedRunRoot);
         } finally {
-            Environment.SetEnvironmentVariable(builder.PlayStation1NativeBuildExecutor.RepositoryRootEnvironmentVariableName, previousRepository);
-            Environment.SetEnvironmentVariable(builder.PlayStation1NativeBuildExecutor.BuildRunRootEnvironmentVariableName, previousRunRoot);
+            DeleteFixture(root);
         }
     }
 
-    /// <summary>Verifies explicit fixed-directory binding survives spaces and that the absent-setting legacy route still omits the argument.</summary>
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void Build_WhenWrapperRuns_ForwardsConfiguredRootAndPreservesLegacyAbsence(bool configured) {
-        string root = CreateFixture(configured ? "configured-root" : "legacy-root");
-        string repository = Path.Combine(root, "workspace", "helengine-ps1");
+    /// <summary>Scene-module builds without the environment variable resolve the same sibling native folder instead of throwing.</summary>
+    [Fact]
+    public void Scene_modules_without_env_pass_sibling_native_run_root() {
+        string root = CreateFixture("module-default");
+        try {
+            string generated = Path.Combine(root, "generated");
+            Directory.CreateDirectory(Path.Combine(generated, "scene-modules"));
+            File.WriteAllText(Path.Combine(generated, "scene-modules", "source-plan.json"), "{}");
+            string output = Path.Combine(root, "out", "package");
+            MethodInfo method = typeof(builder.PlayStation1NativeBuildExecutor).GetMethod("ResolveBuildRunRoot", BindingFlags.NonPublic | BindingFlags.Static);
+            string resolved = (string)method.Invoke(null, new object[] { Path.Combine(root, "workspace", "helengine-ps1"), generated, output, string.Empty });
+            Assert.Equal(Path.GetFullPath(Path.Combine(root, "out", "native")), resolved);
+        } finally {
+            DeleteFixture(root);
+        }
+    }
+
+    /// <summary>An explicit environment run root wins over the default and is passed through unchanged, including spaces.</summary>
+    [Fact]
+    public void Explicit_env_run_root_wins() {
+        string root = CreateFixture("explicit-root");
+        try {
+            string custom = Path.Combine(root, "custom run root");
+            string recordedRunRoot = RunExecutor(root, custom, Path.Combine(root, "out", "package"));
+            Assert.Equal(Path.GetFullPath(custom), recordedRunRoot);
+        } finally {
+            DeleteFixture(root);
+        }
+    }
+
+    /// <summary>Runs the executor against the fixture wrapper with the run-root variable set or cleared, returning the run root the wrapper received.</summary>
+    /// <param name="root">Fixture root created by CreateFixture.</param>
+    /// <param name="configuredRunRoot">Value for the run-root environment variable, or null to leave it unset.</param>
+    /// <param name="output">Output root handed to the executor.</param>
+    /// <returns>The run root recorded in the wrapper manifest, asserted to have been bound as an argument.</returns>
+    static string RunExecutor(string root, string configuredRunRoot, string output) {
         string generated = Path.Combine(root, "generated");
         Directory.CreateDirectory(generated);
         File.WriteAllText(Path.Combine(generated, "helengine_core_unity.cpp"), "// Empty wrapper handoff fixture; no SDK translation units.\n");
         File.WriteAllText(Path.Combine(generated, "cpp-conversion-report.json"), """
             {"diagnosticsSchema":"cpp-conversion-report.v2","diagnosticsVersion":2,"hasErrors":false,"errorCount":0,"warningCount":0,"infoCount":0,"diagnostics":[]}
             """);
-        string configuredRoot = Path.Combine(root, "workspace", "builds", "helengine-ps1", "fixed native run root");
-        string expectedRoot = configured ? configuredRoot : Path.Combine(root, "workspace", "builds", "helengine-ps1", "legacy-fixed");
         string previousRepository = Environment.GetEnvironmentVariable(builder.PlayStation1NativeBuildExecutor.RepositoryRootEnvironmentVariableName);
         string previousRunRoot = Environment.GetEnvironmentVariable(builder.PlayStation1NativeBuildExecutor.BuildRunRootEnvironmentVariableName);
         try {
-            Environment.SetEnvironmentVariable(builder.PlayStation1NativeBuildExecutor.RepositoryRootEnvironmentVariableName, repository);
-            Environment.SetEnvironmentVariable(builder.PlayStation1NativeBuildExecutor.BuildRunRootEnvironmentVariableName, configured ? configuredRoot : null);
-            string output = Path.Combine(root, "output");
+            Environment.SetEnvironmentVariable(builder.PlayStation1NativeBuildExecutor.RepositoryRootEnvironmentVariableName, Path.Combine(root, "workspace", "helengine-ps1"));
+            Environment.SetEnvironmentVariable(builder.PlayStation1NativeBuildExecutor.BuildRunRootEnvironmentVariableName, configuredRunRoot);
             new builder.PlayStation1NativeBuildExecutor().Build(generated, Path.Combine(root, "content"), Path.Combine(root, "declarations.json"), output, CancellationToken.None);
             using System.Text.Json.JsonDocument manifest = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "manifest.json")));
-            Assert.Equal(configured, manifest.RootElement.GetProperty("runRootArgumentBound").GetBoolean());
-            Assert.Equal(Path.GetFullPath(expectedRoot), manifest.RootElement.GetProperty("runRoot").GetString());
+            Assert.True(manifest.RootElement.GetProperty("runRootArgumentBound").GetBoolean());
             Assert.True(manifest.RootElement.GetProperty("authored").GetBoolean());
-            Assert.Equal(Path.GetFullPath(expectedRoot), File.ReadAllText(Path.Combine(output, "native-build-run-root.txt")));
-            Assert.Equal("fixture-executable", File.ReadAllText(Path.Combine(output, "helengine_ps1.ps-exe")));
+            return manifest.RootElement.GetProperty("runRoot").GetString();
         } finally {
             Environment.SetEnvironmentVariable(builder.PlayStation1NativeBuildExecutor.RepositoryRootEnvironmentVariableName, previousRepository);
             Environment.SetEnvironmentVariable(builder.PlayStation1NativeBuildExecutor.BuildRunRootEnvironmentVariableName, previousRunRoot);
         }
     }
 
+    /// <summary>Removes a fixture folder so no test output remains under the temp root.</summary>
+    /// <param name="root">Fixture root created by CreateFixture.</param>
+    static void DeleteFixture(string root) {
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        string parent = Path.GetDirectoryName(root);
+        if (Directory.Exists(parent) && !Directory.EnumerateFileSystemEntries(parent).Any()) Directory.Delete(parent);
+    }
+
     /// <summary>Writes a fixed fixture checkout whose wrapper records argument binding and produces only small handoff-test artifacts.</summary>
     /// <param name="name">Stable case directory beneath the workspace-owned test output root.</param>
     /// <returns>Fixture root; generated SDK inputs and outputs remain isolated from the actual build graph.</returns>
     static string CreateFixture(string name) {
-        string root = Path.Combine("C:/dev/helworks/builds/helengine-ps1/menu-20261007/scene-modules/native-run-root-tests", name);
+        string root = Path.Combine("C:/temp/ps1-runroot-tests", name);
         string scripts = Path.Combine(root, "workspace", "helengine-ps1", "scripts");
         Directory.CreateDirectory(scripts);
         File.WriteAllText(Path.Combine(scripts, "build.ps1"), """
@@ -70,10 +95,6 @@ public sealed class PlayStation1NativeBuildRunRootTests {
                 [string]$GeneratedCoreRoot, [string]$AuthoredContentRoot, [string]$AuthoredDeclarations)
             $ErrorActionPreference = 'Stop'
             $bound = $PSBoundParameters.ContainsKey('RunRoot')
-            if (!$bound) {
-                $workspace = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
-                $RunRoot = Join-Path $workspace 'builds/helengine-ps1/legacy-fixed'
-            }
             $RunRoot = [IO.Path]::GetFullPath($RunRoot)
             New-Item -ItemType Directory -Force -Path (Join-Path $RunRoot 'out') | Out-Null
             [IO.File]::WriteAllText((Join-Path $RunRoot 'out/helengine_ps1.ps-exe'), 'fixture-executable')

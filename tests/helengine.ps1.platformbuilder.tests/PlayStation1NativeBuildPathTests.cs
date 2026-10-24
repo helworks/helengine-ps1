@@ -26,6 +26,6 @@ public sealed class PlayStation1NativeBuildPathTests {
     /// <summary>Calls the native runner's path validation without launching Docker or changing process state.</summary>
     static string Resolve(string configured) {
         MethodInfo method = typeof(PlayStation1NativeBuildExecutor).GetMethod("ResolveBuildRunRoot", BindingFlags.NonPublic | BindingFlags.Static);
-        return (string)method.Invoke(null, new object[] { @"C:\dev\helworks\helengine-ps1", @"C:\temp\helengine\generated-core", configured });
+        return (string)method.Invoke(null, new object[] { @"C:\dev\helworks\helengine-ps1", @"C:\temp\helengine\generated-core", @"C:\temp\viewport-layout\ps1\package", configured });
     }
 }

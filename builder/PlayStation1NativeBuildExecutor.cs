@@ -29,7 +29,7 @@ public sealed class PlayStation1NativeBuildExecutor : IPlayStation1NativeBuildEx
         if (string.IsNullOrWhiteSpace(repositoryRoot) || !Directory.Exists(repositoryRoot)) {
             throw new InvalidOperationException($"{RepositoryRootEnvironmentVariableName} must identify the PS1 implementation checkout.");
         }
-        string buildRunRoot = ResolveBuildRunRoot(repositoryRoot, generatedCoreCppRootPath, Environment.GetEnvironmentVariable(BuildRunRootEnvironmentVariableName) ?? string.Empty);
+        string buildRunRoot = ResolveBuildRunRoot(repositoryRoot, generatedCoreCppRootPath, outputRootPath, Environment.GetEnvironmentVariable(BuildRunRootEnvironmentVariableName) ?? string.Empty);
         Directory.CreateDirectory(outputRootPath);
         PlayStation1CodegenDiagnosticGate.Validate(generatedCoreCppRootPath);
         int omittedBatchSources = PlayStation1UnusedBatch2DPruner.Prune(generatedCoreCppRootPath);
@@ -52,10 +52,8 @@ public sealed class PlayStation1NativeBuildExecutor : IPlayStation1NativeBuildEx
         info.ArgumentList.Add("-Configuration");
         info.ArgumentList.Add("Release");
         info.ArgumentList.Add("-Authored");
-        if (!string.IsNullOrEmpty(buildRunRoot)) {
-            info.ArgumentList.Add("-RunRoot");
-            info.ArgumentList.Add(buildRunRoot);
-        }
+        info.ArgumentList.Add("-RunRoot");
+        info.ArgumentList.Add(buildRunRoot);
         info.ArgumentList.Add("-GeneratedCoreRoot");
         info.ArgumentList.Add(generatedCoreCppRootPath);
         info.ArgumentList.Add("-AuthoredContentRoot");
@@ -116,19 +114,22 @@ public sealed class PlayStation1NativeBuildExecutor : IPlayStation1NativeBuildEx
         File.WriteAllText(Path.Combine(outputRootPath, "native-build-run-root.txt"), runRoot);
     }
 
-    /// <summary>Resolves the configured native directory once and rejects scene-module builds without a fixed directory before candidate compilation.</summary>
+    /// <summary>
+    /// Resolves the native build directory once. An explicit environment value wins unchanged; otherwise the
+    /// build uses one fixed "native" folder beside the output folder, so each platform keeps a single native
+    /// build location that every build overwrites, in both monolith and scene-module modes.
+    /// </summary>
     /// <param name="repositoryRoot">Platform checkout that must remain separate from native outputs.</param>
-    /// <param name="generatedRoot">Generated source tree used to determine whether scene modules are enabled.</param>
-    /// <param name="configuredRunRoot">Explicit fixed directory supplied by the build environment.</param>
-    /// <returns>Normalized fixed directory, or empty when no native directory was selected.</returns>
-    static string ResolveBuildRunRoot(string repositoryRoot, string generatedRoot, string configuredRunRoot) {
+    /// <param name="generatedRoot">Generated source tree that must remain separate from native outputs.</param>
+    /// <param name="outputRootPath">Build output folder whose parent hosts the default native folder.</param>
+    /// <param name="configuredRunRoot">Explicit fixed directory supplied by the build environment, or blank to use the default.</param>
+    /// <returns>Normalized fixed directory passed to the build wrapper as its run root.</returns>
+    static string ResolveBuildRunRoot(string repositoryRoot, string generatedRoot, string outputRootPath, string configuredRunRoot) {
         if (string.IsNullOrWhiteSpace(configuredRunRoot)) {
-            if (File.Exists(Path.Combine(generatedRoot, "scene-modules", "source-plan.json"))) {
-                throw new InvalidOperationException($"{BuildRunRootEnvironmentVariableName} must identify a fixed native build directory for scene modules.");
-            }
-            return string.Empty;
-        }
-        if (!Path.IsPathFullyQualified(configuredRunRoot)) {
+            string outputParent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(outputRootPath)))
+                ?? throw new InvalidOperationException("The output root has no parent directory to host the native build directory.");
+            configuredRunRoot = Path.Combine(outputParent, "native");
+        } else if (!Path.IsPathFullyQualified(configuredRunRoot)) {
             throw new InvalidOperationException($"{BuildRunRootEnvironmentVariableName} must identify an absolute fixed directory.");
         }
         string runRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(configuredRunRoot));
