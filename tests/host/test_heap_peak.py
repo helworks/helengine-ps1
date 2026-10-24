@@ -34,10 +34,7 @@ class HeapPeakTests(unittest.TestCase):
 
     def test_all_zero_column_raises(self):
         with self.assertRaisesRegex(ValueError, "never left 0"):
-            heap_peak.peak_from_route_log("route_tick,ram_8012345c
-0,0
-1,0
-", "ram_8012345c")
+            heap_peak.peak_from_route_log("route_tick,ram_8012345c\n0,0\n1,0\n", "ram_8012345c")
 
     def test_peak_below_heap_start_raises(self):
         with self.assertRaisesRegex(ValueError, "below __heap_start"):
