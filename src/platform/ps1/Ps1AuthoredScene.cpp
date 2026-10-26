@@ -264,7 +264,9 @@ void Ps1AuthoredScene::frame() {
         // frame can retire a module. Updates and the display flip remain live throughout.
         m_renderer.AdvanceUnsubmittedFrame();
     } else if (waitingForTransitionCamera) {
-        psyqo::Kernel::assert(m_renderer.QueueClear(gpu()), "PS1_TRANSITION_CLEAR_FRAME_FAILED");
+        // Keep the normal retained-font indicator in the camera-free transition frame too.
+        psyqo::Kernel::assert(m_renderer.BeginAuthoredFrame(gpu()) && m_render2D->DrawDebugBuildIndicator()
+            && m_renderer.SubmitAuthoredFrame(gpu(), Ps1FrameContext::DefaultClearColor), "PS1_TRANSITION_CLEAR_FRAME_FAILED");
     } else {
         m_core->Draw();
     }

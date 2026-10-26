@@ -204,10 +204,7 @@ void Ps1RenderManager3D::Draw() {
         return;
     }
     ::List<::ICamera*>* cameras = OwnerCore->get_ObjectManager()->get_Cameras();
-    if (cameras == nullptr || cameras->get_Count() == 0) {
-        Reject("PS1_RENDER_NO_CAMERA");
-        return;
-    }
+    const int cameraCount = cameras == nullptr ? 0 : cameras->get_Count();
     if (!Renderer.BeginAuthoredFrame(Gpu)) {
         Reject("PS1_RENDER_FRAME_BEGIN_FAILED");
         return;
@@ -215,7 +212,7 @@ void Ps1RenderManager3D::Draw() {
     FrameOpen = true;
     // ObjectManager keeps this live list sorted by CameraDrawOrder. Each camera gets its
     // own OT segment; overlays cannot be interleaved into an earlier camera's depth buckets.
-    for (int cameraIndex = 0; cameraIndex < cameras->get_Count(); ++cameraIndex) {
+    for (int cameraIndex = 0; cameraIndex < cameraCount; ++cameraIndex) {
 #if defined(PS1_CPU_PROFILE)
         const std::uint64_t cameraSetupStartUs = CpuProfile == nullptr ? 0u : CpuProfile->ReadMicroseconds();
 #endif
@@ -236,6 +233,16 @@ void Ps1RenderManager3D::Draw() {
         // The field of view belongs to the authored camera, so one scene frames the same way on every
         // platform. TryBuildPose rejects values outside the range it can project.
         CameraFieldOfViewRadians = camera->get_FieldOfView().ToSingle();
+        CameraNearPlane = camera->get_NearPlaneDistance().ToSingle();
+        CameraFarPlane = camera->get_FarPlaneDistance().ToSingle();
+        if (!Ps1AuthoredProjection::IsFinite(CameraTransform) ||
+            !(CameraFieldOfViewRadians > 0.0f && CameraFieldOfViewRadians < 3.1f) ||
+            !Ps1AuthoredProjection::ValidDepthRange(CameraNearPlane, CameraFarPlane)) {
+            Reject("PS1_RENDER_CAMERA_DEPTH_REJECTED");
+            Renderer.CancelAuthoredFrame();
+            FrameOpen = false;
+            return;
+        }
         const ::CameraClearSettings clearSettings = camera->get_ClearSettings();
         ClearColor = clearSettings.ClearColorEnabled
             ? psyqo::Color{{.r = Channel(clearSettings.ClearColor.X.ToSingle()), .g = Channel(clearSettings.ClearColor.Y.ToSingle()), .b = Channel(clearSettings.ClearColor.Z.ToSingle())}}
@@ -246,7 +253,7 @@ void Ps1RenderManager3D::Draw() {
             FrameOpen = false;
             return;
         }
-        if (!Renderer.BeginAuthoredCamera(clearSettings.ClearColorEnabled, ClearColor)) {
+        if (!Renderer.BeginAuthoredCamera(clearSettings.ClearColorEnabled, ClearColor, CameraNearPlane, CameraFarPlane)) {
             Reject("PS1_RENDER_CAMERA_CAPACITY_EXCEEDED");
             FrameOpen = false;
             return;
@@ -270,12 +277,18 @@ void Ps1RenderManager3D::Draw() {
         if (!FrameOpen) {
             return;
         }
-        if (!Render2D.DrawQueue(camera)) {
+        if (!Render2D.DrawQueue(camera, cameraIndex == cameraCount - 1)) {
             Reject(Render2D.LastFailureMarker() == nullptr ? "PS1_UI_QUEUE_REJECTED" : Render2D.LastFailureMarker());
             Renderer.CancelAuthoredFrame();
             FrameOpen = false;
             return;
         }
+    }
+    if (cameraCount == 0 && !Render2D.DrawDebugBuildIndicator()) {
+        Reject(Render2D.LastFailureMarker());
+        Renderer.CancelAuthoredFrame();
+        FrameOpen = false;
+        return;
     }
     FrameOpen = false;
 #if defined(PS1_CPU_PROFILE)
@@ -310,6 +323,15 @@ void Ps1RenderManager3D::Visit(::IDrawable3D* drawable) {
         he_cpp_custom::Fail("Authored drawable has no PS1 runtime material");
     }
     const Ps1AuthoredTransform objectTransform = TransformOf(drawable->get_Parent());
+    bool visible = false;
+    if (!Ps1AuthoredProjection::TryDepthVisibility(CameraTransform, objectTransform, model->BoundingRadius(),
+            CameraNearPlane, CameraFarPlane, visible)) {
+        Reject("PS1_RENDER_POSE_REJECTED");
+        FrameOpen = false;
+        Renderer.CancelAuthoredFrame();
+        return;
+    }
+    if (!visible) return;
     Ps1GtePose pose{};
     if (!Ps1AuthoredProjection::TryBuildPose(CameraTransform, objectTransform, model->BoundingRadius(),
                                              CameraFieldOfViewRadians, pose)) {

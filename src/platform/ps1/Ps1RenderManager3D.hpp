@@ -81,6 +81,8 @@ private:
     Ps1AuthoredTransform CameraTransform{};
     /// <summary>Vertical field of view in radians read from the loaded camera during Draw.</summary>
     float CameraFieldOfViewRadians = 0.0f;
+    float CameraNearPlane = 0.0f;
+    float CameraFarPlane = 0.0f;
     psyqo::Color ClearColor = Ps1FrameContext::DefaultClearColor;
     Ps1GtePose LastPoseValue{};
     Ps1GteLighting LightingValue{};

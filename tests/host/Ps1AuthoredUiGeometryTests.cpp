@@ -46,6 +46,25 @@ static void TestTextRebuildAfterScrollAndClipChanges() {
 }
 
 int main() {
+    // The final physical badge ignores the preceding camera's partial viewport and clip.
+    {
+        const Ps1ScreenRect partial{160, 120, 160, 120};
+        const Ps1ScreenRect physical{0, 0, 320, 240};
+        Ps1UiVertex sceneGlyph[4]{}, badgeGlyph[4]{};
+        assert(TryBuildGlyphQuad({6, 6}, {4, 8}, {0, 0, 0.125f, 0.25f}, {128, 128}, partial, sceneGlyph));
+        assert(sceneGlyph[0].x == 166 && sceneGlyph[0].y == 126);
+        assert(TryBuildGlyphQuad({6, 6}, {4, 8}, {0, 0, 0.125f, 0.25f}, {128, 128}, physical, badgeGlyph));
+        assert(badgeGlyph[0].x == 6 && badgeGlyph[0].y == 6);
+        assert(badgeGlyph[2].y - badgeGlyph[0].y == 8);
+        assert(!ClipPs1GlyphQuad(badgeGlyph, partial));
+        assert(TryBuildGlyphQuad({6, 6}, {4, 8}, {0, 0, 0.125f, 0.25f}, {128, 128}, physical, badgeGlyph));
+        assert(ClipPs1GlyphQuad(badgeGlyph, physical));
+        Ps1UiTriangle background[2]{};
+        std::uint16_t count = 0, fillCount = 0;
+        assert(TryBuildRectTriangles({4, 4}, {30, 12}, {1, 1}, 0, 0, physical, background, 2, count, fillCount));
+        assert(count == 2 && fillCount == 2);
+        assert(background[0].a.x == 4 && background[0].a.y == 4);
+    }
     TestTextRebuildAfterScrollAndClipChanges();
     // A mirrored, sheared quad keeps UVs on authored corners and the viewport offset.
     Ps1UiPoint affineCorners[4]{{30,20},{10,25},{38,60},{18,65}};

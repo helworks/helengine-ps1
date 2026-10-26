@@ -9,6 +9,7 @@
 #include "platform/ps1/rendering/Ps1TextLayout.hpp"
 #include "platform/ps1/rendering/Ps1RasterRenderer.hpp"
 #include "platform/ps1/rendering/Ps1VramAllocator.hpp"
+#include "platform/ps1/rendering/Ps1IndicatorDiagnosticGate.hpp"
 #include "psyqo/gpu.hh"
 
 class TextureAsset;
@@ -36,7 +37,9 @@ public:
     /// <param name="gpu">GPU used for the VRAM uploads.</param>
     Ps1RenderManager2D(psyqo::GPU& gpu, Ps1RasterRenderer& renderer);
 
-    bool DrawQueue(::ICamera* camera);
+    bool DrawQueue(::ICamera* camera, bool finalCamera = false);
+    /// Submits only the final engine overlay when the frame has no camera queue.
+    bool DrawDebugBuildIndicator();
 #if defined(PS1_CPU_PROFILE)
     void SetCpuProfileSink(Ps1CpuProfileSink* sink) { CpuProfile = sink; }
 #endif
@@ -138,6 +141,8 @@ private:
     void IncludeBounds(PendingKind kind, std::int16_t minimum, std::int16_t maximum);
     void IncludeBounds(const PendingUiDrawable& drawable);
     bool FlushPendingInVisitOrder();
+    /// Appends physical-screen commands before reverse OT insertion, retaining scene then badge order.
+    bool AppendDebugBuildIndicator();
     std::uint32_t AllocatePacketRevision();
 
 #if defined(PS1_CPU_PROFILE)
@@ -153,6 +158,8 @@ private:
     Ps1RasterRenderer& Renderer;
     Ps1VramAllocator VramAllocator;
     std::uint32_t UploadedTextures = 0;
+    /// <summary>Temporary investigation trace state; owns neither cached commands nor font textures.</summary>
+    Ps1IndicatorDiagnosticGate IndicatorDiagnosticGate;
     Ps1ScreenRect ActiveViewport{};
     std::uint16_t VisitedSprites = 0;
     std::uint16_t VisitedShapes = 0;

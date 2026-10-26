@@ -6,6 +6,8 @@
 #include "AssetSerializer.hpp"
 #include "Entity.hpp"
 #include "FontAsset.hpp"
+#include "RenderCommandList2D.hpp"
+#include "RenderCommand2DType.hpp"
 #include "FontChar.hpp"
 #include "FontInfo.hpp"
 #include "ICamera.hpp"
@@ -201,7 +203,7 @@ void Ps1RenderManager2D::Reject(const char* marker) {
     if (FailureMarker == nullptr) FailureMarker = marker;
 }
 
-bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
+bool Ps1RenderManager2D::DrawQueue(::ICamera* camera, bool finalCamera) {
 #if defined(PS1_CPU_PROFILE)
     ScopedNativeStage totalSample(CpuProfile, 111);
 #endif
@@ -274,6 +276,7 @@ bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
         ValidatedQueue = queue;
         ValidatedQueueVersion = version;
     }
+    if (finalCamera && FailureMarker == nullptr) AppendDebugBuildIndicator();
     const bool flushed = FailureMarker == nullptr && FlushPendingInVisitOrder();
 #if defined(PS1_CPU_PROFILE)
     if (CpuProfile != nullptr) {
@@ -282,6 +285,98 @@ bool Ps1RenderManager2D::DrawQueue(::ICamera* camera) {
     }
 #endif
     return flushed;
+}
+
+bool Ps1RenderManager2D::DrawDebugBuildIndicator() {
+    PendingCount = PendingShapes = PendingSprites = 0;
+    FailureMarker = nullptr;
+    return AppendDebugBuildIndicator() && FlushPendingInVisitOrder();
+}
+
+bool Ps1RenderManager2D::AppendDebugBuildIndicator() {
+    ::RenderCommandList2D* commands = BuildDebugBuildIndicatorCommands(DisplayWidth, DisplayHeight);
+    if (commands == nullptr) { IndicatorDiagnosticGate.Reset(); return true; }
+    const std::int32_t commandVersion = commands->get_Version();
+    bool diagnosticDecided = false;
+    bool traceLayout = false;
+    // Scene vertices are already resolved. Only new badge geometry uses the whole display;
+    // PS1 camera clipping is performed on CPU, so no camera scissor can survive this change.
+    const Ps1ScreenRect viewport{0, 0, DisplayWidth, DisplayHeight};
+    for (int32_t index = 0; index < commands->get_Count(); ++index) {
+        if (commands->GetCommandType(index) == ::RenderCommand2DType::RoundedRect) {
+            const int32_t payload = commands->GetRoundedRectPayloadIndex(index);
+            const ::float4 bounds = commands->GetRoundedRectBounds(payload);
+            const ::byte4 color = commands->GetRoundedRectFillColor(payload);
+            Ps1UiTriangle triangles[2]{};
+            std::uint16_t count = 0, fillCount = 0;
+            if (!TryBuildRectTriangles({static_cast<float>(bounds.X), static_cast<float>(bounds.Y)},
+                {static_cast<float>(bounds.Z), static_cast<float>(bounds.W)}, {1.0f, 1.0f}, 0.0f, 0.0f,
+                viewport, triangles, 2, count, fillCount)) {
+                Reject("PS1_INDICATOR_RECT_GEOMETRY_REJECTED");
+                return false;
+            }
+            for (std::uint16_t triangle = 0; triangle < count; ++triangle) {
+                PendingUiDrawable pending{};
+                pending.Vertices[0] = triangles[triangle].a;
+                pending.Vertices[1] = triangles[triangle].b;
+                pending.Vertices[2] = triangles[triangle].c;
+                TryColor(color, false, pending.Color);
+                if (!AppendPending(pending)) return false;
+            }
+        } else if (commands->GetCommandType(index) == ::RenderCommand2DType::GlyphQuad) {
+            const int32_t payload = commands->GetGlyphQuadPayloadIndex(index);
+            auto* texture = dynamic_cast<Ps1RuntimeTexture*>(commands->GetGlyphQuadTexture(payload));
+            if (texture == nullptr) {
+                Reject("PS1_INDICATOR_FONT_TEXTURE_UNSUPPORTED");
+                return false;
+            }
+            const ::float4 bounds = commands->GetGlyphQuadBounds(payload);
+            const ::float4 source = commands->GetGlyphQuadSourceRect(payload);
+            PendingUiDrawable pending{};
+            pending.Kind = PendingKind::Text;
+            pending.IsSprite = true;
+            pending.Texture = texture;
+            TryColor(commands->GetGlyphQuadColor(payload), true, pending.Color);
+            if (!diagnosticDecided) {
+                traceLayout = IndicatorDiagnosticGate.Observe(commands, commandVersion, texture, UploadedTextures);
+                diagnosticDecided = true;
+                if (traceLayout) {
+                    ramsyscall_printf("PS1_BADGE_LAYOUT commands=%p version=%d count=%d texture=%p uploads=%u size=%u,%u bpp=%u vram=%u,%u clut=%u,%u disposed=%u\n",
+                        static_cast<void*>(commands), static_cast<int>(commandVersion), static_cast<int>(commands->get_Count()),
+                        static_cast<void*>(texture), static_cast<unsigned>(UploadedTextures), static_cast<unsigned>(texture->get_Width()),
+                        static_cast<unsigned>(texture->get_Height()), static_cast<unsigned>(texture->PixelDepth),
+                        static_cast<unsigned>(texture->VramX), static_cast<unsigned>(texture->VramY),
+                        static_cast<unsigned>(texture->ClutX), static_cast<unsigned>(texture->ClutY), static_cast<unsigned>(texture->get_IsDisposed()));
+                }
+            }
+            const bool geometryValid = TryBuildGlyphQuad({static_cast<float>(bounds.X), static_cast<float>(bounds.Y)},
+                {static_cast<float>(bounds.Z), static_cast<float>(bounds.W)},
+                {static_cast<float>(source.X), static_cast<float>(source.Y), static_cast<float>(source.Z), static_cast<float>(source.W)},
+                {static_cast<float>(texture->get_Width()), static_cast<float>(texture->get_Height())}, viewport, pending.Vertices);
+            if (traceLayout) {
+                // Raw IEEE floats avoid printf promotion/conversion and preserve subpixel/source precision exactly.
+                const auto bits = [](float value) {
+                    std::uint32_t result = 0; __builtin_memcpy(&result, &value, sizeof(result));
+                    return static_cast<unsigned>(result);
+                };
+                const Ps1UiVertex* v = pending.Vertices;
+                ramsyscall_printf("PS1_BADGE_GLYPH slot=%d valid=%u bounds_f32=%08x,%08x,%08x,%08x source_f32=%08x,%08x,%08x,%08x\n",
+                    static_cast<int>(payload), static_cast<unsigned>(geometryValid),
+                    bits(static_cast<float>(bounds.X)), bits(static_cast<float>(bounds.Y)), bits(static_cast<float>(bounds.Z)), bits(static_cast<float>(bounds.W)),
+                    bits(static_cast<float>(source.X)), bits(static_cast<float>(source.Y)), bits(static_cast<float>(source.Z)), bits(static_cast<float>(source.W)));
+                ramsyscall_printf("PS1_BADGE_QUAD slot=%d xy=%d,%d/%d,%d/%d,%d/%d,%d uv=%u,%u/%u,%u/%u,%u/%u,%u\n",
+                    static_cast<int>(payload), v[0].x, v[0].y, v[1].x, v[1].y, v[2].x, v[2].y, v[3].x, v[3].y,
+                    static_cast<unsigned>(v[0].u), static_cast<unsigned>(v[0].v), static_cast<unsigned>(v[1].u), static_cast<unsigned>(v[1].v),
+                    static_cast<unsigned>(v[2].u), static_cast<unsigned>(v[2].v), static_cast<unsigned>(v[3].u), static_cast<unsigned>(v[3].v));
+            }
+            if (!geometryValid) {
+                Reject("PS1_INDICATOR_GLYPH_GEOMETRY_REJECTED");
+                return false;
+            }
+            if (!AppendPending(pending)) return false;
+        }
+    }
+    return true;
 }
 
 bool Ps1RenderManager2D::AppendPending(const PendingUiDrawable& drawable) {

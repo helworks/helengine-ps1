@@ -63,5 +63,23 @@ int main(){
     context.Cancel();assert(context.Begin(6));
     gpu.Calls.clear();assert(context.Submit(gpu,psyqo::Color{.packed=42}));
     assert(gpu.Calls.size()==2 && gpu.Calls[0].Color==42); // Legacy clear boot remains intact.
+    // The final camera's reverse UI flush must execute its scene first, then the
+    // opaque badge background, then all DEBUG glyphs. No extra camera consumes capacity.
+    assert(context.Begin(8));
+    assert(context.BeginCamera(false, psyqo::Color{}));
+    auto* earlierCamera = context.TryAppendUiTriangle(0); assert(earlierCamera);
+    assert(context.BeginCamera(false, psyqo::Color{}));
+    auto* scene = context.TryReserveUiTriangle(); assert(scene);
+    auto* background = context.TryReserveUiTriangle(); assert(background);
+    Ps1FrameContext::TexturedQuadFragment* glyphs[5]{};
+    for (auto& glyph : glyphs) { glyph = context.TryReserveTexturedQuad(); assert(glyph); }
+    for (unsigned index = 5; index > 0; --index) assert(context.Insert(*glyphs[index - 1], 0));
+    assert(context.InsertUiTriangle(*background, 0));
+    assert(context.InsertUiTriangle(*scene, 0));
+    gpu.Calls.clear(); assert(context.Submit(gpu));
+    assert(gpu.Calls.size() == 2 && gpu.Calls[0].ExecutionOrder[0] == earlierCamera);
+    const auto& order = gpu.Calls[1].ExecutionOrder;
+    assert(order.size() == 7 && order[0] == scene && order[1] == background);
+    for (unsigned index = 0; index < 5; ++index) assert(order[index + 2] == glyphs[index]);
     std::puts("PS1_LOADING_POLICY_PASS startup=3 camera_order=2 parity=1 capacity=2 legacy=1 upload_fence=1");
 }
