@@ -33,11 +33,12 @@ def validate_slot_assignments(plan):
 
 
 def module_gc_link_flags(module_id, modules, definitions):
-    """Discard unreachable sections while rooting loader callbacks and exports used by other modules."""
+    """Preserve resident allocation guards and root reachable loader callbacks and shared exports."""
     imports = {symbol for module in modules if module["moduleId"] != module_id
                for symbol in module["importSymbols"]}
     roots = {"he_ps1_module_register", "he_ps1_module_unregister"} | (imports & definitions[module_id])
-    return ["-Wl,--gc-sections", *["-Wl,-u," + symbol for symbol in sorted(roots)]]
+    return ["-Wl,--gc-sections", "-Wl,--wrap=_Znwj", "-Wl,--wrap=_Znaj",
+            *["-Wl,-u," + symbol for symbol in sorted(roots)]]
 
 
 def module_arena_layout(resident_bss_end, slots):
