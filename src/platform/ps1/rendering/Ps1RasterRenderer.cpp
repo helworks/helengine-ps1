@@ -2,6 +2,7 @@
 #include "platform/ps1/rendering/Ps1TexturedPrimitive.hpp"
 #include "platform/ps1/rendering/Ps1CubeMesh.hpp"
 #include "platform/ps1/rendering/Ps1DepthBucket.hpp"
+#include "platform/ps1/rendering/Ps1UntexturedTrianglePacket.hpp"
 #include "psyqo/fixed-point.hh"
 #include "psyqo/gte-kernels.hh"
 #include "psyqo/gte-registers.hh"
@@ -370,6 +371,7 @@ bool Ps1RasterRenderer::QueueCompletionStress(psyqo::GPU& gpu) {
 bool Ps1RasterRenderer::BeginAuthoredFrame(psyqo::GPU& gpu) {
     ResetStats(0, 0);
     m_authoredContext = nullptr;
+    m_nearDepth = m_farDepth = 0.0f;
     if (!m_initialized) {
         m_stats.failure = Ps1RenderFailure::NotInitialized;
         return false;
@@ -378,7 +380,13 @@ bool Ps1RasterRenderer::BeginAuthoredFrame(psyqo::GPU& gpu) {
     return m_authoredContext != nullptr;
 }
 
-bool Ps1RasterRenderer::BeginAuthoredCamera(bool clearEnabled, psyqo::Color clearColor) {
+bool Ps1RasterRenderer::BeginAuthoredCamera(bool clearEnabled, psyqo::Color clearColor, float nearPlane, float farPlane) {
+    if (!Ps1AuthoredProjection::ValidDepthRange(nearPlane, farPlane)) {
+        ++m_stats.invalid; m_stats.failure = Ps1RenderFailure::Projection;
+        CancelAuthoredFrame(); return false;
+    }
+    m_nearDepth = nearPlane * Ps1AuthoredProjection::UnitsPerEngineUnit;
+    m_farDepth = farPlane * Ps1AuthoredProjection::UnitsPerEngineUnit;
     if (m_authoredContext != nullptr && m_authoredContext->BeginCamera(clearEnabled, clearColor)) return true;
     ++m_stats.capacityFailures;
     m_stats.failure = Ps1RenderFailure::Capacity;
@@ -445,7 +453,8 @@ bool Ps1RasterRenderer::QueueAuthoredMesh(const Ps1GtePose& pose, const std::int
         m_stats.failure = Ps1RenderFailure::Ownership;
         return false;
     }
-    if (vertices == nullptr || indices == nullptr || vertexCount == 0 || indexCount == 0 || indexCount % 3u != 0 ||
+    if (!(m_nearDepth > 0 && m_farDepth > m_nearDepth) ||
+        vertices == nullptr || indices == nullptr || vertexCount == 0 || indexCount == 0 || indexCount % 3u != 0 ||
         (texture != nullptr && (uvs == nullptr || !IsPs1MeshTextureValid(*texture)))) {
         ++m_stats.invalid;
         m_stats.failure = Ps1RenderFailure::Projection;
@@ -454,24 +463,20 @@ bool Ps1RasterRenderer::QueueAuthoredMesh(const Ps1GtePose& pose, const std::int
         return false;
     }
     const bool lit = normals != nullptr && lighting != nullptr;
+    const bool objectSafe = Ps1CameraClip::WhollyGteSafe(pose, m_nearDepth, m_farDepth);
+    const auto reject = [&]() {
+        ++m_stats.invalid; m_stats.failure = Ps1RenderFailure::Projection;
+        context->Cancel(); m_authoredContext = nullptr; return false;
+    };
     WriteAuthoredPose(pose);
-    if (lit) {
-        WriteAuthoredLighting(*lighting, color);
-    }
-    for (std::uint32_t triangle = 0; triangle < indexCount; triangle += 3) {
-        const std::uint16_t i0 = indices[triangle];
-        const std::uint16_t i1 = indices[triangle + 1];
-        const std::uint16_t i2 = indices[triangle + 2];
-        if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount) {
-            ++m_stats.invalid;
-            m_stats.failure = Ps1RenderFailure::Projection;
-            context->Cancel();
-            m_authoredContext = nullptr;
-            return false;
-        }
-        const Ps1CubeMesh::Position p0{vertices[i0 * 3], vertices[i0 * 3 + 1], vertices[i0 * 3 + 2]};
-        const Ps1CubeMesh::Position p1{vertices[i1 * 3], vertices[i1 * 3 + 1], vertices[i1 * 3 + 2]};
-        const Ps1CubeMesh::Position p2{vertices[i2 * 3], vertices[i2 * 3 + 1], vertices[i2 * 3 + 2]};
+    if (lit) WriteAuthoredLighting(*lighting, color);
+    // Attribute colours are already lit by NCCT. Intersections interpolate those colours, not normals.
+    const auto packedColor = [](const Ps1ClipVertex& v) {
+        const auto channel = [](float value) { return static_cast<std::uint32_t>(Ps1AuthoredProjection::Round(value)); };
+        return channel(v.R) | (channel(v.G) << 8) | (channel(v.B) << 16);
+    };
+    const auto emit = [&](const Ps1CubeMesh::Position& p0, const Ps1CubeMesh::Position& p1,
+                          const Ps1CubeMesh::Position& p2, const Ps1ClipVertex (&attributes)[3], bool hardwareDepths) -> bool {
         WriteVertex0(p0);
         WriteVertex1(p1);
         WriteVertex2(p2);
@@ -490,12 +495,12 @@ bool Ps1RasterRenderer::QueueAuthoredMesh(const Ps1GtePose& pose, const std::int
         psyqo::GTE::read<psyqo::GTE::Register::SXY0>(&a.packed);
         psyqo::GTE::read<psyqo::GTE::Register::SXY1>(&b.packed);
         psyqo::GTE::read<psyqo::GTE::Register::SXY2>(&c.packed);
-        std::uint32_t rawZ0 = 0;
-        std::uint32_t rawZ1 = 0;
-        std::uint32_t rawZ2 = 0;
-        psyqo::GTE::read<psyqo::GTE::Register::SZ1>(&rawZ0);
-        psyqo::GTE::read<psyqo::GTE::Register::SZ2>(&rawZ1);
-        psyqo::GTE::read<psyqo::GTE::Register::SZ3>(&rawZ2);
+        std::uint32_t depths[3]{};
+        if (hardwareDepths) {
+            psyqo::GTE::read<psyqo::GTE::Register::SZ1>(&depths[0]);
+            psyqo::GTE::read<psyqo::GTE::Register::SZ2>(&depths[1]);
+            psyqo::GTE::read<psyqo::GTE::Register::SZ3>(&depths[2]);
+        }
         psyqo::GTE::write<psyqo::GTE::Register::SXY0, psyqo::GTE::Unsafe>(a.packed);
         psyqo::GTE::write<psyqo::GTE::Register::SXY1, psyqo::GTE::Unsafe>(b.packed);
         psyqo::GTE::write<psyqo::GTE::Register::SXY2, psyqo::GTE::Safe>(c.packed);
@@ -503,44 +508,27 @@ bool Ps1RasterRenderer::QueueAuthoredMesh(const Ps1GtePose& pose, const std::int
         const std::int32_t mac0 = static_cast<std::int32_t>(psyqo::GTE::readRaw<psyqo::GTE::Register::MAC0, psyqo::GTE::Safe>());
         if (mac0 == 0) {
             ++m_stats.degenerate;
-            continue;
+            return true;
         }
         if (mac0 > 0 && !doubleSided) {
             ++m_stats.backfaceRejected;
-            continue;
+            return true;
         }
         std::uint16_t bucket = 0;
-        if (!Ps1DepthBucket::TryMap(ReadDepth(rawZ0), ReadDepth(rawZ1), ReadDepth(rawZ2), bucket)) {
+        if (!Ps1DepthBucket::TryMap(hardwareDepths ? static_cast<float>(ReadDepth(depths[0])) : attributes[0].Z,
+                                   hardwareDepths ? static_cast<float>(ReadDepth(depths[1])) : attributes[1].Z,
+                                   hardwareDepths ? static_cast<float>(ReadDepth(depths[2])) : attributes[2].Z,
+                                   m_nearDepth, m_farDepth, bucket)) {
             ++m_stats.invalid;
             m_stats.failure = Ps1RenderFailure::Depth;
             context->Cancel();
             m_authoredContext = nullptr;
             return false;
         }
-        std::uint32_t rgb0 = color.packed;
-        std::uint32_t rgb1 = color.packed;
-        std::uint32_t rgb2 = color.packed;
-        if (lit) {
-            // Second GTE pass over the same triangle: local normals in, per-vertex colours out.
-            const Ps1CubeMesh::Position n0{normals[i0 * 3], normals[i0 * 3 + 1], normals[i0 * 3 + 2]};
-            const Ps1CubeMesh::Position n1{normals[i1 * 3], normals[i1 * 3 + 1], normals[i1 * 3 + 2]};
-            const Ps1CubeMesh::Position n2{normals[i2 * 3], normals[i2 * 3 + 1], normals[i2 * 3 + 2]};
-            WriteVertex0(n0);
-            WriteVertex1(n1);
-            WriteVertex2(n2);
-            psyqo::GTE::Kernels::ncct();
-            psyqo::GTE::read<psyqo::GTE::Register::RGB0>(&rgb0);
-            psyqo::GTE::read<psyqo::GTE::Register::RGB1>(&rgb1);
-            psyqo::GTE::read<psyqo::GTE::Register::RGB2>(&rgb2);
-            if (!m_stats.litSampled) {
-                // One sample per frame: the colours the hardware actually produced, so shading is
-                // observable evidence rather than something inferred from the light matrix.
-                m_stats.litVertexColors[0] = rgb0 & 0x00ffffffu;
-                m_stats.litVertexColors[1] = rgb1 & 0x00ffffffu;
-                m_stats.litVertexColors[2] = rgb2 & 0x00ffffffu;
-                m_stats.litSampled = true;
-            }
-        }
+
+        const std::uint32_t rgb0 = packedColor(attributes[0]);
+        const std::uint32_t rgb1 = packedColor(attributes[1]);
+        const std::uint32_t rgb2 = packedColor(attributes[2]);
         if (texture != nullptr) {
             auto* fragment = context->TryReserveTexturedTriangle();
             if (fragment == nullptr) {
@@ -550,7 +538,7 @@ bool Ps1RasterRenderer::QueueAuthoredMesh(const Ps1GtePose& pose, const std::int
                 return false;
             }
             const psyqo::Vertex points[3] = {a, b, c};
-            const Ps1MeshUv triangleUvs[3] = {uvs[i0], uvs[i1], uvs[i2]};
+            const Ps1MeshUv triangleUvs[3] = {{attributes[0].U, attributes[0].V}, {attributes[1].U, attributes[1].V}, {attributes[2].U, attributes[2].V}};
             const psyqo::Color colors[3] = {{.packed = rgb0 & 0x00ffffffu}, {.packed = rgb1 & 0x00ffffffu}, {.packed = rgb2 & 0x00ffffffu}};
             if (!BuildPs1TexturedTriangle(fragment->primitive, points, triangleUvs, colors, *texture) ||
                 !context->Insert(*fragment, bucket)) {
@@ -559,38 +547,30 @@ bool Ps1RasterRenderer::QueueAuthoredMesh(const Ps1GtePose& pose, const std::int
                 context->Cancel(); m_authoredContext = nullptr;
                 return false;
             }
-        } else if (lit) {
-            auto* fragment = context->TryReserveGouraud();
-            if (fragment == nullptr) {
-                ++m_stats.capacityFailures;
-                m_stats.failure = Ps1RenderFailure::Capacity;
-                context->Cancel();
-                m_authoredContext = nullptr;
-                return false;
-            }
-            fragment->primitive.setColorAPacked(rgb0);
-            fragment->primitive.setColorB(psyqo::Color{.packed = rgb1 & 0x00ffffffu});
-            fragment->primitive.setColorC(psyqo::Color{.packed = rgb2 & 0x00ffffffu});
-            fragment->primitive.setPointA(a).setPointB(b).setPointC(c);
-            if (!context->Insert(*fragment, bucket)) {
-                ++m_stats.capacityFailures;
-                m_stats.failure = Ps1RenderFailure::Capacity;
-                context->Cancel();
-                m_authoredContext = nullptr;
-                return false;
-            }
         } else {
-            auto* fragment = context->TryReserveTriangle();
-            if (fragment == nullptr) {
+            // Equal final NCCT/interpolated colours need no gradient packet. Keep the
+            // computed illumination, using the existing flat pool without extra RAM.
+            const auto packet = Ps1UntexturedTrianglePacket::Reserve(*context, rgb0, rgb1, rgb2);
+            if (packet.Flat == nullptr && packet.Gouraud == nullptr) {
                 ++m_stats.capacityFailures;
                 m_stats.failure = Ps1RenderFailure::Capacity;
                 context->Cancel();
                 m_authoredContext = nullptr;
                 return false;
             }
-            fragment->primitive.setOpaque().setColor(color);
-            fragment->primitive.setPointA(a).setPointB(b).setPointC(c);
-            if (!context->Insert(*fragment, bucket)) {
+            bool inserted;
+            if (packet.Flat != nullptr) {
+                packet.Flat->primitive.setOpaque().setColor(psyqo::Color{.packed = rgb0 & 0x00ffffffu});
+                packet.Flat->primitive.setPointA(a).setPointB(b).setPointC(c);
+                inserted = context->Insert(*packet.Flat, bucket);
+            } else {
+                packet.Gouraud->primitive.setColorAPacked(rgb0 | psyqo::Prim::GouraudTriangle().setOpaque().getCommandWord());
+                packet.Gouraud->primitive.setColorB(psyqo::Color{.packed = rgb1 & 0x00ffffffu});
+                packet.Gouraud->primitive.setColorC(psyqo::Color{.packed = rgb2 & 0x00ffffffu});
+                packet.Gouraud->primitive.setPointA(a).setPointB(b).setPointC(c);
+                inserted = context->Insert(*packet.Gouraud, bucket);
+            }
+            if (!inserted) {
                 ++m_stats.capacityFailures;
                 m_stats.failure = Ps1RenderFailure::Capacity;
                 context->Cancel();
@@ -599,6 +579,86 @@ bool Ps1RasterRenderer::QueueAuthoredMesh(const Ps1GtePose& pose, const std::int
             }
         }
         ++m_stats.submittedTriangles;
+        return true;
+    };
+    for (std::uint32_t triangle = 0; triangle < indexCount; triangle += 3) {
+        const std::uint16_t ids[3] = {indices[triangle], indices[triangle + 1], indices[triangle + 2]};
+        Ps1ClipVertex input[3]{};
+        for (unsigned i = 0; i < 3; ++i) {
+            if (ids[i] >= vertexCount) return reject();
+            if (!objectSafe) input[i] = Ps1CameraClip::Transform(pose, &vertices[ids[i] * 3]);
+            if (texture != nullptr) {
+                input[i].U = uvs[ids[i]].U; input[i].V = uvs[ids[i]].V;
+                if (!__builtin_isfinite(input[i].U) || !__builtin_isfinite(input[i].V) ||
+                    input[i].U < 0 || input[i].U > 1 || input[i].V < 0 || input[i].V > 1) return reject();
+            }
+            input[i].R = color.r; input[i].G = color.g; input[i].B = color.b;
+        }
+        Ps1ClipPolygon clipped{};
+        if (objectSafe) clipped.Count = 3;
+        else if (!Ps1CameraClip::Clip(input, m_nearDepth, m_farDepth, static_cast<float>(pose.ProjectionDistance), clipped)) return reject();
+        if (clipped.Count < 3) continue;
+        if (lit) {
+            WriteVertex0({normals[ids[0]*3], normals[ids[0]*3+1], normals[ids[0]*3+2]});
+            WriteVertex1({normals[ids[1]*3], normals[ids[1]*3+1], normals[ids[1]*3+2]});
+            WriteVertex2({normals[ids[2]*3], normals[ids[2]*3+1], normals[ids[2]*3+2]});
+            psyqo::GTE::Kernels::ncct();
+            std::uint32_t rgb[3]{};
+            psyqo::GTE::read<psyqo::GTE::Register::RGB0>(&rgb[0]);
+            psyqo::GTE::read<psyqo::GTE::Register::RGB1>(&rgb[1]);
+            psyqo::GTE::read<psyqo::GTE::Register::RGB2>(&rgb[2]);
+            for (unsigned i = 0; i < 3; ++i) {
+                input[i].R = rgb[i] & 255u; input[i].G = (rgb[i] >> 8) & 255u; input[i].B = (rgb[i] >> 16) & 255u;
+                if (!m_stats.litSampled) m_stats.litVertexColors[i] = rgb[i] & 0x00ffffffu;
+            }
+            m_stats.litSampled = true;
+            if (!objectSafe && !Ps1CameraClip::Clip(input, m_nearDepth, m_farDepth, static_cast<float>(pose.ProjectionDistance), clipped)) return reject();
+        }
+        bool safe = true;
+        if (!objectSafe) for (const auto& v : input) {
+            safe = safe && Ps1CameraClip::Inside(v, m_nearDepth, m_farDepth, static_cast<float>(pose.ProjectionDistance)) &&
+                v.Z > pose.ProjectionDistance / 2 + 1 && v.Z <= 32760 &&
+                v.X >= -32760 && v.X <= 32760 && v.Y >= -32760 && v.Y <= 32760;
+        }
+        if (safe) {
+            const auto point = [&](unsigned i) { const auto* v = &vertices[ids[i]*3]; return Ps1CubeMesh::Position{v[0],v[1],v[2]}; };
+            if (!emit(point(0), point(1), point(2), input, true)) return false;
+            continue;
+        }
+        // Only clipped geometry uses camera-space vertices and identity rotation; RTPT still performs projection.
+        Ps1GtePose identity{};
+        identity.Rotation[0][0] = identity.Rotation[1][1] = identity.Rotation[2][2] = 4096;
+        identity.ProjectionDistance = pose.ProjectionDistance;
+        WriteAuthoredPose(identity);
+        float minimum = clipped.Vertices[0].Z, maximum = minimum;
+        for (unsigned i = 1; i < clipped.Count; ++i) {
+            if (clipped.Vertices[i].Z < minimum) minimum = clipped.Vertices[i].Z;
+            if (clipped.Vertices[i].Z > maximum) maximum = clipped.Vertices[i].Z;
+        }
+        const float ratio = Ps1CameraClip::BandRatio(static_cast<float>(pose.ProjectionDistance));
+        if (!(ratio > 1)) return reject();
+        float bandNear = minimum;
+        do {
+            float bandFar = bandNear * ratio;
+            if (bandFar > maximum) bandFar = maximum;
+            Ps1ClipPolygon band{};
+            if (!Ps1CameraClip::DepthBand(clipped, bandNear, bandFar, band)) return reject();
+            const float scale = Ps1CameraClip::Normalization(bandNear, bandFar, static_cast<float>(pose.ProjectionDistance));
+            for (unsigned fan = 1; fan + 1 < band.Count; ++fan) {
+                const Ps1ClipVertex attributes[3] = {band.Vertices[0], band.Vertices[fan], band.Vertices[fan+1]};
+                Ps1CubeMesh::Position points[3]{};
+                for (unsigned i = 0; i < 3; ++i) {
+                    std::int16_t converted[3];
+                    if (!Ps1CameraClip::ToGte(attributes[i], scale, converted)) return reject();
+                    points[i] = {converted[0], converted[1], converted[2]};
+                }
+                if (!emit(points[0], points[1], points[2], attributes, false)) return false;
+            }
+            if (bandFar >= maximum) break;
+            if (!(bandFar > bandNear)) return reject();
+            bandNear = bandFar;
+        } while (true);
+        WriteAuthoredPose(pose);
     }
     return true;
 }

@@ -137,11 +137,10 @@ int main() {
 
     // Fixed-point overflow: a scale that pushes 4.12 rotation entries past the representable range is rejected.
     if (Ps1AuthoredProjection::TryBuildPose(authoredCamera, Transform({0, 0, 0}, identity, {9.0f, 9.0f, 9.0f}), cubeRadius * 9.0f, Ps1AuthoredProjection::TestFieldOfViewRadians, pose)) return 70;
-    // Depth range: too close or too far for the ordering table is rejected before submission.
-    if (Ps1AuthoredProjection::TryBuildPose(Transform({0, 0, 1.2f}, identity, one), Transform({0, 0, 0}, identity, one), cubeRadius, Ps1AuthoredProjection::TestFieldOfViewRadians, pose)) return 71;
-    if (Ps1AuthoredProjection::TryBuildPose(Transform({0, 0, 12.0f}, identity, one), Transform({0, 0, 0}, identity, one), cubeRadius, Ps1AuthoredProjection::TestFieldOfViewRadians, pose)) return 72;
-    // An object behind the camera is rejected.
-    if (Ps1AuthoredProjection::TryBuildPose(authoredCamera, Transform({0, 0, 9.0f}, identity, one), cubeRadius, Ps1AuthoredProjection::TestFieldOfViewRadians, pose)) return 73;
+    // Visibility is handled by camera planes and triangle clipping; valid transforms do not fail outside the old OT interval.
+    if (!Ps1AuthoredProjection::TryBuildPose(Transform({0, 0, 1.2f}, identity, one), Transform({0, 0, 0}, identity, one), cubeRadius, Ps1AuthoredProjection::TestFieldOfViewRadians, pose)) return 71;
+    if (!Ps1AuthoredProjection::TryBuildPose(Transform({0, 0, 12.0f}, identity, one), Transform({0, 0, 0}, identity, one), cubeRadius, Ps1AuthoredProjection::TestFieldOfViewRadians, pose)) return 72;
+    if (!Ps1AuthoredProjection::TryBuildPose(authoredCamera, Transform({0, 0, 9.0f}, identity, one), cubeRadius, Ps1AuthoredProjection::TestFieldOfViewRadians, pose)) return 73;
     // Vertices outside the 16-bit GTE range are rejected.
     if (Ps1AuthoredProjection::TryConvertVertex({300.0f, 0.0f, 0.0f}, vertex)) return 74;
     return 0;

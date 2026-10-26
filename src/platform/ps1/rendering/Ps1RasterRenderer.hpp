@@ -2,6 +2,7 @@
 
 #include "platform/ps1/rendering/Ps1AuthoredLighting.hpp"
 #include "platform/ps1/rendering/Ps1AuthoredProjection.hpp"
+#include "platform/ps1/rendering/Ps1CameraClip.hpp"
 #include "platform/ps1/rendering/Ps1AuthoredUiGeometry.hpp"
 #include "platform/ps1/rendering/Ps1CubeMesh.hpp"
 #include "platform/ps1/rendering/Ps1FrameContext.hpp"
@@ -78,7 +79,7 @@ class Ps1RasterRenderer final {
      */
     bool BeginAuthoredFrame(psyqo::GPU& gpu);
     /** Separates camera buckets and applies the authored clear policy within one frame. */
-    bool BeginAuthoredCamera(bool clearEnabled, psyqo::Color clearColor);
+    bool BeginAuthoredCamera(bool clearEnabled, psyqo::Color clearColor, float nearPlane, float farPlane);
     bool QueueAuthoredMesh(const Ps1GtePose& pose, const std::int16_t* vertices, std::uint32_t vertexCount,
                            const std::uint16_t* indices, std::uint32_t indexCount, psyqo::Color color, bool doubleSided,
                            const std::int16_t* normals = nullptr, const Ps1GteLighting* lighting = nullptr,
@@ -108,6 +109,8 @@ class Ps1RasterRenderer final {
     void WriteAuthoredLighting(const Ps1GteLighting& lighting, psyqo::Color materialColor);
 
     Ps1FrameContext* m_authoredContext = nullptr;
+    float m_nearDepth = 0.0f;
+    float m_farDepth = 0.0f;
     bool ConfigureGte(std::uint16_t phaseX, std::uint16_t phaseY, std::int32_t trz);
     bool ProjectFace(const Ps1CubeMesh::Face& face, psyqo::Vertex& a, psyqo::Vertex& b, psyqo::Vertex& c,
                      std::int32_t& z0, std::int32_t& z1, std::int32_t& z2, std::int32_t& mac0);

@@ -37,6 +37,8 @@ struct Ps1GtePose {
     std::int16_t Rotation[3][3];
     std::int32_t Translation[3];
     std::int32_t ProjectionDistance;
+    /** Conservative scaled model radius; negative means no trusted mesh bound was provided. */
+    float BoundingRadiusUnits = -1.0f;
 };
 
 /// <summary>
@@ -79,17 +81,18 @@ public:
 
     /// <summary>
     /// Builds the GTE pose for one object seen by one camera. Fails when a rotation entry leaves the
-    /// 4.12 range, when the object's bounding sphere leaves the ordering-table depth range, or when
+    /// 4.12 range, when a transform is malformed, or when
     /// the projection distance is not representable. Nothing is submitted for a rejected pose.
     /// </summary>
     /// <param name="camera">World transform of the camera entity.</param>
     /// <param name="object">World transform of the drawable entity.</param>
-    /// <param name="boundingRadiusEngineUnits">Bounding sphere radius of the scaled model in engine units.</param>
+    /// <param name="boundingRadiusEngineUnits">Unscaled model bounding sphere radius in engine units.</param>
     /// <param name="fieldOfViewRadians">Vertical field of view.</param>
     /// <param name="pose">Receives the pose when the return value is true.</param>
     static bool TryBuildPose(const Ps1AuthoredTransform& camera, const Ps1AuthoredTransform& object,
                              float boundingRadiusEngineUnits, float fieldOfViewRadians, Ps1GtePose& pose) {
-        if (!(fieldOfViewRadians > 0.0f) || !(fieldOfViewRadians < 3.1f) || !(boundingRadiusEngineUnits >= 0.0f)) {
+        if (!IsFinite(camera) || !IsFinite(object) || !__builtin_isfinite(boundingRadiusEngineUnits) ||
+            !(fieldOfViewRadians > 0.0f) || !(fieldOfViewRadians < 3.1f) || !(boundingRadiusEngineUnits >= 0.0f)) {
             return false;
         }
         float cameraRotation[3][3];
@@ -118,7 +121,7 @@ public:
         for (int row = 0; row < 3; ++row) {
             for (int column = 0; column < 3; ++column) {
                 const float raw = Round(combined[row][column] * FixedOne);
-                if (raw > 32767.0f || raw < -32768.0f) {
+                if (!__builtin_isfinite(raw) || raw > 32767.0f || raw < -32768.0f) {
                     return false;
                 }
                 pose.Rotation[row][column] = static_cast<std::int16_t>(raw);
@@ -137,22 +140,47 @@ public:
             pose.Translation[index] = static_cast<std::int32_t>(Round(translationUnits[index]));
         }
 
-        float maxScale = fabs(scale[0]);
-        if (fabs(scale[1]) > maxScale) maxScale = fabs(scale[1]);
-        if (fabs(scale[2]) > maxScale) maxScale = fabs(scale[2]);
-        const float radiusUnits = boundingRadiusEngineUnits * maxScale * UnitsPerEngineUnit;
-        const float nearest = static_cast<float>(pose.Translation[2]) - radiusUnits;
-        const float farthest = static_cast<float>(pose.Translation[2]) + radiusUnits;
-        if (nearest < static_cast<float>(Ps1DepthBucket::MinimumDepth) || farthest > static_cast<float>(Ps1DepthBucket::MaximumDepth)) {
-            return false;
-        }
-
         const float projectionDistance = Round(HalfScreenHeight / tan(fieldOfViewRadians * 0.5f));
         if (!(projectionDistance >= 1.0f) || projectionDistance > 32767.0f) {
             return false;
         }
         pose.ProjectionDistance = static_cast<std::int32_t>(projectionDistance);
+        float maxScale = static_cast<float>(fabs(scale[0]));
+        if (fabs(scale[1]) > maxScale) maxScale = static_cast<float>(fabs(scale[1]));
+        if (fabs(scale[2]) > maxScale) maxScale = static_cast<float>(fabs(scale[2]));
+        // Bound the extra displacement from rounding all nine matrix entries to 4.12, plus per-axis GTE truncation.
+        pose.BoundingRadiusUnits = boundingRadiusEngineUnits * maxScale * UnitsPerEngineUnit +
+            boundingRadiusEngineUnits * UnitsPerEngineUnit * (1.5f / FixedOne) + 2.0f;
+        if (!__builtin_isfinite(pose.BoundingRadiusUnits)) return false;
         return true;
+    }
+
+    /** Validates camera planes independently from pose construction and from the fixed diagnostic depth partition. */
+    static bool ValidDepthRange(float nearPlane, float farPlane) {
+        return __builtin_isfinite(nearPlane) && __builtin_isfinite(farPlane) && nearPlane > 0 && farPlane > nearPlane &&
+            __builtin_isfinite(farPlane * UnitsPerEngineUnit);
+    }
+
+    /** Sphere rejection is visibility, never a pose failure. Intersecting spheres proceed to triangle clipping. */
+    static bool TryDepthVisibility(const Ps1AuthoredTransform& camera, const Ps1AuthoredTransform& object,
+                                   float radius, float nearPlane, float farPlane, bool& visible) {
+        if (!IsFinite(camera) || !IsFinite(object) || !ValidDepthRange(nearPlane, farPlane) ||
+            !__builtin_isfinite(radius) || radius < 0) return false;
+        const Ps1Vector3 relative{object.Position.X - camera.Position.X, object.Position.Y - camera.Position.Y, object.Position.Z - camera.Position.Z};
+        const Ps1Vector3 view = Rotate(relative, Conjugate(camera.Orientation));
+        float scale = static_cast<float>(fabs(object.Scale.X));
+        if (fabs(object.Scale.Y) > scale) scale = static_cast<float>(fabs(object.Scale.Y));
+        if (fabs(object.Scale.Z) > scale) scale = static_cast<float>(fabs(object.Scale.Z));
+        const float extent = radius * scale;
+        if (!__builtin_isfinite(view.Z) || !__builtin_isfinite(extent)) return false;
+        visible = -view.Z + extent >= nearPlane && -view.Z - extent <= farPlane;
+        return true;
+    }
+
+    static bool IsFinite(const Ps1AuthoredTransform& value) {
+        return __builtin_isfinite(value.Position.X) && __builtin_isfinite(value.Position.Y) && __builtin_isfinite(value.Position.Z) &&
+            __builtin_isfinite(value.Orientation.X) && __builtin_isfinite(value.Orientation.Y) && __builtin_isfinite(value.Orientation.Z) && __builtin_isfinite(value.Orientation.W) &&
+            __builtin_isfinite(value.Scale.X) && __builtin_isfinite(value.Scale.Y) && __builtin_isfinite(value.Scale.Z);
     }
 
     /// <summary>Rounds half away from zero using the SDK floor/ceil, which the freestanding toolchain provides.</summary>
@@ -165,7 +193,7 @@ public:
         const float components[3] = {vertex.X, vertex.Y, vertex.Z};
         for (int index = 0; index < 3; ++index) {
             const float scaled = Round(components[index] * UnitsPerEngineUnit);
-            if (scaled > 32767.0f || scaled < -32768.0f) {
+            if (!__builtin_isfinite(scaled) || scaled > 32767.0f || scaled < -32768.0f) {
                 return false;
             }
             result[index] = static_cast<std::int16_t>(scaled);

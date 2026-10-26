@@ -10,9 +10,21 @@ class Ps1DepthBucket final {
     static constexpr std::uint16_t UiBucketCount = 256;
     static constexpr std::uint16_t SceneBucketOffset = UiBucketCount;
     static constexpr std::uint16_t CombinedBucketCount = UiBucketCount * 2u;
+    /** Legacy interval retained only by the standalone fixed-pose GPU diagnostics. Authored cameras supply their own range. */
     static constexpr std::int32_t MinimumDepth = 160;
     static constexpr std::int32_t MaximumDepth = 1183;
     static constexpr std::uint16_t BucketCount = 256;
+
+    /** Maps camera-space depth in the camera's declared near/far interval without enlarging the OT. */
+    static bool TryMap(float z0, float z1, float z2, float nearDepth, float farDepth, std::uint16_t& bucket) {
+        if (!__builtin_isfinite(nearDepth) || !__builtin_isfinite(farDepth) || !(nearDepth > 0) || !(farDepth > nearDepth) ||
+            !__builtin_isfinite(z0) || !__builtin_isfinite(z1) || !__builtin_isfinite(z2) ||
+            z0 < nearDepth || z0 > farDepth || z1 < nearDepth || z1 > farDepth || z2 < nearDepth || z2 > farDepth) return false;
+        const float mean = z0 / 3.0f + z1 / 3.0f + z2 / 3.0f;
+        const float mapped = (mean - nearDepth) / (farDepth - nearDepth) * BucketCount;
+        bucket = mapped >= BucketCount ? BucketCount - 1u : static_cast<std::uint16_t>(mapped > 0 ? mapped : 0);
+        return true;
+    }
 
     static constexpr std::uint16_t ToCombinedSceneBucket(std::uint16_t sceneBucket) {
         return static_cast<std::uint16_t>(SceneBucketOffset + sceneBucket);
